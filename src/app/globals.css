@@ -1,26 +1,124 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* note風 - 白基調 + ミントグリーンアクセント */
+  --bg-canvas: #ffffff;
+  --bg-soft: #fafafa;
+  --bg-card: #ffffff;
+
+  --fg-primary: #222222;
+  --fg-secondary: #555555;
+  --fg-muted: #999999;
+
+  --accent: #41c9b4;       /* note green */
+  --accent-dark: #2eb39e;
+  --accent-soft: #e9f9f5;
+
+  --border-subtle: #eeeeee;
+  --border-card: #ececec;
+
+  --black: #1a1a1a;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background: var(--bg-canvas);
+  --color-foreground: var(--fg-primary);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html, body {
+  background: var(--bg-canvas);
+  color: var(--fg-primary);
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* note風プライマリボタン: 黒 rounded-full */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  background: var(--black);
+  color: white;
+  border-radius: 9999px;
+  padding: 0.7rem 1.5rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.btn-primary:hover:not(:disabled) { opacity: 0.85; }
+.btn-primary:active:not(:disabled) { transform: scale(0.98); }
+.btn-primary:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* note風セカンダリボタン: 白+黒枠 rounded-full */
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: white;
+  color: var(--fg-primary);
+  border: 1px solid #d8d8d8;
+  border-radius: 9999px;
+  padding: 0.55rem 1.2rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  white-space: nowrap;
+}
+.btn-ghost:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-dark); }
+
+/* グリーンアクセントボタン */
+.btn-accent {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--accent);
+  color: white;
+  border-radius: 9999px;
+  padding: 0.7rem 1.5rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+.btn-accent:hover:not(:disabled) { background: var(--accent-dark); }
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: 14px;
+  transition: border-color 0.15s ease;
+}
+.card-hover:hover { border-color: #c8c8c8; }
+
+.hairline {
+  height: 1px;
+  background: var(--border-subtle);
+}
+
+::selection { background: var(--accent-soft); color: var(--accent-dark); }
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg, transparent, rgba(65, 201, 180, 0.18), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+/* note風ロゴ用のフォント微調整 */
+.note-logo-text {
+  font-family: "Noto Sans JP", -apple-system, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.04em;
 }

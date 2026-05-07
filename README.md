@@ -1,36 +1,55 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# note自動化システム（Phase 1〜2）
 
-## Getting Started
+主婦層向けnote記事を **AIで量産** するためのWebアプリ。
 
-First, run the development server:
+## 構成
+
+```
+[1] ネタ収集（Gemini 2.5 Pro + Google Search Grounding）
+     ↓
+[2] 記事生成（Claude Sonnet 4.6） + アイキャッチ画像生成（Imagen 3）
+     ↓
+[3] ライブラリで確認・コピー → noteへ手動貼り付け（Phase 3で自動化予定）
+```
+
+## セットアップ
+
+### 1. 環境変数を設定
+
+`.env.example` をコピーして `.env.local` を作成し、APIキーを記入:
+
+```bash
+cp .env.example .env.local
+```
+
+```
+GEMINI_API_KEY=...    # https://aistudio.google.com/apikey
+ANTHROPIC_API_KEY=... # https://console.anthropic.com
+```
+
+### 2. 起動
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+→ http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 使い方
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. **① ネタ収集** にテーマ（例「AI時短術 主婦」）を入力 → 10件のネタが提案される
+2. 採用するネタにチェック → 「記事生成へ」
+3. **② 記事生成** で「一括生成スタート」 → 記事Markdown ＋ アイキャッチ画像が生成
+4. **③ ライブラリ** でMarkdownコピー / 画像DL → noteへ貼り付け
 
-## Learn More
+## 保存先
 
-To learn more about Next.js, take a look at the following resources:
+- 記事: `data/articles.json`
+- 画像: `public/generated-images/{articleId}.png`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+両方とも `.gitignore` 済み。
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Phase 3 以降の予定
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- browser-use でnoteへ自動投入（下書き＋予約投稿）
+- Threads公式API連携（共感投稿の自動予約）

@@ -1,0 +1,188 @@
+export type Idea = {
+  title: string;
+  hook: string;
+  angle: string;
+  trend_source?: string;
+};
+
+export const THEMES = [
+  {
+    id: "renraku",
+    label: "連絡・予約",
+    desc: "保育園/学校の欠席連絡・小児科/歯医者の予約・習い事の振替連絡など、定型のやりとりが繰り返し発生する系の悩み",
+  },
+  {
+    id: "schedule",
+    label: "スケジュール・送迎",
+    desc: "家族・兄弟の予定統合、送迎ルート、行事の通知、家族カレンダー共有など、複数人の予定調整に関する悩み",
+  },
+  {
+    id: "paperwork",
+    label: "プリント・書類",
+    desc: "学校/保育園のお便り・連絡帳・PTA連絡・提出書類など、紙やPDFで来る情報を取り回す系の悩み",
+  },
+  {
+    id: "money",
+    label: "お金・家計",
+    desc: "家計簿・レシート管理・ポイ活・ふるさと納税・教育費の積立など、お金まわりの記録/管理が面倒系の悩み",
+  },
+  {
+    id: "custom",
+    label: "カスタム",
+    desc: "ユーザーが手動で指定したお題",
+  },
+] as const;
+
+export type ThemeId = (typeof THEMES)[number]["id"];
+
+export type SearchProviderName = "brave" | "google" | "ai";
+
+export type FeedVoice = {
+  quote: string;
+  platform: string;
+  url?: string;
+  context?: string;
+  searchProvider?: SearchProviderName;
+};
+
+export type ProposalKeywords = {
+  primary: string;
+  secondary: string[];
+  longTail: string[];
+};
+
+export type ProposalTarget = {
+  persona: string;
+  ageRange: string;
+  familyStatus: string;
+  painIntensity: 1 | 2 | 3 | 4 | 5;
+};
+
+export type KeywordIntent = "info" | "how-to" | "comparison" | "trouble";
+export type KeywordVolume = "high" | "medium" | "low" | "niche";
+export type KeywordCompetition = "high" | "medium" | "low";
+export type KeywordStatus = "untargeted" | "targeted" | "covered";
+
+export const SUBCATEGORIES: Record<ThemeId, { id: string; label: string }[]> = {
+  renraku: [
+    { id: "hoikuen", label: "保育園関連" },
+    { id: "gakkou", label: "学校関連" },
+    { id: "iryou", label: "医療関連" },
+    { id: "naraigoto", label: "習い事関連" },
+    { id: "other", label: "その他" },
+  ],
+  schedule: [
+    { id: "family_calendar", label: "家族カレンダー共有" },
+    { id: "soumukai", label: "送迎・移動" },
+    { id: "gyouji", label: "行事・イベント" },
+    { id: "other", label: "その他" },
+  ],
+  paperwork: [
+    { id: "otayori", label: "お便り・連絡帳" },
+    { id: "pta", label: "PTA・保護者連絡" },
+    { id: "teishutsu", label: "提出書類・申請" },
+    { id: "other", label: "その他" },
+  ],
+  money: [
+    { id: "kakeibo", label: "家計簿・支出管理" },
+    { id: "receipt", label: "レシート・領収書" },
+    { id: "poikatsu", label: "ポイ活・節約" },
+    { id: "furusato", label: "ふるさと納税・控除" },
+    { id: "other", label: "その他" },
+  ],
+  custom: [{ id: "other", label: "その他" }],
+};
+
+export type Keyword = {
+  id: string;
+  themeId: ThemeId;
+  subcategoryId: string;
+  kw: string;
+  intent: KeywordIntent;
+  vol: KeywordVolume;
+  comp: KeywordCompetition;
+  priority: number; // 1-100
+  memo?: string;
+  status: KeywordStatus;
+  articleIds: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type KeywordsState = {
+  keywords: Keyword[];
+  updatedAt?: string;
+};
+
+export type ProposalImpression = {
+  monthlySearchVolume: "high" | "medium" | "low" | "niche";
+  monthlySearchVolumeNote: string;
+  competitionLevel: "high" | "medium" | "low";
+  notePotential: "high" | "medium" | "low";
+  notePotentialReason: string;
+  reachEstimateMonthly: string;
+};
+
+export type FeedSourceMode = "scheduled" | "free" | "derivative" | "seasonal";
+
+export type PlatformCategory = "qa" | "forum" | "sns" | "blog" | "news" | "other";
+
+export const PLATFORM_CATEGORY_META: Record<PlatformCategory, { label: string; color: string }> = {
+  qa: { label: "Q&A・相談サイト", color: "#dff1ff" },
+  forum: { label: "主婦掲示板", color: "#ffe1ec" },
+  sns: { label: "SNS", color: "#e7e9ec" },
+  blog: { label: "ブログ・体験記", color: "#fff3d6" },
+  news: { label: "メディア・ニュース", color: "#f3e5ff" },
+  other: { label: "その他", color: "#eef0f3" },
+};
+
+export type Platform = {
+  id: string;
+  domain: string;
+  label: string;
+  category: PlatformCategory;
+  enabled: boolean;
+  isDefault?: boolean;
+  memo?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PlatformsState = {
+  platforms: Platform[];
+  updatedAt?: string;
+};
+
+export type FeedIdea = Idea & {
+  id: string;
+  source: "gemini" | "perplexity";
+  themeId: ThemeId;
+  customLabel?: string;
+  sourceMode?: FeedSourceMode;
+  createdAt: string;
+  voice?: FeedVoice;
+  toolConcept?: string;
+  keywords?: ProposalKeywords;
+  target?: ProposalTarget;
+  impression?: ProposalImpression;
+  priorityScore?: number;
+  targetKeywordId?: string;
+};
+
+export type FeedState = {
+  ideas: FeedIdea[];
+  lastTickAt?: string;
+  tickCount: number;
+};
+
+export type Article = {
+  id: string;
+  createdAt: string;
+  idea: Idea;
+  bestTitle: string;
+  titleCandidates: string[];
+  bestTitleReason: string;
+  bodyMarkdown: string;
+  imagePromptSubject: string;
+  imagePath?: string;
+};

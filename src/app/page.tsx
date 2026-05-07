@@ -1,65 +1,1348 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { FeedIdea, FeedState, ThemeId } from "@/lib/types";
+import { THEMES } from "@/lib/types";
+import type { HotKeyword } from "@/lib/hotKeywords";
+import PageHeader from "@/components/PageHeader";
+import { useGeneration } from "@/components/GenerationProvider";
+
+const POLL_INTERVAL_MS = 30 * 1000; // 30sec
+const DAILY_FIRE_HOUR = 9; // JST 9時に1日1回tick
+
+function nextDailyFireAt(): number {
+  const d = new Date();
+  d.setHours(DAILY_FIRE_HOUR, 0, 0, 0);
+  if (d.getTime() <= Date.now()) {
+    d.setDate(d.getDate() + 1);
+  }
+  return d.getTime();
+}
+
+const THEME_LABEL: Record<ThemeId, string> = Object.fromEntries(
+  THEMES.map((t) => [t.id, t.label]),
+) as Record<ThemeId, string>;
+
+type SortMode = "score" | "newest" | "pain";
+type GroupBy = "theme" | "source" | "keyword";
+// filter: "all" | "fresh" | "high-score" | "theme:<id>" | "source:<platform>" | "keyword:<kw>"
+
+export default function ResearchPage() {
+  const { enqueue, state: genState } = useGeneration();
+  const [state, setState] = useState<FeedState>({ ideas: [], tickCount: 0 });
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [groupBy, setGroupBy] = useState<GroupBy>("theme");
+  const [filter, setFilter] = useState<string>("all");
+  const [sortMode, setSortMode] = useState<SortMode>("score");
+  const [paused, setPaused] = useState(false);
+  const [ticking, setTicking] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [nextTickAt, setNextTickAt] = useState<number>(nextDailyFireAt());
+  const [now, setNow] = useState(Date.now());
+  const [tickError, setTickError] = useState<string | null>(null);
+  const [freeTheme, setFreeTheme] = useState("");
+  const [showFreeInput, setShowFreeInput] = useState(false);
+  const [hotKeywords, setHotKeywords] = useState<HotKeyword[]>([]);
+  const [hotUpdatedAt, setHotUpdatedAt] = useState<string | null>(null);
+  const [hotLoading, setHotLoading] = useState(false);
+  const [hotError, setHotError] = useState<string | null>(null);
+  const [researchingKw, setResearchingKw] = useState<string | null>(null);
+  const hotFetched = useRef(false);
+
+  const initialFetched = useRef(false);
+
+  const refreshFeed = useCallback(async () => {
+    const res = await fetch("/api/feed", { cache: "no-store" });
+    if (res.ok) setState(await res.json());
+  }, []);
+
+  const tick = useCallback(
+    async (body?: object) => {
+      if (ticking) return;
+      setTicking(true);
+      setTickError(null);
+      try {
+        const res = await fetch("/api/feed/tick", {
+          method: "POST",
+          headers: body ? { "Content-Type": "application/json" } : undefined,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "失敗");
+        await refreshFeed();
+      } catch (e) {
+        setTickError(e instanceof Error ? e.message : "失敗");
+      } finally {
+        setTicking(false);
+        setNextTickAt(nextDailyFireAt());
+      }
+    },
+    [refreshFeed, ticking],
+  );
+
+  // 初回フェッチ（空でも自動tickはしない・1日1回9時にしか走らない）
+  useEffect(() => {
+    if (initialFetched.current) return;
+    initialFetched.current = true;
+    refreshFeed();
+  }, [refreshFeed]);
+
+  // tick auto loop（毎日9時に1回）
+  useEffect(() => {
+    if (paused) return;
+    const id = setInterval(() => {
+      if (Date.now() >= nextTickAt) tick();
+    }, 30000);
+    return () => clearInterval(id);
+  }, [paused, nextTickAt, tick]);
+
+  // poll feed (others may have written)
+  useEffect(() => {
+    const id = setInterval(refreshFeed, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [refreshFeed]);
+
+  // countdown clock
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const filtered = useMemo(() => {
+    const list = state.ideas.filter((i) => {
+      if (filter === "all") return true;
+      if (filter === "fresh") {
+        const age = Date.now() - new Date(i.createdAt).getTime();
+        return age < 60 * 60 * 1000;
+      }
+      if (filter === "high-score") return (i.priorityScore ?? 0) >= 70;
+      if (filter.startsWith("theme:")) return i.themeId === filter.slice(6);
+      if (filter.startsWith("source:")) return (i.voice?.platform ?? "") === filter.slice(7);
+      return true;
+    });
+    const sorted = [...list];
+    if (sortMode === "score") {
+      sorted.sort(
+        (a, b) =>
+          (b.priorityScore ?? 0) - (a.priorityScore ?? 0) ||
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+    } else if (sortMode === "pain") {
+      sorted.sort(
+        (a, b) =>
+          (b.target?.painIntensity ?? 0) - (a.target?.painIntensity ?? 0) ||
+          (b.priorityScore ?? 0) - (a.priorityScore ?? 0),
+      );
+    } else {
+      sorted.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
+    return sorted;
+  }, [state.ideas, filter, sortMode]);
+
+  function toggle(id: string) {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelected(next);
+  }
+
+  function toggleExpand(id: string) {
+    const next = new Set(expanded);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setExpanded(next);
+  }
+
+  function expandAll() {
+    setExpanded(new Set(filtered.map((i) => i.id)));
+  }
+
+  function collapseAll() {
+    setExpanded(new Set());
+  }
+
+  function proceed() {
+    const picked = state.ideas.filter((i) => selected.has(i.id));
+    if (picked.length === 0) return;
+    enqueue(picked);
+    setSelected(new Set());
+  }
+
+  const sourceCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const i of state.ideas) {
+      const p = i.voice?.platform?.trim();
+      if (!p) continue;
+      m.set(p, (m.get(p) ?? 0) + 1);
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [state.ideas]);
+
+  const fetchHotKeywords = useCallback(async () => {
+    const res = await fetch("/api/keywords/hot", { cache: "no-store" });
+    if (!res.ok) return;
+    const data = (await res.json()) as { updatedAt: string | null; keywords: HotKeyword[] };
+    setHotKeywords(data.keywords ?? []);
+    setHotUpdatedAt(data.updatedAt);
+  }, []);
+
+  const refreshHotKeywords = useCallback(async () => {
+    if (hotLoading) return;
+    setHotLoading(true);
+    setHotError(null);
+    try {
+      const res = await fetch("/api/keywords/hot", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "失敗");
+      setHotKeywords(data.keywords ?? []);
+      setHotUpdatedAt(data.updatedAt);
+    } catch (e) {
+      setHotError(e instanceof Error ? e.message : "失敗");
+    } finally {
+      setHotLoading(false);
+    }
+  }, [hotLoading]);
+
+  const researchHotKeyword = useCallback(
+    async (kw: string) => {
+      if (researchingKw) return;
+      setResearchingKw(kw);
+      setTickError(null);
+      try {
+        const res = await fetch("/api/feed/tick", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "free", theme: kw }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "失敗");
+        await refreshFeed();
+      } catch (e) {
+        setTickError(e instanceof Error ? e.message : "失敗");
+      } finally {
+        setResearchingKw(null);
+      }
+    },
+    [researchingKw, refreshFeed],
+  );
+
+  function selectGroup(g: GroupBy) {
+    setGroupBy(g);
+    setFilter("all");
+    if (g === "keyword" && !hotFetched.current) {
+      hotFetched.current = true;
+      fetchHotKeywords();
+    }
+  }
+
+  const generatedIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const c of genState.completed) ids.add(c.id);
+    return ids;
+  }, [genState.completed]);
+
+  const inFlightIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (genState.current) ids.add(genState.current.id);
+    for (const q of genState.queue) ids.add(q.id);
+    return ids;
+  }, [genState.current, genState.queue]);
+
+  async function dismiss(id: string) {
+    await fetch("/api/feed", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    refreshFeed();
+  }
+
+  const remainMs = Math.max(0, nextTickAt - now);
+  const remainH = Math.floor(remainMs / 3600000);
+  const remainM = Math.floor((remainMs % 3600000) / 60000);
+  const nextFireDate = new Date(nextTickAt);
+  const isToday = nextFireDate.toDateString() === new Date(now).toDateString();
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+    <>
+      <PageHeader
+        step="STEP 01 / RESEARCH"
+        title="ライブネタフィード"
+        description="主婦のリアルな悩みをGeminiが定期的に発掘します。気になるネタにチェックを入れて記事生成へ。"
+        right={
+          <>
+            <div className="flex items-center gap-2 px-3.5 py-2 rounded-full border border-[var(--border-card)] bg-white text-[12px]">
+              {paused ? (
+                <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />
+              ) : ticking ? (
+                <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
+              ) : (
+                <span className="w-1.5 h-1.5 rounded-full bg-[color:var(--accent)]" />
+              )}
+              <span className="font-mono tabular-nums text-[color:var(--fg-secondary)]">
+                {paused
+                  ? "PAUSED"
+                  : ticking
+                    ? "FETCHING…"
+                    : `次は${isToday ? "今日" : "明日"} 9:00 (残り ${remainH}h${String(remainM).padStart(2, "0")}m)`}
+              </span>
+            </div>
+            <button onClick={tick} disabled={ticking} className="btn-ghost">
+              今すぐ更新
+            </button>
+            <button onClick={() => setPaused((p) => !p)} className="btn-ghost">
+              {paused ? "再開" : "一時停止"}
+            </button>
+          </>
+        }
+      />
+
+      <div className="card p-4 mb-3 space-y-2">
+        <button
+          onClick={() => setShowFreeInput((s) => !s)}
+          className="w-full flex items-center gap-2 text-left text-[13px] text-[color:var(--fg-secondary)] hover:text-[color:var(--accent-dark)] transition"
+        >
+          <span className="text-[color:var(--accent)]">+</span>
+          <span>自分で指定したお題で即リサーチ</span>
+          <ChevronIcon expanded={showFreeInput} />
+        </button>
+        {showFreeInput && (
+          <div className="flex gap-2 pt-2 border-t border-[var(--border-subtle)]">
+            <input
+              value={freeTheme}
+              onChange={(e) => setFreeTheme(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && freeTheme.trim() && !ticking) {
+                  tick({ mode: "free", theme: freeTheme.trim() });
+                  setFreeTheme("");
+                }
+              }}
+              placeholder="例: 夏休み 自由研究 / 運動会 弁当 / 七五三 着付け"
+              className="flex-1 px-4 py-2.5 rounded-full border border-[var(--border-card)] bg-white text-[13px] focus:outline-none focus:border-[color:var(--accent)] transition"
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            <button
+              onClick={() => {
+                if (!freeTheme.trim() || ticking) return;
+                tick({ mode: "free", theme: freeTheme.trim() });
+                setFreeTheme("");
+              }}
+              disabled={!freeTheme.trim() || ticking}
+              className="btn-primary"
+            >
+              探す →
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="card p-4 mb-5 space-y-3">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
+            <GroupTab active={groupBy === "theme"} onClick={() => selectGroup("theme")}>
+              テーマ別
+            </GroupTab>
+            <GroupTab active={groupBy === "source"} onClick={() => selectGroup("source")}>
+              ネタ元別 <span className="opacity-60 ml-0.5">{sourceCounts.length}</span>
+            </GroupTab>
+            <GroupTab active={groupBy === "keyword"} onClick={() => selectGroup("keyword")}>
+              🔥 ホットキーワード
+              {hotKeywords.length > 0 && (
+                <span className="opacity-60 ml-0.5">{hotKeywords.length}</span>
+              )}
+            </GroupTab>
+          </div>
+          <div className="text-[11px] font-mono text-[color:var(--fg-muted)]">
+            TICK #{state.tickCount}
+          </div>
         </div>
-      </main>
+        {groupBy !== "keyword" && (
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <FilterPill active={filter === "all"} onClick={() => setFilter("all")}>
+                すべて <span className="opacity-60 ml-1">{state.ideas.length}</span>
+              </FilterPill>
+              <FilterPill active={filter === "fresh"} onClick={() => setFilter("fresh")}>
+                新着1h
+              </FilterPill>
+              <FilterPill
+                active={filter === "high-score"}
+                onClick={() => setFilter("high-score")}
+              >
+                ⭐ 高スコア(70+)
+              </FilterPill>
+              <span className="mx-1 w-px h-5 bg-[var(--border-subtle)]" />
+              {groupBy === "theme" &&
+                THEMES.map((t) => {
+                  const count = state.ideas.filter((i) => i.themeId === t.id).length;
+                  const v = `theme:${t.id}`;
+                  return (
+                    <FilterPill key={t.id} active={filter === v} onClick={() => setFilter(v)}>
+                      {t.label} <span className="opacity-60 ml-1">{count}</span>
+                    </FilterPill>
+                  );
+                })}
+              {groupBy === "source" &&
+                (sourceCounts.length === 0 ? (
+                  <span className="text-[12px] text-[color:var(--fg-muted)] italic">
+                    ネタ元情報がまだありません
+                  </span>
+                ) : (
+                  sourceCounts.map(([platform, count]) => {
+                    const v = `source:${platform}`;
+                    return (
+                      <FilterPill
+                        key={platform}
+                        active={filter === v}
+                        onClick={() => setFilter(v)}
+                      >
+                        {platform} <span className="opacity-60 ml-1">{count}</span>
+                      </FilterPill>
+                    );
+                  })
+                ))}
+            </div>
+          </div>
+        )}
+        {groupBy === "keyword" && (
+          <HotKeywordsPanel
+            keywords={hotKeywords}
+            updatedAt={hotUpdatedAt}
+            loading={hotLoading}
+            researchingKw={researchingKw}
+            error={hotError}
+            onRefresh={refreshHotKeywords}
+            onResearch={researchHotKeyword}
+          />
+        )}
+        <div className="flex items-center gap-1.5 flex-wrap justify-between">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)] mr-1">
+              SORT
+            </span>
+            <SortPill active={sortMode === "score"} onClick={() => setSortMode("score")}>
+              スコア順
+            </SortPill>
+            <SortPill active={sortMode === "newest"} onClick={() => setSortMode("newest")}>
+              新着順
+            </SortPill>
+            <SortPill active={sortMode === "pain"} onClick={() => setSortMode("pain")}>
+              悩みの深さ順
+            </SortPill>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={expandAll}
+              className="text-[11px] text-[color:var(--fg-secondary)] hover:text-[color:var(--accent-dark)] underline-offset-2 hover:underline"
+            >
+              全て展開
+            </button>
+            <span className="text-[color:var(--fg-muted)] text-[10px]">/</span>
+            <button
+              onClick={collapseAll}
+              className="text-[11px] text-[color:var(--fg-secondary)] hover:text-[color:var(--accent-dark)] underline-offset-2 hover:underline"
+            >
+              全て閉じる
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {tickError && (
+        <p className="mb-4 text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-4 py-2.5">
+          更新失敗: {tickError}
+        </p>
+      )}
+
+      {filtered.length === 0 ? (
+        <div className="card p-12 text-center">
+          {ticking ? (
+            <>
+              <div className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-3">
+                FETCHING…
+              </div>
+              <div className="space-y-2 max-w-md mx-auto">
+                <div className="h-3 rounded-full shimmer" />
+                <div className="h-3 rounded-full shimmer" style={{ width: "82%" }} />
+                <div className="h-3 rounded-full shimmer" style={{ width: "65%" }} />
+              </div>
+            </>
+          ) : (
+            <p className="text-[color:var(--fg-secondary)]">
+              ネタがまだありません。「今すぐ更新」を押すか、5分待ってください。
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="grid gap-2 pb-28">
+          {filtered.map((idea) => (
+            <IdeaCard
+              key={idea.id}
+              idea={idea}
+              selected={selected.has(idea.id)}
+              expanded={expanded.has(idea.id)}
+              generated={generatedIds.has(idea.id)}
+              inFlight={inFlightIds.has(idea.id)}
+              onToggle={() => toggle(idea.id)}
+              onToggleExpand={() => toggleExpand(idea.id)}
+              onDismiss={() => dismiss(idea.id)}
+              onSingleGenerate={() => enqueue([idea])}
+            />
+          ))}
+        </div>
+      )}
+
+      {selected.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-20">
+          <div
+            className="flex items-center gap-3 px-5 py-3 rounded-full bg-[color:var(--black)] text-white shadow-2xl"
+            style={{ boxShadow: "0 20px 40px -12px rgba(0,0,0,0.35)" }}
+          >
+            <span className="text-[13px]">
+              選択中 <span className="font-mono tabular-nums">{selected.size}</span> 件
+            </span>
+            <button
+              onClick={() => setSelected(new Set())}
+              className="text-[12px] opacity-60 hover:opacity-100"
+            >
+              クリア
+            </button>
+            <button
+              onClick={proceed}
+              className="ml-2 px-4 py-1.5 rounded-full bg-[color:var(--accent)] text-white text-[13px] font-semibold hover:bg-[color:var(--accent-dark)] transition"
+            >
+              記事生成スタート →
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function HotKeywordsPanel({
+  keywords,
+  updatedAt,
+  loading,
+  researchingKw,
+  error,
+  onRefresh,
+  onResearch,
+}: {
+  keywords: HotKeyword[];
+  updatedAt: string | null;
+  loading: boolean;
+  researchingKw: string | null;
+  error: string | null;
+  onRefresh: () => void;
+  onResearch: (kw: string) => void;
+}) {
+  const ageLabel = updatedAt
+    ? formatAge(Date.now() - new Date(updatedAt).getTime())
+    : null;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="text-[11px] text-[color:var(--fg-muted)]">
+          {ageLabel ? (
+            <>
+              いま検索ボリュームが伸びている主婦向けキーワード ·{" "}
+              <span className="font-mono">{ageLabel}更新</span>
+            </>
+          ) : (
+            "「更新」を押すと、Geminiが今日ホットなキーワードを発掘します（4テーマ分・~20円）"
+          )}
+        </div>
+        <button
+          onClick={onRefresh}
+          disabled={loading}
+          className="btn-ghost text-[11px] px-3 py-1.5"
+        >
+          {loading ? "発掘中…" : ageLabel ? "🔄 再発掘" : "🔥 ホットキーワードを発掘"}
+        </button>
+      </div>
+      {error && (
+        <p className="text-[11px] text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+          {error}
+        </p>
+      )}
+      {keywords.length === 0 && !loading && (
+        <div className="card p-6 text-center text-[12px] text-[color:var(--fg-muted)]">
+          ホットキーワード未取得です。右上の「ホットキーワードを発掘」を押してください。
+        </div>
+      )}
+      {keywords.length > 0 && (
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {keywords.map((h, i) => (
+            <HotKeywordCard
+              key={`${h.kw}-${i}`}
+              hot={h}
+              isResearching={researchingKw === h.kw}
+              onResearch={() => onResearch(h.kw)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
+}
+
+function HotKeywordCard({
+  hot,
+  isResearching,
+  onResearch,
+}: {
+  hot: HotKeyword;
+  isResearching: boolean;
+  onResearch: () => void;
+}) {
+  const themeLabel = THEME_LABEL[hot.themeId] ?? hot.themeId;
+  const riseColor =
+    hot.riseStatus === "rising"
+      ? { bg: "#fee2e2", fg: "#991b1b", icon: "↑" }
+      : hot.riseStatus === "declining"
+        ? { bg: "#e0e7ff", fg: "#3730a3", icon: "↓" }
+        : { bg: "#f3f4f6", fg: "#374151", icon: "→" };
+  const volColor: Record<string, { bg: string; fg: string }> = {
+    high: { bg: "#dcfce7", fg: "#15803d" },
+    medium: { bg: "#fef3c7", fg: "#92400e" },
+    low: { bg: "#fee2e2", fg: "#991b1b" },
+    niche: { bg: "#e0e7ff", fg: "#3730a3" },
+  };
+  const v = volColor[hot.volumeHint] ?? volColor.medium;
+
+  return (
+    <div
+      className={`card p-3.5 flex flex-col gap-2 transition ${
+        isResearching
+          ? "ring-2 ring-[color:var(--accent)] bg-[color:var(--accent-soft)]"
+          : "card-hover"
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span
+          className="px-2 py-0.5 rounded-full bg-gray-100 text-[10px] text-[color:var(--fg-secondary)] truncate"
+          title={themeLabel}
+        >
+          {themeLabel}
+        </span>
+        <span
+          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold"
+          style={{ background: riseColor.bg, color: riseColor.fg }}
+          title={`勢い: ${hot.riseStatus}`}
+        >
+          {riseColor.icon} {hot.riseStatus}
+        </span>
+      </div>
+      <div className="font-bold text-[14px] tracking-tight leading-tight text-[color:var(--fg-primary)]">
+        {hot.kw}
+      </div>
+      {(() => {
+        const { text, extracted } = stripSourcesFromText(hot.whyHot ?? "");
+        const sources = Array.from(new Set([...(hot.sources ?? []), ...extracted]));
+        return (
+          <>
+            {text && (
+              <p className="text-[11.5px] text-[color:var(--fg-secondary)] leading-relaxed line-clamp-2">
+                {text}
+              </p>
+            )}
+            {sources.length > 0 && (
+              <div className="flex items-center gap-1 flex-wrap pt-1 border-t border-dashed border-[var(--border-subtle)]">
+                <span className="text-[9.5px] font-mono tracking-widest text-[color:var(--fg-muted)] mr-0.5">
+                  SRC
+                </span>
+                {sources.slice(0, 5).map((s, i) => (
+                  <span
+                    key={i}
+                    className="px-1.5 py-0.5 rounded text-[10px] font-medium"
+                    style={(() => {
+                      const p = platformPalette(s);
+                      return { background: p.bg, color: p.fg };
+                    })()}
+                  >
+                    {s}
+                  </span>
+                ))}
+              </div>
+            )}
+          </>
+        );
+      })()}
+      <div className="flex items-center gap-1.5 flex-wrap mt-auto">
+        <span
+          className="px-1.5 py-0.5 rounded text-[10px] font-medium"
+          style={{ background: v.bg, color: v.fg }}
+          title="検索ボリュームヒント"
+        >
+          検{hot.volumeHint}
+        </span>
+        <span className="text-[10px] font-mono text-[color:var(--fg-muted)]">
+          ★{hot.priority}
+        </span>
+        <button
+          onClick={onResearch}
+          disabled={isResearching}
+          className={`ml-auto px-3 py-1 rounded-full text-[10.5px] font-bold transition ${
+            isResearching
+              ? "bg-amber-500 text-white"
+              : "bg-[color:var(--accent)] text-white hover:bg-[color:var(--accent-dark)]"
+          }`}
+          title="このキーワードでネタ収集を実行"
+        >
+          {isResearching ? (
+            <span className="inline-flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+              実行中…
+            </span>
+          ) : (
+            "🔍 リサーチ"
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function GroupTab({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-4 py-2 text-[13px] font-semibold border-b-2 transition ${
+        active
+          ? "border-[color:var(--accent)] text-[color:var(--fg-primary)]"
+          : "border-transparent text-[color:var(--fg-muted)] hover:text-[color:var(--fg-secondary)]"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function FilterPill({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium transition ${
+        active
+          ? "bg-[color:var(--black)] text-white"
+          : "bg-white border border-[var(--border-card)] text-[color:var(--fg-secondary)] hover:border-gray-400"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SortPill({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3 py-1 rounded-full text-[11px] font-medium transition ${
+        active
+          ? "bg-[color:var(--accent)] text-white"
+          : "bg-gray-100 text-[color:var(--fg-secondary)] hover:bg-gray-200"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function IdeaCard({
+  idea,
+  selected,
+  expanded,
+  generated,
+  inFlight,
+  onToggle,
+  onToggleExpand,
+  onDismiss,
+  onSingleGenerate,
+}: {
+  idea: FeedIdea;
+  selected: boolean;
+  expanded: boolean;
+  generated: boolean;
+  inFlight: boolean;
+  onToggle: () => void;
+  onToggleExpand: () => void;
+  onDismiss: () => void;
+  onSingleGenerate: () => void;
+}) {
+  const ageMs = Date.now() - new Date(idea.createdAt).getTime();
+  const isFresh = ageMs < 30 * 60 * 1000;
+  const ageLabel = formatAge(ageMs);
+
+  return (
+    <div
+      className={`card overflow-hidden transition-colors ${
+        selected
+          ? "border-[color:var(--accent)] bg-[color:var(--accent-soft)]"
+          : "card-hover"
+      }`}
+    >
+      {/* 折りたたみヘッダー（常時表示） */}
+      <div
+        onClick={onToggleExpand}
+        className="flex items-center px-4 py-3 gap-3 cursor-pointer select-none"
+      >
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+          className={`w-5 h-5 rounded-md flex items-center justify-center text-white text-[10px] font-bold shrink-0 transition ${
+            selected ? "bg-[color:var(--accent)]" : "border-2 border-[var(--border-card)] bg-white hover:border-[color:var(--accent)]"
+          }`}
+          title={selected ? "選択解除" : "選択"}
+        >
+          {selected ? "✓" : ""}
+        </button>
+        {typeof idea.priorityScore === "number" && (
+          <ScoreBadge score={idea.priorityScore} />
+        )}
+        <span
+          className="px-2 py-0.5 rounded-full bg-gray-100 text-[10px] text-[color:var(--fg-secondary)] shrink-0 max-w-[160px] truncate"
+          title={idea.customLabel ?? THEME_LABEL[idea.themeId] ?? idea.themeId}
+        >
+          {idea.sourceMode === "derivative" && "↳ "}
+          {idea.customLabel ?? THEME_LABEL[idea.themeId] ?? idea.themeId}
+        </span>
+        {idea.target?.painIntensity && (
+          <PainBadge intensity={idea.target.painIntensity} />
+        )}
+        <h3 className="flex-1 min-w-0 font-semibold text-[14.5px] tracking-tight truncate text-[color:var(--fg-primary)]">
+          {idea.title}
+        </h3>
+        {idea.voice && (
+          <span className="hidden md:inline shrink-0">
+            <PlatformBadge platform={idea.voice.platform} />
+          </span>
+        )}
+        {idea.impression && (
+          <MiniMetrics impression={idea.impression} />
+        )}
+        {generated && (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] text-[10px] font-bold shrink-0">
+            ✓ 記事完成
+          </span>
+        )}
+        {inFlight && !generated && (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold shrink-0">
+            <span className="w-1 h-1 rounded-full bg-amber-600 animate-pulse" />
+            生成キュー
+          </span>
+        )}
+        {isFresh && (
+          <span className="inline-flex items-center gap-1 text-[10px] text-[color:var(--accent-dark)] shrink-0">
+            <span className="w-1 h-1 rounded-full bg-[color:var(--accent)]" />
+            NEW
+          </span>
+        )}
+        <span className="text-[10px] font-mono text-[color:var(--fg-muted)] shrink-0 hidden sm:inline">
+          {ageLabel}
+        </span>
+        <ChevronIcon expanded={expanded} />
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onDismiss();
+          }}
+          className="text-[color:var(--fg-muted)] hover:text-red-500 text-lg leading-none px-1 shrink-0"
+          title="非表示"
+        >
+          ×
+        </button>
+      </div>
+
+      {!expanded && <ExpandedDetailHidden />}
+
+      {/* 展開時のみ表示する本体 */}
+      {expanded && (
+      <div className="grid lg:grid-cols-[1fr_340px] gap-0 border-t border-[var(--border-subtle)]">
+        {/* 左: VOICE → PROPOSAL */}
+        <div className="px-6 pb-6 lg:border-r border-[var(--border-subtle)]">
+          {/* VOICE */}
+          <section>
+            <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-2">
+              VOICE · 元ネタ
+            </div>
+            {idea.voice ? (
+              <>
+                <div className="flex items-center gap-2 mb-2.5 flex-wrap">
+                  <PlatformBadge platform={idea.voice.platform} />
+                  {idea.voice.context && (
+                    <span className="text-[10px] text-[color:var(--fg-muted)]">
+                      {idea.voice.context}
+                    </span>
+                  )}
+                </div>
+                <div className="relative pl-4 border-l-2 border-[color:var(--accent)]">
+                  <p className="text-[14px] leading-relaxed text-[color:var(--fg-primary)]">
+                    「{idea.voice.quote}」
+                  </p>
+                </div>
+                <div className="mt-2.5 flex items-center justify-between gap-2 text-[11px]">
+                  <div className="flex items-center gap-2.5 flex-wrap min-w-0">
+                    {idea.voice.url && (
+                      <a
+                        href={idea.voice.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-[color:var(--accent-dark)] hover:underline truncate"
+                        title={idea.voice.url}
+                      >
+                        直接リンク ↗
+                      </a>
+                    )}
+                    <SearchProviderBadge provider={idea.voice.searchProvider} />
+                  </div>
+                  <GenerateButton
+                    generated={generated}
+                    inFlight={inFlight}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSingleGenerate();
+                    }}
+                  />
+                </div>
+              </>
+            ) : (
+              <p className="text-[12px] text-[color:var(--fg-muted)] italic">元ネタ情報なし</p>
+            )}
+          </section>
+
+          <div className="hairline my-5" />
+
+          {/* PROPOSAL */}
+          <section>
+            <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-2">
+              PROPOSAL · 記事案
+            </div>
+            <h3 className="font-bold text-[18px] tracking-tight leading-snug">
+              {idea.title}
+            </h3>
+            <p className="text-[13px] mt-2 text-[color:var(--fg-secondary)] leading-relaxed">
+              {idea.hook}
+            </p>
+            {idea.toolConcept && (
+              <div className="mt-3 p-3.5 rounded-lg bg-[color:var(--black)] text-white">
+                <div className="text-[10px] font-mono tracking-widest text-white/50 mb-1">
+                  TOOL CONCEPT
+                </div>
+                <div className="text-[12.5px] leading-relaxed">{idea.toolConcept}</div>
+              </div>
+            )}
+            <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+              <span className="px-2.5 py-1 rounded-full bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] font-medium">
+                {idea.angle}
+              </span>
+            </div>
+          </section>
+        </div>
+
+        {/* 右: KEYWORDS → TARGET → IMPRESSION 縦積み */}
+        <aside className="px-6 pb-6 pt-1 bg-gray-50/40 text-[11px] flex flex-col gap-4 lg:gap-0 lg:divide-y lg:divide-[var(--border-subtle)]">
+          {idea.keywords && (
+            <div className="lg:py-4 lg:first:pt-2">
+              <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-2">
+                KEYWORDS
+              </div>
+              <div className="mb-2">
+                <span className="px-2.5 py-1 rounded-md bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] font-bold text-[12px]">
+                  {idea.keywords.primary}
+                </span>
+              </div>
+              {idea.keywords.secondary.length > 0 && (
+                <div className="flex flex-wrap gap-1 mb-2">
+                  {idea.keywords.secondary.map((s, i) => (
+                    <span
+                      key={i}
+                      className="px-1.5 py-0.5 rounded bg-white border border-[var(--border-subtle)] text-[10.5px] text-[color:var(--fg-secondary)]"
+                    >
+                      {s}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {idea.keywords.longTail.length > 0 && (
+                <ul className="text-[color:var(--fg-muted)] space-y-0.5">
+                  {idea.keywords.longTail.slice(0, 4).map((k, i) => (
+                    <li key={i} className="text-[10.5px] before:content-['→'] before:mr-1.5 before:text-[color:var(--accent)]">
+                      {k}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+          {idea.target && (
+            <div className="lg:py-4">
+              <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-2">
+                TARGET
+              </div>
+              <div className="text-[color:var(--fg-primary)] mb-2 leading-relaxed">
+                {idea.target.persona}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {idea.target.ageRange && (
+                  <span className="px-2 py-0.5 rounded-full bg-white border border-[var(--border-subtle)] text-[10px] text-[color:var(--fg-secondary)]">
+                    {idea.target.ageRange}
+                  </span>
+                )}
+                {idea.target.familyStatus && (
+                  <span className="px-2 py-0.5 rounded-full bg-white border border-[var(--border-subtle)] text-[10px] text-[color:var(--fg-secondary)]">
+                    {idea.target.familyStatus}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+          {idea.impression && (
+            <div className="lg:py-4 lg:last:pb-2">
+              <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-2">
+                IMPRESSION · 見込み
+              </div>
+              <div className="space-y-1.5">
+                <Stat
+                  label="検索Vol"
+                  value={idea.impression.monthlySearchVolume}
+                  detail={idea.impression.monthlySearchVolumeNote}
+                />
+                <Stat label="競合" value={idea.impression.competitionLevel} />
+                <Stat
+                  label="noteポテ"
+                  value={idea.impression.notePotential}
+                  detail={idea.impression.notePotentialReason}
+                />
+                {idea.impression.reachEstimateMonthly && (
+                  <div className="text-[10.5px] text-[color:var(--fg-secondary)] pt-1.5 border-t border-[var(--border-subtle)] mt-1">
+                    <span className="text-[color:var(--fg-muted)]">月間予想 reach:</span>{" "}
+                    <span className="font-semibold text-[color:var(--fg-primary)]">
+                      {idea.impression.reachEstimateMonthly}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          {idea.impression?.notePotentialReason && (
+            <div className="lg:py-3 text-[10.5px] text-[color:var(--fg-muted)] italic">
+              💡 {idea.impression.notePotentialReason}
+            </div>
+          )}
+        </aside>
+      </div>
+      )}
+    </div>
+  );
+}
+
+function ExpandedDetailHidden() {
+  return null;
+}
+
+function MiniMetrics({
+  impression,
+}: {
+  impression: NonNullable<FeedIdea["impression"]>;
+}) {
+  return (
+    <div className="hidden md:flex items-center gap-0.5 shrink-0">
+      <MiniChip label="検" value={impression.monthlySearchVolume} />
+      <MiniChip label="競" value={impression.competitionLevel} />
+      <MiniChip label="ポ" value={impression.notePotential} />
+    </div>
+  );
+}
+
+function MiniChip({ label, value }: { label: string; value: string }) {
+  const palette = (() => {
+    if (value === "high") return { bg: "#dcfce7", fg: "#15803d", txt: "高" };
+    if (value === "medium") return { bg: "#fef3c7", fg: "#92400e", txt: "中" };
+    if (value === "low") return { bg: "#fee2e2", fg: "#991b1b", txt: "低" };
+    if (value === "niche") return { bg: "#e0e7ff", fg: "#3730a3", txt: "ニ" };
+    return { bg: "#f3f4f6", fg: "#374151", txt: "?" };
+  })();
+  const fullLabel: Record<string, string> = {
+    検: "検索Vol",
+    競: "競合",
+    ポ: "noteポテ",
+  };
+  const fullValue: Record<string, string> = {
+    high: "高",
+    medium: "中",
+    low: "低",
+    niche: "ニッチ",
+  };
+  return (
+    <span
+      className="inline-flex items-center text-[9.5px] font-mono font-bold px-1.5 py-0.5 rounded"
+      style={{ background: palette.bg, color: palette.fg }}
+      title={`${fullLabel[label]}: ${fullValue[value] ?? value}`}
+    >
+      <span className="opacity-60 mr-0.5">{label}</span>
+      {palette.txt}
+    </span>
+  );
+}
+
+function ChevronIcon({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      className={`shrink-0 w-4 h-4 text-[color:var(--fg-muted)] transition-transform ${
+        expanded ? "rotate-180" : ""
+      }`}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+    >
+      <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ScoreBadge({ score }: { score: number }) {
+  let cls = "bg-gray-100 text-gray-600";
+  if (score >= 80) cls = "bg-[color:var(--accent)] text-white";
+  else if (score >= 65) cls = "bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)]";
+  else if (score >= 50) cls = "bg-amber-100 text-amber-800";
+  else cls = "bg-gray-100 text-gray-500";
+  return (
+    <span
+      className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold tabular-nums ${cls}`}
+      title={`総合スコア ${score}/100`}
+    >
+      ★{score}
+    </span>
+  );
+}
+
+function PainBadge({ intensity }: { intensity: 1 | 2 | 3 | 4 | 5 }) {
+  const palette =
+    intensity >= 4
+      ? { bg: "#fee2e2", fg: "#991b1b" }
+      : intensity === 3
+        ? { bg: "#ffedd5", fg: "#9a3412" }
+        : { bg: "#f3f4f6", fg: "#4b5563" };
+  const filled = "●".repeat(intensity);
+  const empty = "○".repeat(5 - intensity);
+  return (
+    <span
+      className="inline-flex items-center text-[9.5px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0"
+      style={{ background: palette.bg, color: palette.fg }}
+      title={`悩みの深さ ${intensity}/5（5=毎日泣きそう / 1=軽い不便）`}
+    >
+      <span className="opacity-60 mr-0.5">悩</span>
+      <span className="tracking-tighter">{filled}</span>
+      <span className="tracking-tighter opacity-25">{empty}</span>
+    </span>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+}) {
+  const palette = (() => {
+    if (value === "high") return { bg: "#dcfce7", fg: "#15803d" };
+    if (value === "medium") return { bg: "#fef3c7", fg: "#92400e" };
+    if (value === "low") return { bg: "#fee2e2", fg: "#991b1b" };
+    if (value === "niche") return { bg: "#e0e7ff", fg: "#3730a3" };
+    return { bg: "#f3f4f6", fg: "#374151" };
+  })();
+  const labelMap: Record<string, string> = {
+    high: "高",
+    medium: "中",
+    low: "低",
+    niche: "ニッチ",
+  };
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[color:var(--fg-muted)] w-14 shrink-0">{label}</span>
+      <span
+        className="px-1.5 py-0.5 rounded text-[10px] font-medium"
+        style={{ background: palette.bg, color: palette.fg }}
+        title={detail}
+      >
+        {labelMap[value] ?? value}
+      </span>
+      {detail && label !== "noteポテ" && (
+        <span className="text-[10px] text-[color:var(--fg-muted)] truncate" title={detail}>
+          {detail}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function PlatformBadge({ platform }: { platform: string }) {
+  const palette = platformPalette(platform);
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold"
+      style={{ background: palette.bg, color: palette.fg }}
+    >
+      <span className="w-1.5 h-1.5 rounded-full" style={{ background: palette.fg }} />
+      {platform}
+    </span>
+  );
+}
+
+function GenerateButton({
+  generated,
+  inFlight,
+  onClick,
+}: {
+  generated: boolean;
+  inFlight: boolean;
+  onClick: (e: React.MouseEvent) => void;
+}) {
+  if (generated) {
+    return (
+      <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] text-[11px] font-bold shrink-0">
+        ✓ 記事完成
+      </span>
+    );
+  }
+  if (inFlight) {
+    return (
+      <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-amber-100 text-amber-800 text-[11px] font-bold shrink-0">
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse" />
+        生成中
+      </span>
+    );
+  }
+  return (
+    <button
+      onClick={onClick}
+      className="inline-flex items-center gap-1 px-3.5 py-1 rounded-full bg-[color:var(--accent)] text-white text-[11px] font-bold shrink-0 hover:bg-[color:var(--accent-dark)] active:scale-95 transition"
+      title="この1件を即座に記事生成"
+    >
+      ✏️ 記事生成
+    </button>
+  );
+}
+
+function SearchProviderBadge({
+  provider,
+}: {
+  provider?: "brave" | "google" | "ai";
+}) {
+  if (!provider) return null;
+  const palette = {
+    brave: { bg: "#fb542b", fg: "#ffffff", label: "Brave Search", icon: "🦁" },
+    google: { bg: "#4285f4", fg: "#ffffff", label: "Google Search", icon: "G" },
+    ai: { bg: "#fef3c7", fg: "#92400e", label: "AI再構成", icon: "🤖" },
+  }[provider];
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold shrink-0"
+      style={{ background: palette.bg, color: palette.fg }}
+      title={
+        provider === "ai"
+          ? "Geminiが検索結果から再構成（実投稿と一致しない可能性）"
+          : `${palette.label}で発掘`
+      }
+    >
+      <span>{palette.icon}</span>
+      via {palette.label.split(" ")[0]}
+    </span>
+  );
+}
+
+function platformPalette(platform: string): { bg: string; fg: string } {
+  const p = platform.toLowerCase();
+  if (p.includes("知恵袋") || p.includes("yahoo")) return { bg: "#fff3d6", fg: "#a25700" };
+  if (p.includes("ガール") || p.includes("girl")) return { bg: "#ffe1ec", fg: "#a8005c" };
+  if (p.includes("ママスタ")) return { bg: "#ffe7d6", fg: "#a04000" };
+  if (p.includes("ウィメンズ")) return { bg: "#f3e5ff", fg: "#5b1d8a" };
+  if (p.includes("5ch") || p.includes("既婚")) return { bg: "#e0f0e0", fg: "#1f5b1f" };
+  if (p.includes("twitter") || p === "x" || p.includes("(x)")) return { bg: "#e7e9ec", fg: "#15202b" };
+  if (p.includes("threads")) return { bg: "#eaeaea", fg: "#101010" };
+  if (p.includes("instagram")) return { bg: "#fde4ef", fg: "#a8327a" };
+  if (p.includes("教えて") || p.includes("goo") || p.includes("okwave")) return { bg: "#dff1ff", fg: "#0a4d8c" };
+  if (p.includes("mixi")) return { bg: "#fff4d6", fg: "#856200" };
+  if (p.includes("line")) return { bg: "#dff6e3", fg: "#0a6e26" };
+  if (p.includes("reddit")) return { bg: "#ffe5dc", fg: "#a13d1d" };
+  return { bg: "#eef0f3", fg: "#3d4451" };
+}
+
+const SOURCE_ALIASES: { canonical: string; patterns: RegExp[] }[] = [
+  { canonical: "Yahoo知恵袋", patterns: [/Yahoo!?\s*知恵袋/gi, /知恵袋/g] },
+  { canonical: "ガルちゃん", patterns: [/ガールズちゃんねる/g, /ガルちゃん/g] },
+  { canonical: "ママスタ", patterns: [/ママスタ(?:BBS|セレクト)?/gi] },
+  { canonical: "ウィメンズパーク", patterns: [/ウィメンズ(?:パーク)?/gi] },
+  { canonical: "5ch既婚女性板", patterns: [/5ch(?:既婚女性板)?/gi, /既婚女性板/g] },
+  { canonical: "X", patterns: [/(?<![A-Za-z])X\(?旧Twitter\)?/g, /旧Twitter/gi, /Twitter/gi] },
+  { canonical: "Threads", patterns: [/Threads/gi] },
+  { canonical: "Instagram", patterns: [/Instagram/gi, /インスタ(?:グラム)?/g] },
+  { canonical: "教えてgoo", patterns: [/教えて!?goo/gi, /OKWAVE/gi] },
+  { canonical: "mixi", patterns: [/mixi/gi] },
+  { canonical: "Reddit", patterns: [/Reddit/gi] },
+];
+
+function stripSourcesFromText(text: string): { text: string; extracted: string[] } {
+  if (!text) return { text: "", extracted: [] };
+  const found = new Set<string>();
+  let cleaned = text;
+  for (const { canonical, patterns } of SOURCE_ALIASES) {
+    for (const re of patterns) {
+      if (re.test(cleaned)) {
+        found.add(canonical);
+        cleaned = cleaned.replace(re, "");
+      }
+    }
+  }
+  cleaned = cleaned
+    .replace(/[「『]\s*[」』]/g, "")
+    .replace(/[、,]\s*[、,]/g, "、")
+    .replace(/[（(]\s*[)）]/g, "")
+    .replace(/\s*[/／]\s*(?=[、。)）」])/g, "")
+    .replace(/^[\s、,。.\/／]+|[\s、,\/／]+$/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return { text: cleaned, extracted: [...found] };
+}
+
+function formatAge(ms: number): string {
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec}秒前`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}分前`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}時間前`;
+  return `${Math.floor(hr / 24)}日前`;
 }
