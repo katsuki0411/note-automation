@@ -14,26 +14,60 @@
 
 ## セットアップ
 
-### 1. 環境変数を設定
+### 1. clone & install
 
-`.env.example` をコピーして `.env.local` を作成し、APIキーを記入:
+```bash
+git clone https://github.com/katsuki0411/note-automation.git
+cd note-automation
+npm install
+```
+
+> Node.js 20 以上推奨。
+
+### 2. 環境変数
+
+`.env.example` を `.env.local` にコピーしてAPIキーを入れます。
 
 ```bash
 cp .env.example .env.local
 ```
 
-```
-GEMINI_API_KEY=...    # https://aistudio.google.com/apikey
-ANTHROPIC_API_KEY=... # https://console.anthropic.com
-```
+| 変数 | 必須 | 用途 | 取得先 |
+| --- | --- | --- | --- |
+| `GEMINI_API_KEY` | ✅ | ネタ収集・ホットキーワード発掘 | https://aistudio.google.com/apikey |
+| `ANTHROPIC_API_KEY` | ✅ | Claude Sonnet 4.6 で記事生成 | https://console.anthropic.com |
+| `GOOGLE_CSE_ID` | 推奨 | Custom Search の検索エンジンID | https://programmablesearchengine.google.com/ |
+| `GOOGLE_CSE_API_KEY` | 推奨 | Custom Search の APIキー | Google Cloud Console |
+| `BRAVE_SEARCH_API_KEY` | 任意 | CSEのフォールバック検索 | https://api.search.brave.com/app/keys |
 
-### 2. 起動
+> APIキーはオーナーから1Password等で安全に受け取ってください。Gemini と CSE のAPIキーは別キー必須（同じキー内で両方の制限を満たせない）。
+
+### 3. 起動
 
 ```bash
 npm run dev
 ```
 
 → http://localhost:3000
+
+## 開発フロー（Collaborator向け）
+
+```bash
+# 最新を取得
+git pull
+
+# ブランチ切る
+git checkout -b feature/your-task
+
+# 変更してコミット
+git add -p && git commit -m "..."
+
+# push & PR
+git push -u origin feature/your-task
+gh pr create --fill   # or GitHub UI から
+```
+
+> `data/` 配下（articles.json / keywords.json / hot-keywords.json 等）と `.env.local` は `.gitignore` 済みでrepoには入りません。各自ローカルで個別管理になります。
 
 ## 使い方
 
