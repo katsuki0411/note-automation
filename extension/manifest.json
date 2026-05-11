@@ -17,7 +17,7 @@
     {
       "matches": [
         "http://localhost:3000/*",
-        "https://note-automation-rho.vercel.app/*"
+        "https://*.vercel.app/*"
       ],
       "js": ["bridge.js"],
       "run_at": "document_idle"

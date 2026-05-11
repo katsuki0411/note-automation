@@ -6,6 +6,17 @@
 
 (() => {
   if (window.__noteAutomationPosterBridgeLoaded) return;
+
+  // manifest の content_scripts は *.vercel.app に広く合致させているため、
+  // ここで note-automation の本番/プレビュー/ローカルだけにスコープを絞る。
+  // 他の vercel.app サイトから誤った POST_ARTICLE を受け付けないため必須。
+  const host = location.hostname;
+  const isAllowed =
+    host === "localhost" ||
+    host === "note-automation-rho.vercel.app" ||
+    (host.startsWith("note-automation-") && host.endsWith(".vercel.app"));
+  if (!isAllowed) return;
+
   window.__noteAutomationPosterBridgeLoaded = true;
 
   // ページ → 拡張
