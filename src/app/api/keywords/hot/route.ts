@@ -5,7 +5,7 @@ import { discoverHotKeywordsForTheme, type HotKeyword } from "@/lib/hotKeywords"
 import { THEMES } from "@/lib/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 600;
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 const CACHE_FILE = path.join(process.cwd(), "data", "hot-keywords.json");
