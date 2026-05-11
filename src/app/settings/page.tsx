@@ -11,17 +11,29 @@ import {
 
 export default function SettingsPage() {
   const [model, setModel] = useState<ArticleModel>(DEFAULT_ARTICLE_MODEL);
+  const [savedModel, setSavedModel] = useState<ArticleModel>(DEFAULT_ARTICLE_MODEL);
   const [mounted, setMounted] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
 
   useEffect(() => {
-    setModel(readArticleModel());
+    const stored = readArticleModel();
+    setModel(stored);
+    setSavedModel(stored);
     setMounted(true);
   }, []);
 
   const handleChange = (value: ArticleModel) => {
     setModel(value);
-    writeArticleModel(value);
+    setJustSaved(false);
   };
+
+  const handleSave = () => {
+    writeArticleModel(model);
+    setSavedModel(model);
+    setJustSaved(true);
+  };
+
+  const hasUnsaved = mounted && model !== savedModel;
 
   return (
     <div className="max-w-2xl">
@@ -38,7 +50,7 @@ export default function SettingsPage() {
             記事生成モデル
           </h2>
           <p className="text-[13px] text-[color:var(--fg-secondary)] leading-relaxed">
-            記事本文の生成に使うAIモデルを選択します。設定はこのブラウザにのみ保存され、選択した時点で即時反映されます。
+            記事本文の生成に使うAIモデルを選択します。設定はこのブラウザにのみ保存されます。
           </p>
         </div>
 
@@ -75,12 +87,31 @@ export default function SettingsPage() {
           })}
         </div>
 
-        {mounted && (
-          <p className="text-[12px] text-[color:var(--fg-muted)]">
-            現在の選択:{" "}
-            <span className="font-mono text-[color:var(--fg-secondary)]">{model}</span>
-          </p>
-        )}
+        <div className="flex items-center gap-3 pt-2">
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={!hasUnsaved}
+            className={`px-5 py-2 rounded-lg text-[13px] font-semibold transition-colors ${
+              hasUnsaved
+                ? "bg-[color:var(--accent)] text-white hover:bg-[color:var(--accent-dark)]"
+                : "bg-gray-100 text-gray-400 cursor-not-allowed"
+            }`}
+          >
+            保存
+          </button>
+          {mounted && hasUnsaved && (
+            <span className="text-[12px] text-[color:var(--fg-muted)]">未保存の変更があります</span>
+          )}
+          {mounted && !hasUnsaved && justSaved && (
+            <span className="text-[12px] text-[color:var(--accent-dark)]">保存しました</span>
+          )}
+          {mounted && !hasUnsaved && !justSaved && (
+            <span className="text-[12px] text-[color:var(--fg-muted)]">
+              現在の選択: <span className="font-mono">{savedModel}</span>
+            </span>
+          )}
+        </div>
       </section>
     </div>
   );
