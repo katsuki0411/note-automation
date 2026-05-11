@@ -732,11 +732,11 @@ function HotKeywordCard({
         <span
           className="hidden md:inline-flex items-center text-[9.5px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0"
           style={(() => {
-            const palette: Record<string, { bg: string; fg: string }> = {
-              high: { bg: "#dcfce7", fg: "#15803d" },
-              medium: { bg: "#fef3c7", fg: "#92400e" },
-              low: { bg: "#fee2e2", fg: "#991b1b" },
-              niche: { bg: "#e0e7ff", fg: "#3730a3" },
+            const palette: Record<string, { background: string; color: string }> = {
+              high: { background: "#dcfce7", color: "#15803d" },
+              medium: { background: "#fef3c7", color: "#92400e" },
+              low: { background: "#fee2e2", color: "#991b1b" },
+              niche: { background: "#e0e7ff", color: "#3730a3" },
             };
             return palette[hot.volumeHint] ?? palette.medium;
           })()}
