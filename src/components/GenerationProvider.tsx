@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { readArticleModel } from "@/lib/clientSettings";
 import type { FeedIdea } from "@/lib/types";
 
 type DoneRecord = { id: string; title: string };
@@ -48,7 +49,7 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
         const res = await fetch("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ idea: next }),
+          body: JSON.stringify({ idea: next, model: readArticleModel() }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "生成失敗");
