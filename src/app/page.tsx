@@ -25,6 +25,12 @@ const THEME_LABEL: Record<ThemeId, string> = Object.fromEntries(
 
 type SortMode = "score" | "newest" | "pain";
 type GroupBy = "theme" | "source" | "keyword";
+type HotStats = {
+  candidatesTotal: number;
+  verified: number;
+  noHits: number;
+  searchFailed: number;
+};
 // filter: "all" | "fresh" | "high-score" | "theme:<id>" | "source:<platform>" | "keyword:<kw>"
 
 export default function ResearchPage() {
@@ -46,6 +52,9 @@ export default function ResearchPage() {
   const [hotUpdatedAt, setHotUpdatedAt] = useState<string | null>(null);
   const [hotLoading, setHotLoading] = useState(false);
   const [hotError, setHotError] = useState<string | null>(null);
+  const [hotStats, setHotStats] = useState<HotStats | null>(null);
+  const [hotFilter, setHotFilter] = useState<string>("all");
+  const [expandedHot, setExpandedHot] = useState<Set<string>>(new Set());
   const [researchingKw, setResearchingKw] = useState<string | null>(null);
   const hotFetched = useRef(false);
 
@@ -154,11 +163,26 @@ export default function ResearchPage() {
   }
 
   function expandAll() {
-    setExpanded(new Set(filtered.map((i) => i.id)));
+    if (groupBy === "keyword") {
+      setExpandedHot(new Set(hotKeywords.map((h) => h.kw)));
+    } else {
+      setExpanded(new Set(filtered.map((i) => i.id)));
+    }
   }
 
   function collapseAll() {
-    setExpanded(new Set());
+    if (groupBy === "keyword") {
+      setExpandedHot(new Set());
+    } else {
+      setExpanded(new Set());
+    }
+  }
+
+  function toggleExpandHot(kw: string) {
+    const next = new Set(expandedHot);
+    if (next.has(kw)) next.delete(kw);
+    else next.add(kw);
+    setExpandedHot(next);
   }
 
   function proceed() {
@@ -181,9 +205,14 @@ export default function ResearchPage() {
   const fetchHotKeywords = useCallback(async () => {
     const res = await fetch("/api/keywords/hot", { cache: "no-store" });
     if (!res.ok) return;
-    const data = (await res.json()) as { updatedAt: string | null; keywords: HotKeyword[] };
+    const data = (await res.json()) as {
+      updatedAt: string | null;
+      keywords: HotKeyword[];
+      stats?: HotStats;
+    };
     setHotKeywords(data.keywords ?? []);
     setHotUpdatedAt(data.updatedAt);
+    setHotStats(data.stats ?? null);
   }, []);
 
   const refreshHotKeywords = useCallback(async () => {
@@ -196,6 +225,7 @@ export default function ResearchPage() {
       if (!res.ok) throw new Error(data.error ?? "失敗");
       setHotKeywords(data.keywords ?? []);
       setHotUpdatedAt(data.updatedAt);
+      setHotStats(data.stats ?? null);
     } catch (e) {
       setHotError(e instanceof Error ? e.message : "失敗");
     } finally {
@@ -204,7 +234,7 @@ export default function ResearchPage() {
   }, [hotLoading]);
 
   const researchHotKeyword = useCallback(
-    async (kw: string) => {
+    async (kw: string, opts?: { autoGenerate?: boolean }) => {
       if (researchingKw) return;
       setResearchingKw(kw);
       setTickError(null);
@@ -217,23 +247,75 @@ export default function ResearchPage() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "失敗");
         await refreshFeed();
+
+        if (opts?.autoGenerate) {
+          const added: FeedIdea[] = Array.isArray(data.addedIdeas) ? data.addedIdeas : [];
+          if (added.length === 0) {
+            setTickError("ネタが見つかりませんでした（記事生成スキップ）");
+          } else {
+            const top = [...added].sort(
+              (a, b) => (b.priorityScore ?? 0) - (a.priorityScore ?? 0),
+            )[0];
+            enqueue([top]);
+          }
+        }
       } catch (e) {
         setTickError(e instanceof Error ? e.message : "失敗");
       } finally {
         setResearchingKw(null);
       }
     },
-    [researchingKw, refreshFeed],
+    [researchingKw, refreshFeed, enqueue],
   );
 
   function selectGroup(g: GroupBy) {
     setGroupBy(g);
     setFilter("all");
+    setHotFilter("all");
     if (g === "keyword" && !hotFetched.current) {
       hotFetched.current = true;
       fetchHotKeywords();
     }
   }
+
+  const sortedHotKeywords = useMemo(() => {
+    let list = [...hotKeywords];
+    if (hotFilter.startsWith("src:")) {
+      const target = hotFilter.slice(4);
+      list = list.filter((h) => (h.sources ?? []).some((s) => s === target));
+    }
+    if (sortMode === "score") {
+      list.sort(
+        (a, b) =>
+          b.priority - a.priority ||
+          new Date(b.discoveredAt).getTime() - new Date(a.discoveredAt).getTime(),
+      );
+    } else if (sortMode === "newest") {
+      list.sort(
+        (a, b) =>
+          new Date(b.discoveredAt).getTime() - new Date(a.discoveredAt).getTime() ||
+          b.priority - a.priority,
+      );
+    } else if (sortMode === "pain") {
+      list.sort(
+        (a, b) =>
+          (b.painIntensity ?? 3) - (a.painIntensity ?? 3) || b.priority - a.priority,
+      );
+    }
+    return list;
+  }, [hotKeywords, hotFilter, sortMode]);
+
+  const hotSourceCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const h of hotKeywords) {
+      for (const s of h.sources ?? []) {
+        const key = s.trim();
+        if (!key) continue;
+        m.set(key, (m.get(key) ?? 0) + 1);
+      }
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [hotKeywords]);
 
   const generatedIds = useMemo(() => {
     const ids = new Set<string>();
@@ -342,18 +424,42 @@ export default function ResearchPage() {
               テーマ別
             </GroupTab>
             <GroupTab active={groupBy === "source"} onClick={() => selectGroup("source")}>
-              ネタ元別 <span className="opacity-60 ml-0.5">{sourceCounts.length}</span>
+              公式サイト別 <span className="opacity-60 ml-0.5">{sourceCounts.length}</span>
             </GroupTab>
             <GroupTab active={groupBy === "keyword"} onClick={() => selectGroup("keyword")}>
-              🔥 ホットキーワード
+              キーワード別
               {hotKeywords.length > 0 && (
                 <span className="opacity-60 ml-0.5">{hotKeywords.length}</span>
               )}
             </GroupTab>
           </div>
-          <div className="text-[11px] font-mono text-[color:var(--fg-muted)]">
-            TICK #{state.tickCount}
-          </div>
+          {groupBy !== "keyword" ? (
+            <div className="text-[11px] font-mono text-[color:var(--fg-muted)]">
+              TICK #{state.tickCount}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              {hotStats && (
+                <span className="text-[11px] text-[color:var(--fg-muted)]">
+                  候補{hotStats.candidatesTotal}件中{" "}
+                  <span className="text-emerald-700 font-semibold">
+                    {hotStats.verified}件ヒット
+                  </span>
+                </span>
+              )}
+              <button
+                onClick={refreshHotKeywords}
+                disabled={hotLoading}
+                className="btn-ghost text-[11px] px-3 py-1.5"
+              >
+                {hotLoading
+                  ? "発掘＋検証中…"
+                  : hotUpdatedAt
+                    ? "🔄 再発掘"
+                    : "🔥 ホットキーワードを発掘"}
+              </button>
+            </div>
+          )}
         </div>
         {groupBy !== "keyword" && (
           <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -404,15 +510,26 @@ export default function ResearchPage() {
           </div>
         )}
         {groupBy === "keyword" && (
-          <HotKeywordsPanel
-            keywords={hotKeywords}
-            updatedAt={hotUpdatedAt}
-            loading={hotLoading}
-            researchingKw={researchingKw}
-            error={hotError}
-            onRefresh={refreshHotKeywords}
-            onResearch={researchHotKeyword}
-          />
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <FilterPill active={hotFilter === "all"} onClick={() => setHotFilter("all")}>
+              すべて <span className="opacity-60 ml-1">{hotKeywords.length}</span>
+            </FilterPill>
+            {hotSourceCounts.length > 0 && (
+              <span className="mx-1 w-px h-5 bg-[var(--border-subtle)]" />
+            )}
+            {hotSourceCounts.map(([src, count]) => {
+              const v = `src:${src}`;
+              return (
+                <FilterPill
+                  key={src}
+                  active={hotFilter === v}
+                  onClick={() => setHotFilter(v)}
+                >
+                  {src} <span className="opacity-60 ml-1">{count}</span>
+                </FilterPill>
+              );
+            })}
+          </div>
         )}
         <div className="flex items-center gap-1.5 flex-wrap justify-between">
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -453,7 +570,52 @@ export default function ResearchPage() {
         </p>
       )}
 
-      {filtered.length === 0 ? (
+      {hotError && groupBy === "keyword" && (
+        <p className="mb-4 text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-4 py-2.5">
+          {hotError}
+        </p>
+      )}
+
+      {groupBy === "keyword" ? (
+        sortedHotKeywords.length === 0 ? (
+          <div className="card p-12 text-center">
+            {hotLoading ? (
+              <>
+                <div className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-3">
+                  発掘＋検証中…（候補40件 → 各KWを実検索でヒット確認）
+                </div>
+                <div className="space-y-2 max-w-md mx-auto">
+                  <div className="h-3 rounded-full shimmer" />
+                  <div className="h-3 rounded-full shimmer" style={{ width: "82%" }} />
+                  <div className="h-3 rounded-full shimmer" style={{ width: "65%" }} />
+                </div>
+              </>
+            ) : hotKeywords.length === 0 ? (
+              <p className="text-[color:var(--fg-secondary)]">
+                ホットキーワード未取得です。右上の「🔥 ホットキーワードを発掘」を押してください。
+              </p>
+            ) : (
+              <p className="text-[color:var(--fg-secondary)]">
+                該当キーワードがありません。フィルターを変更してください。
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="grid gap-2 pb-28">
+            {sortedHotKeywords.map((h) => (
+              <HotKeywordCard
+                key={h.kw}
+                hot={h}
+                expanded={expandedHot.has(h.kw)}
+                isResearching={researchingKw === h.kw}
+                onToggleExpand={() => toggleExpandHot(h.kw)}
+                onResearch={() => researchHotKeyword(h.kw)}
+                onAutoGenerate={() => researchHotKeyword(h.kw, { autoGenerate: true })}
+              />
+            ))}
+          </div>
+        )
+      ) : filtered.length === 0 ? (
         <div className="card p-12 text-center">
           {ticking ? (
             <>
@@ -519,189 +681,261 @@ export default function ResearchPage() {
   );
 }
 
-function HotKeywordsPanel({
-  keywords,
-  updatedAt,
-  loading,
-  researchingKw,
-  error,
-  onRefresh,
+function HotKeywordCard({
+  hot,
+  expanded,
+  isResearching,
+  onToggleExpand,
   onResearch,
+  onAutoGenerate,
 }: {
-  keywords: HotKeyword[];
-  updatedAt: string | null;
-  loading: boolean;
-  researchingKw: string | null;
-  error: string | null;
-  onRefresh: () => void;
-  onResearch: (kw: string) => void;
+  hot: HotKeyword;
+  expanded: boolean;
+  isResearching: boolean;
+  onToggleExpand: () => void;
+  onResearch: () => void;
+  onAutoGenerate: () => void;
 }) {
-  const ageLabel = updatedAt
-    ? formatAge(Date.now() - new Date(updatedAt).getTime())
-    : null;
+  const themeLabel = THEME_LABEL[hot.themeId] ?? hot.themeId;
+  const ageMs = Date.now() - new Date(hot.discoveredAt).getTime();
+  const isFresh = ageMs < 60 * 60 * 1000;
+  const ageLabel = formatAge(ageMs);
+
+  const { text: whyText, extracted } = stripSourcesFromText(hot.whyHot ?? "");
+  const sources = Array.from(new Set([...(hot.sources ?? []), ...extracted]));
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className="text-[11px] text-[color:var(--fg-muted)]">
-          {ageLabel ? (
-            <>
-              いま検索ボリュームが伸びている主婦向けキーワード ·{" "}
-              <span className="font-mono">{ageLabel}更新</span>
-            </>
-          ) : (
-            "「更新」を押すと、Geminiが今日ホットなキーワードを発掘します（4テーマ分・~20円）"
-          )}
-        </div>
-        <button
-          onClick={onRefresh}
-          disabled={loading}
-          className="btn-ghost text-[11px] px-3 py-1.5"
+    <div
+      className={`card overflow-hidden transition-colors ${
+        isResearching
+          ? "border-[color:var(--accent)] bg-[color:var(--accent-soft)]"
+          : "card-hover"
+      }`}
+    >
+      <div
+        onClick={onToggleExpand}
+        className="flex items-center px-4 py-3 gap-3 cursor-pointer select-none"
+      >
+        <ScoreBadge score={hot.priority} />
+        <span
+          className="px-2 py-0.5 rounded-full bg-gray-100 text-[10px] text-[color:var(--fg-secondary)] shrink-0 max-w-[160px] truncate"
+          title={themeLabel}
         >
-          {loading ? "発掘中…" : ageLabel ? "🔄 再発掘" : "🔥 ホットキーワードを発掘"}
-        </button>
+          {themeLabel}
+        </span>
+        {hot.painIntensity && <PainBadge intensity={hot.painIntensity} />}
+        <h3 className="flex-1 min-w-0 font-semibold text-[14.5px] tracking-tight truncate text-[color:var(--fg-primary)]">
+          {hot.kw}
+        </h3>
+        <RiseBadge status={hot.riseStatus} />
+        <VerifyBadge hot={hot} />
+        <span
+          className="hidden md:inline-flex items-center text-[9.5px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0"
+          style={(() => {
+            const palette: Record<string, { bg: string; fg: string }> = {
+              high: { bg: "#dcfce7", fg: "#15803d" },
+              medium: { bg: "#fef3c7", fg: "#92400e" },
+              low: { bg: "#fee2e2", fg: "#991b1b" },
+              niche: { bg: "#e0e7ff", fg: "#3730a3" },
+            };
+            return palette[hot.volumeHint] ?? palette.medium;
+          })()}
+          title={`検索Vol: ${hot.volumeHint}`}
+        >
+          検{hot.volumeHint}
+        </span>
+        {isFresh && (
+          <span className="inline-flex items-center gap-1 text-[10px] text-[color:var(--accent-dark)] shrink-0">
+            <span className="w-1 h-1 rounded-full bg-[color:var(--accent)]" />
+            NEW
+          </span>
+        )}
+        <span className="text-[10px] font-mono text-[color:var(--fg-muted)] shrink-0 hidden sm:inline">
+          {ageLabel}
+        </span>
+        {isResearching ? (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500 text-white text-[10.5px] font-bold shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+            実行中
+          </span>
+        ) : (
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onResearch();
+              }}
+              className="px-2.5 py-1 rounded-full bg-white border border-[var(--border-card)] text-[color:var(--fg-secondary)] hover:border-[color:var(--accent)] hover:text-[color:var(--accent-dark)] text-[10.5px] font-medium transition"
+              title="このキーワードでネタ収集を実行（フィードに5件追加）"
+            >
+              🔍 ネタ収集
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onAutoGenerate();
+              }}
+              className="px-2.5 py-1 rounded-full bg-[color:var(--accent)] text-white hover:bg-[color:var(--accent-dark)] text-[10.5px] font-bold transition"
+              title="ネタ収集 → 最高スコアを自動選択 → 記事生成まで一気に実行"
+            >
+              🪄 一気書き
+            </button>
+          </div>
+        )}
+        <ChevronIcon expanded={expanded} />
       </div>
-      {error && (
-        <p className="text-[11px] text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-          {error}
-        </p>
-      )}
-      {keywords.length === 0 && !loading && (
-        <div className="card p-6 text-center text-[12px] text-[color:var(--fg-muted)]">
-          ホットキーワード未取得です。右上の「ホットキーワードを発掘」を押してください。
-        </div>
-      )}
-      {keywords.length > 0 && (
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {keywords.map((h, i) => (
-            <HotKeywordCard
-              key={`${h.kw}-${i}`}
-              hot={h}
-              isResearching={researchingKw === h.kw}
-              onResearch={() => onResearch(h.kw)}
-            />
-          ))}
+
+      {expanded && (
+        <div className="px-6 pb-5 border-t border-[var(--border-subtle)] grid lg:grid-cols-[1fr_300px] gap-6">
+          <div className="pt-4 space-y-4">
+            {whyText && (
+              <section>
+                <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-2">
+                  WHY HOT · 今熱い理由
+                </div>
+                <p className="text-[13px] leading-relaxed text-[color:var(--fg-primary)]">
+                  {whyText}
+                </p>
+              </section>
+            )}
+            {hot.sampleUrls && hot.sampleUrls.length > 0 && (
+              <section>
+                <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-2">
+                  SAMPLE URLS · 実ヒット投稿
+                </div>
+                <ul className="space-y-1">
+                  {hot.sampleUrls.map((url, i) => (
+                    <li key={i}>
+                      <a
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-[11.5px] text-[color:var(--accent-dark)] hover:underline truncate inline-block max-w-full"
+                      >
+                        ↗ {url}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+          </div>
+          <aside className="pt-4 lg:border-l lg:pl-6 border-[var(--border-subtle)] space-y-4 text-[11px]">
+            <section>
+              <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-2">
+                SRC · 実ヒットしたサイト
+              </div>
+              {sources.length === 0 ? (
+                <span className="text-[10.5px] text-[color:var(--fg-muted)] italic">
+                  未取得
+                </span>
+              ) : (
+                <div className="flex flex-wrap gap-1">
+                  {sources.map((s, i) => {
+                    const p = platformPalette(s);
+                    return (
+                      <span
+                        key={i}
+                        className="px-1.5 py-0.5 rounded text-[10px] font-medium"
+                        style={{ background: p.bg, color: p.fg }}
+                      >
+                        {s}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+            <section>
+              <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-2">
+                METRICS
+              </div>
+              <div className="space-y-1.5">
+                <Stat label="検索Vol" value={hot.volumeHint} />
+                <Stat label="競合" value={hot.competitionHint} />
+                <div className="flex items-center gap-2">
+                  <span className="text-[color:var(--fg-muted)] w-14 shrink-0">勢い</span>
+                  <RiseBadge status={hot.riseStatus} />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[color:var(--fg-muted)] w-14 shrink-0">意図</span>
+                  <span className="text-[10.5px] text-[color:var(--fg-secondary)]">
+                    {INTENT_LABEL[hot.intent] ?? hot.intent}
+                  </span>
+                </div>
+                {hot.verifiedHits !== undefined && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[color:var(--fg-muted)] w-14 shrink-0">検証</span>
+                    <VerifyBadge hot={hot} />
+                  </div>
+                )}
+              </div>
+            </section>
+          </aside>
         </div>
       )}
     </div>
   );
 }
 
-function HotKeywordCard({
-  hot,
-  isResearching,
-  onResearch,
-}: {
-  hot: HotKeyword;
-  isResearching: boolean;
-  onResearch: () => void;
-}) {
-  const themeLabel = THEME_LABEL[hot.themeId] ?? hot.themeId;
-  const riseColor =
-    hot.riseStatus === "rising"
-      ? { bg: "#fee2e2", fg: "#991b1b", icon: "↑" }
-      : hot.riseStatus === "declining"
-        ? { bg: "#e0e7ff", fg: "#3730a3", icon: "↓" }
-        : { bg: "#f3f4f6", fg: "#374151", icon: "→" };
-  const volColor: Record<string, { bg: string; fg: string }> = {
-    high: { bg: "#dcfce7", fg: "#15803d" },
-    medium: { bg: "#fef3c7", fg: "#92400e" },
-    low: { bg: "#fee2e2", fg: "#991b1b" },
-    niche: { bg: "#e0e7ff", fg: "#3730a3" },
-  };
-  const v = volColor[hot.volumeHint] ?? volColor.medium;
+const INTENT_LABEL: Record<string, string> = {
+  info: "情報収集",
+  "how-to": "やり方",
+  comparison: "比較",
+  trouble: "トラブル解決",
+};
 
+function RiseBadge({ status }: { status: HotKeyword["riseStatus"] }) {
+  const conf =
+    status === "rising"
+      ? { bg: "#fee2e2", fg: "#991b1b", icon: "↑", label: "上昇中" }
+      : status === "declining"
+        ? { bg: "#e0e7ff", fg: "#3730a3", icon: "↓", label: "下降中" }
+        : { bg: "#f3f4f6", fg: "#374151", icon: "→", label: "安定" };
   return (
-    <div
-      className={`card p-3.5 flex flex-col gap-2 transition ${
-        isResearching
-          ? "ring-2 ring-[color:var(--accent)] bg-[color:var(--accent-soft)]"
-          : "card-hover"
-      }`}
+    <span
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold shrink-0"
+      style={{ background: conf.bg, color: conf.fg }}
+      title={`勢い: ${conf.label}`}
     >
-      <div className="flex items-center justify-between gap-2">
-        <span
-          className="px-2 py-0.5 rounded-full bg-gray-100 text-[10px] text-[color:var(--fg-secondary)] truncate"
-          title={themeLabel}
-        >
-          {themeLabel}
-        </span>
-        <span
-          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold"
-          style={{ background: riseColor.bg, color: riseColor.fg }}
-          title={`勢い: ${hot.riseStatus}`}
-        >
-          {riseColor.icon} {hot.riseStatus}
-        </span>
-      </div>
-      <div className="font-bold text-[14px] tracking-tight leading-tight text-[color:var(--fg-primary)]">
-        {hot.kw}
-      </div>
-      {(() => {
-        const { text, extracted } = stripSourcesFromText(hot.whyHot ?? "");
-        const sources = Array.from(new Set([...(hot.sources ?? []), ...extracted]));
-        return (
-          <>
-            {text && (
-              <p className="text-[11.5px] text-[color:var(--fg-secondary)] leading-relaxed line-clamp-2">
-                {text}
-              </p>
-            )}
-            {sources.length > 0 && (
-              <div className="flex items-center gap-1 flex-wrap pt-1 border-t border-dashed border-[var(--border-subtle)]">
-                <span className="text-[9.5px] font-mono tracking-widest text-[color:var(--fg-muted)] mr-0.5">
-                  SRC
-                </span>
-                {sources.slice(0, 5).map((s, i) => (
-                  <span
-                    key={i}
-                    className="px-1.5 py-0.5 rounded text-[10px] font-medium"
-                    style={(() => {
-                      const p = platformPalette(s);
-                      return { background: p.bg, color: p.fg };
-                    })()}
-                  >
-                    {s}
-                  </span>
-                ))}
-              </div>
-            )}
-          </>
-        );
-      })()}
-      <div className="flex items-center gap-1.5 flex-wrap mt-auto">
-        <span
-          className="px-1.5 py-0.5 rounded text-[10px] font-medium"
-          style={{ background: v.bg, color: v.fg }}
-          title="検索ボリュームヒント"
-        >
-          検{hot.volumeHint}
-        </span>
-        <span className="text-[10px] font-mono text-[color:var(--fg-muted)]">
-          ★{hot.priority}
-        </span>
-        <button
-          onClick={onResearch}
-          disabled={isResearching}
-          className={`ml-auto px-3 py-1 rounded-full text-[10.5px] font-bold transition ${
-            isResearching
-              ? "bg-amber-500 text-white"
-              : "bg-[color:var(--accent)] text-white hover:bg-[color:var(--accent-dark)]"
-          }`}
-          title="このキーワードでネタ収集を実行"
-        >
-          {isResearching ? (
-            <span className="inline-flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-              実行中…
-            </span>
-          ) : (
-            "🔍 リサーチ"
-          )}
-        </button>
-      </div>
-    </div>
+      {conf.icon} {status}
+    </span>
   );
+}
+
+function VerifyBadge({ hot }: { hot: HotKeyword }) {
+  if (hot.verifyStatus === "verified" && (hot.verifiedHits ?? 0) > 0) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 shrink-0"
+        title={`実検索で ${hot.verifiedHits} 件ヒット（許可ドメイン内）`}
+      >
+        ✓ {hot.verifiedHits}件
+      </span>
+    );
+  }
+  if (hot.verifyStatus === "no-hits") {
+    return (
+      <span
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-gray-100 text-gray-500 shrink-0"
+        title="実検索でヒットなし（需要が薄い可能性）"
+      >
+        0件
+      </span>
+    );
+  }
+  if (hot.verifyStatus === "search-failed") {
+    return (
+      <span
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-100 text-amber-800 shrink-0"
+        title="検索プロバイダ未設定/失敗のため未検証"
+      >
+        未検証
+      </span>
+    );
+  }
+  return null;
 }
 
 function GroupTab({

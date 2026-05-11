@@ -1,9 +1,5 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
-import type { Platform, PlatformCategory, PlatformsState } from "./types";
-
-const DATA_DIR = path.join(process.cwd(), "data");
-const FILE = path.join(DATA_DIR, "platforms.json");
+import { sql } from "./db";
+import type { Platform, PlatformCategory } from "./types";
 
 const SEED_PLATFORMS: Array<Pick<Platform, "domain" | "label" | "category">> = [
   { domain: "chiebukuro.yahoo.co.jp", label: "Yahoo!知恵袋", category: "qa" },
@@ -20,47 +16,60 @@ const SEED_PLATFORMS: Array<Pick<Platform, "domain" | "label" | "category">> = [
   { domain: "note.com", label: "note", category: "blog" },
 ];
 
-async function ensureDir() {
-  await fs.mkdir(DATA_DIR, { recursive: true });
+type PlatformRow = {
+  id: string;
+  domain: string;
+  label: string;
+  category: PlatformCategory;
+  enabled: boolean;
+  is_default: boolean | null;
+  memo: string;
+  created_at: string;
+  updated_at: string;
+};
+
+function rowToPlatform(r: PlatformRow): Platform {
+  return {
+    id: r.id,
+    domain: r.domain,
+    label: r.label,
+    category: r.category,
+    enabled: r.enabled,
+    isDefault: r.is_default ?? undefined,
+    memo: r.memo ?? "",
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
 }
 
-async function readState(): Promise<PlatformsState | null> {
-  try {
-    const raw = await fs.readFile(FILE, "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return null;
+async function seedIfEmpty(): Promise<void> {
+  const cnt = await sql<{ c: string }[]>`select count(*)::text as c from platforms`;
+  if (Number(cnt[0]?.c ?? 0) > 0) return;
+  const now = new Date().toISOString();
+  for (const s of SEED_PLATFORMS) {
+    await sql`
+      insert into platforms (id, domain, label, category, enabled, is_default, memo, created_at, updated_at)
+      values (${crypto.randomUUID()}, ${s.domain}, ${s.label}, ${s.category}, true, true, '', ${now}, ${now})
+      on conflict (domain) do nothing
+    `;
   }
 }
 
-async function writeState(state: PlatformsState): Promise<void> {
-  await ensureDir();
-  state.updatedAt = new Date().toISOString();
-  await fs.writeFile(FILE, JSON.stringify(state, null, 2), "utf-8");
-}
-
 export async function loadPlatforms(): Promise<Platform[]> {
-  const state = await readState();
-  if (state) return state.platforms;
-  // 初回: SEED投入
-  const now = new Date().toISOString();
-  const seeded: Platform[] = SEED_PLATFORMS.map((s) => ({
-    id: crypto.randomUUID(),
-    domain: s.domain,
-    label: s.label,
-    category: s.category,
-    enabled: true,
-    isDefault: true,
-    createdAt: now,
-    updatedAt: now,
-  }));
-  await writeState({ platforms: seeded });
-  return seeded;
+  await seedIfEmpty();
+  const rows = await sql<PlatformRow[]>`
+    select id, domain, label, category, enabled, is_default, memo, created_at, updated_at
+    from platforms
+    order by is_default desc, created_at asc
+  `;
+  return rows.map(rowToPlatform);
 }
 
 export async function getEnabledDomains(): Promise<string[]> {
-  const list = await loadPlatforms();
-  return list.filter((p) => p.enabled).map((p) => p.domain);
+  const rows = await sql<{ domain: string }[]>`
+    select domain from platforms where enabled = true order by is_default desc, created_at asc
+  `;
+  return rows.map((r) => r.domain);
 }
 
 export async function platformLabelForDomainAsync(domain: string): Promise<string> {
@@ -87,52 +96,62 @@ function normalizeDomain(d: string): string {
 }
 
 export async function createPlatform(input: CreatePlatformInput): Promise<Platform> {
-  const list = await loadPlatforms();
   const dom = normalizeDomain(input.domain);
   if (!dom) throw new Error("ドメインが空です");
-  const dup = list.find((p) => p.domain === dom);
-  if (dup) throw new Error(`既に存在します: ${dom}`);
+
+  const dup = await sql<{ id: string }[]>`select id from platforms where domain = ${dom} limit 1`;
+  if (dup.length > 0) throw new Error(`既に存在します: ${dom}`);
+
+  const id = crypto.randomUUID();
   const now = new Date().toISOString();
-  const p: Platform = {
-    id: crypto.randomUUID(),
+  const label = input.label.trim() || dom;
+  await sql`
+    insert into platforms (id, domain, label, category, enabled, is_default, memo, created_at, updated_at)
+    values (${id}, ${dom}, ${label}, ${input.category}, ${input.enabled ?? true}, false, ${input.memo ?? ""}, ${now}, ${now})
+  `;
+  return {
+    id,
     domain: dom,
-    label: input.label.trim() || dom,
+    label,
     category: input.category,
     enabled: input.enabled ?? true,
+    isDefault: false,
     memo: input.memo ?? "",
     createdAt: now,
     updatedAt: now,
   };
-  list.unshift(p);
-  await writeState({ platforms: list });
-  return p;
 }
 
 export async function updatePlatform(
   id: string,
   patch: Partial<Omit<Platform, "id" | "createdAt" | "isDefault">>,
 ): Promise<Platform | undefined> {
-  const list = await loadPlatforms();
-  const idx = list.findIndex((p) => p.id === id);
-  if (idx === -1) return undefined;
-  if (patch.domain) patch.domain = normalizeDomain(patch.domain);
-  list[idx] = { ...list[idx], ...patch, updatedAt: new Date().toISOString() };
-  await writeState({ platforms: list });
-  return list[idx];
+  const now = new Date().toISOString();
+  const newDomain = patch.domain ? normalizeDomain(patch.domain) : null;
+  const rows = await sql<PlatformRow[]>`
+    update platforms set
+      domain = coalesce(${newDomain}, domain),
+      label = coalesce(${patch.label ?? null}, label),
+      category = coalesce(${patch.category ?? null}, category),
+      enabled = coalesce(${patch.enabled ?? null}, enabled),
+      memo = coalesce(${patch.memo ?? null}, memo),
+      updated_at = ${now}
+    where id = ${id}
+    returning id, domain, label, category, enabled, is_default, memo, created_at, updated_at
+  `;
+  return rows.length ? rowToPlatform(rows[0]) : undefined;
 }
 
 export async function deletePlatform(id: string): Promise<boolean> {
-  const list = await loadPlatforms();
-  const target = list.find((p) => p.id === id);
-  if (!target) return false;
-  if (target.isDefault) {
-    // デフォルト保護: 削除させずに無効化のみ
-    target.enabled = false;
-    target.updatedAt = new Date().toISOString();
-    await writeState({ platforms: list });
+  const rows = await sql<{ is_default: boolean | null }[]>`
+    select is_default from platforms where id = ${id}
+  `;
+  if (rows.length === 0) return false;
+  if (rows[0].is_default) {
+    // デフォルトは削除せず無効化のみ
+    await sql`update platforms set enabled = false, updated_at = ${new Date().toISOString()} where id = ${id}`;
     return true;
   }
-  const filtered = list.filter((p) => p.id !== id);
-  await writeState({ platforms: filtered });
-  return true;
+  const result = await sql`delete from platforms where id = ${id}`;
+  return result.count > 0;
 }

@@ -1,35 +1,79 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
+import { sql } from "./db";
 import { THEMES, type FeedIdea, type FeedState, type ThemeId } from "./types";
-
-const DATA_DIR = path.join(process.cwd(), "data");
-const FEED_FILE = path.join(DATA_DIR, "idea-feed.json");
 
 const MAX_FEED = 100;
 
-async function ensureDir() {
-  await fs.mkdir(DATA_DIR, { recursive: true });
+type IdeaRow = {
+  id: string;
+  created_at: string;
+  source: "gemini" | "perplexity";
+  theme_id: ThemeId;
+  custom_label: string | null;
+  source_mode: FeedIdea["sourceMode"];
+  title: string;
+  hook: string | null;
+  angle: string | null;
+  trend_source: string | null;
+  voice: FeedIdea["voice"] | null;
+  tool_concept: string | null;
+  keywords: FeedIdea["keywords"] | null;
+  target: FeedIdea["target"] | null;
+  impression: FeedIdea["impression"] | null;
+  priority_score: number | null;
+  target_keyword_id: string | null;
+};
+
+function rowToIdea(r: IdeaRow): FeedIdea {
+  return {
+    id: r.id,
+    createdAt: r.created_at,
+    source: r.source,
+    themeId: r.theme_id,
+    customLabel: r.custom_label ?? undefined,
+    sourceMode: r.source_mode ?? undefined,
+    title: r.title,
+    hook: r.hook ?? "",
+    angle: r.angle ?? "",
+    trend_source: r.trend_source ?? undefined,
+    voice: r.voice ?? undefined,
+    toolConcept: r.tool_concept ?? undefined,
+    keywords: r.keywords ?? undefined,
+    target: r.target ?? undefined,
+    impression: r.impression ?? undefined,
+    priorityScore: r.priority_score ?? undefined,
+    targetKeywordId: r.target_keyword_id ?? undefined,
+  };
+}
+
+async function loadFeedStateRow(): Promise<{ tickCount: number; lastTickAt: string | null }> {
+  const rows = await sql<{ tick_count: number; last_tick_at: string | null }[]>`
+    select tick_count, last_tick_at from feed_state where id = 1
+  `;
+  if (rows.length === 0) return { tickCount: 0, lastTickAt: null };
+  return { tickCount: rows[0].tick_count, lastTickAt: rows[0].last_tick_at };
 }
 
 export async function loadFeed(): Promise<FeedState> {
-  await ensureDir();
-  try {
-    const raw = await fs.readFile(FEED_FILE, "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return { ideas: [], tickCount: 0 };
-  }
-}
-
-export async function saveFeed(state: FeedState): Promise<void> {
-  await ensureDir();
-  await fs.writeFile(FEED_FILE, JSON.stringify(state, null, 2), "utf-8");
+  const [ideas, meta] = await Promise.all([
+    sql<IdeaRow[]>`
+      select id, created_at, source, theme_id, custom_label, source_mode,
+             title, hook, angle, trend_source, voice, tool_concept,
+             keywords, target, impression, priority_score, target_keyword_id
+      from ideas
+      order by created_at desc
+      limit ${MAX_FEED}
+    `,
+    loadFeedStateRow(),
+  ]);
+  return {
+    ideas: ideas.map(rowToIdea),
+    tickCount: meta.tickCount,
+    lastTickAt: meta.lastTickAt ?? undefined,
+  };
 }
 
 function normalize(s: string): string {
-  return s
-    .replace(/[\s!！？?。、・「」『』]/g, "")
-    .toLowerCase();
+  return s.replace(/[\s!！？?。、・「」『』]/g, "").toLowerCase();
 }
 
 function similar(a: string, b: string): boolean {
@@ -44,35 +88,78 @@ function similar(a: string, b: string): boolean {
 }
 
 export async function appendIdeas(
-  newIdeas: Omit<FeedIdea, "id" | "createdAt">[]
-): Promise<{ added: number; skipped: number; state: FeedState }> {
-  const state = await loadFeed();
+  newIdeas: Omit<FeedIdea, "id" | "createdAt">[],
+): Promise<{ added: number; skipped: number; state: FeedState; addedIdeas: FeedIdea[] }> {
+  const existing = await sql<{ title: string }[]>`
+    select title from ideas order by created_at desc limit ${MAX_FEED}
+  `;
+  const existingTitles = existing.map((e) => e.title);
+
+  const addedIdeas: FeedIdea[] = [];
   let added = 0;
   let skipped = 0;
+
   for (const idea of newIdeas) {
-    const dup = state.ideas.some((existing) => similar(existing.title, idea.title));
+    const dup = existingTitles.some((t) => similar(t, idea.title));
     if (dup) {
       skipped++;
       continue;
     }
-    state.ideas.unshift({
-      ...idea,
-      id: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
-    });
+    const id = crypto.randomUUID();
+    const createdAt = new Date().toISOString();
+    await sql`
+      insert into ideas (
+        id, created_at, source, theme_id, custom_label, source_mode,
+        title, hook, angle, trend_source, voice, tool_concept,
+        keywords, target, impression, priority_score, target_keyword_id
+      ) values (
+        ${id},
+        ${createdAt},
+        ${idea.source},
+        ${idea.themeId},
+        ${idea.customLabel ?? null},
+        ${idea.sourceMode ?? null},
+        ${idea.title},
+        ${idea.hook ?? ""},
+        ${idea.angle ?? ""},
+        ${idea.trend_source ?? null},
+        ${idea.voice ? sql.json(idea.voice) : null},
+        ${idea.toolConcept ?? null},
+        ${idea.keywords ? sql.json(idea.keywords) : null},
+        ${idea.target ? sql.json(idea.target) : null},
+        ${idea.impression ? sql.json(idea.impression) : null},
+        ${idea.priorityScore ?? null},
+        ${idea.targetKeywordId ?? null}
+      )
+    `;
+    addedIdeas.push({ ...idea, id, createdAt });
+    existingTitles.unshift(idea.title);
     added++;
   }
-  if (state.ideas.length > MAX_FEED) state.ideas = state.ideas.slice(0, MAX_FEED);
-  state.tickCount = (state.tickCount ?? 0) + 1;
-  state.lastTickAt = new Date().toISOString();
-  await saveFeed(state);
-  return { added, skipped, state };
+
+  // 古いideaを削除（MAX_FEED超え分）
+  await sql`
+    delete from ideas
+    where id in (
+      select id from ideas order by created_at desc offset ${MAX_FEED}
+    )
+  `;
+
+  // feed_stateのtick_count更新
+  const now = new Date().toISOString();
+  await sql`
+    update feed_state
+    set tick_count = tick_count + 1,
+        last_tick_at = ${now}
+    where id = 1
+  `;
+
+  const state = await loadFeed();
+  return { added, skipped, state, addedIdeas };
 }
 
 export async function dismissIdea(id: string): Promise<void> {
-  const state = await loadFeed();
-  state.ideas = state.ideas.filter((i) => i.id !== id);
-  await saveFeed(state);
+  await sql`delete from ideas where id = ${id}`;
 }
 
 export function pickNextTheme(tickCount: number): { id: ThemeId; label: string; desc: string } {

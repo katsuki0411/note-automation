@@ -184,5 +184,6 @@ export type Article = {
   bestTitleReason: string;
   bodyMarkdown: string;
   imagePromptSubject: string;
+  imageAltText?: string;
   imagePath?: string;
 };

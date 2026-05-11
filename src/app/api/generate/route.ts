@@ -129,6 +129,7 @@ export async function POST(req: NextRequest) {
       bestTitleReason: (parsed.best_title_reason as string) ?? "",
       bodyMarkdown: body,
       imagePromptSubject: (parsed.image_prompt_subject as string) ?? "",
+      imageAltText: (parsed.image_alt_text as string) ?? "",
     };
 
     await saveArticle(article);
