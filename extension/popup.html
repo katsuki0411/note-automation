@@ -69,6 +69,17 @@
         background: #fdecec;
         color: #991b1b;
       }
+      .toggle {
+        margin-top: 10px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: #333;
+      }
+      .toggle input {
+        width: auto;
+      }
     </style>
   </head>
   <body>
@@ -77,7 +88,13 @@
     <input id="title" type="text" placeholder="記事タイトル" />
     <label for="body">本文（プレーンテキスト or Markdown）</label>
     <textarea id="body" placeholder="本文を貼り付け"></textarea>
-    <button id="post">下書き保存で投稿テスト</button>
+    <label for="tags">タグ（カンマ区切り、最大5個）</label>
+    <input id="tags" type="text" placeholder="例: AI, 時短, 主婦" />
+    <label class="toggle">
+      <input id="publishToggle" type="checkbox" />
+      公開まで進める（OFF = 下書きで止める）
+    </label>
+    <button id="post">投稿テスト</button>
     <div id="status" class="status"></div>
     <script src="popup.js"></script>
   </body>

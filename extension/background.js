@@ -12,10 +12,30 @@ const NEW_POST_URL = "https://note.com/notes/new"; // TODO: 実機で確認
 /** @type {Map<number, { payload: any, sendResponse: (r:any)=>void }>} */
 const pending = new Map();
 
+async function writeLastResult(result) {
+  try {
+    await chrome.storage.local.set({
+      lastResult: { ...result, ts: Date.now() },
+    });
+  } catch (e) {
+    console.warn("storage write failed", e);
+  }
+}
+
 function handlePostRequest(payload, sendResponse) {
+  // 開始時点を記録（ポップアップが閉じても再オープンで状況がわかる）
+  writeLastResult({
+    ok: null,
+    mode: "in_progress",
+    publish: !!payload?.publish,
+    title: payload?.title,
+  });
+
   chrome.tabs.create({ url: NEW_POST_URL, active: true }, (tab) => {
     if (!tab || tab.id == null) {
-      sendResponse({ ok: false, error: "新規タブを開けませんでした" });
+      const r = { ok: false, error: "新規タブを開けませんでした" };
+      writeLastResult(r);
+      sendResponse(r);
       return;
     }
     pending.set(tab.id, { payload, sendResponse });
@@ -37,14 +57,17 @@ chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
     tabId,
     { type: "FILL_AND_POST", payload: entry.payload },
     (result) => {
+      let finalResult;
       if (chrome.runtime.lastError) {
-        entry.sendResponse({
+        finalResult = {
           ok: false,
           error: `content.js 応答なし: ${chrome.runtime.lastError.message}`,
-        });
+        };
       } else {
-        entry.sendResponse(result ?? { ok: false, error: "空応答" });
+        finalResult = result ?? { ok: false, error: "空応答" };
       }
+      writeLastResult(finalResult);
+      try { entry.sendResponse(finalResult); } catch (_) {}
     },
   );
 });

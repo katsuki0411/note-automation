@@ -41,7 +41,7 @@
   });
 
   async function fillAndPost(payload) {
-    const { title, body, publish = false } = payload ?? {};
+    const { title, body, tags = [], publish = false } = payload ?? {};
     if (!title || !body) {
       return { ok: false, error: "title / body が空" };
     }
@@ -78,21 +78,117 @@
     );
 
     // --- 公開 or 下書き ---
-    if (publish) {
-      // TODO: 公開ボタンのセレクタは実機確認。多段モーダルになる可能性あり。
-      return {
-        ok: false,
-        error: "publish:true は未実装。下書き保存で確認してください",
-      };
+    if (!publish) {
+      // 下書き保存は note 側で自動保存される想定
+      return { ok: true, mode: "draft" };
     }
 
-    // 下書き保存は note 側で自動保存される想定。明示ボタンがあれば押す。
-    // TODO: 「下書き保存」ボタンがあるか実機確認
+    // 本文反映が DOM に行き渡るまで少し待つ
+    await sleep(500);
 
-    return { ok: true, mode: "draft" };
+    // 1) エディタ画面右上の「公開」または「公開設定」ボタンを押す → モーダル起動
+    const openModalBtn = await waitForButton(["公開設定", "公開に進む", "公開"], 8000);
+    if (!openModalBtn) return { ok: false, error: "公開ボタンが見つからない" };
+    openModalBtn.click();
+
+    // 2) モーダル描画を待つ
+    await sleep(800);
+
+    // 3) タグ入力（あれば）
+    if (tags.length > 0) {
+      try {
+        await fillTags(tags);
+      } catch (e) {
+        // タグ入力失敗は致命傷にせずログだけ残す
+        console.warn("[note-poster] タグ入力に失敗:", e);
+      }
+    }
+
+    // 4) 最終投稿ボタン
+    const finalBtn = await waitForButton(["投稿する", "公開する", "投稿"], 8000);
+    if (!finalBtn) return { ok: false, error: "最終投稿ボタンが見つからない" };
+
+    // 3) sendResponse を先に返してから click する。
+    //    note.com の公開遷移でこのページが bfcache に入りメッセージポートが閉じるため、
+    //    click 前に応答を返却する。結果（公開済みURL等）は note のタブを見れば分かるので
+    //    拡張側で追跡しない。
+    setTimeout(() => finalBtn.click(), 200);
+    return { ok: true, mode: "publish_clicked" };
   }
 
   // --- helpers ---
+
+  function sleep(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
+  function isVisible(el) {
+    if (!el) return false;
+    if (el.disabled) return false;
+    const rect = el.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) return false;
+    const style = getComputedStyle(el);
+    if (style.visibility === "hidden" || style.display === "none") return false;
+    return true;
+  }
+
+  // テキスト一致のボタンを表示中・有効なものに限って探す（モーダル描画を待つためポーリング）
+  async function waitForButton(textCandidates, timeoutMs) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const all = document.querySelectorAll('button, [role="button"], a');
+      for (const el of all) {
+        if (!isVisible(el)) continue;
+        const t = (el.innerText || el.textContent || "").trim();
+        if (!t) continue;
+        if (textCandidates.some((needle) => t === needle)) return el;
+      }
+      // 完全一致がなければ部分一致でフォールバック
+      for (const el of all) {
+        if (!isVisible(el)) continue;
+        const t = (el.innerText || el.textContent || "").trim();
+        if (!t) continue;
+        if (textCandidates.some((needle) => t.includes(needle))) return el;
+      }
+      await sleep(200);
+    }
+    return null;
+  }
+
+  // モーダル内のタグ入力欄に1個ずつタグを入れる。
+  // note の挙動: 入力 → Enter で確定（チップ化）。確定機構がEnter以外なら要修正。
+  async function fillTags(tags) {
+    const tagInput = await waitFor(
+      // TODO: 実機の note 公開モーダルで確認
+      'input[placeholder*="タグ"], input[aria-label*="タグ"], input[name*="tag"]',
+      5000,
+    );
+    if (!tagInput) {
+      console.warn("[note-poster] タグ入力欄が見つからない、スキップ");
+      return;
+    }
+    tagInput.focus();
+    for (const tag of tags) {
+      const t = String(tag).trim();
+      if (!t) continue;
+      setNativeValue(tagInput, t);
+      tagInput.dispatchEvent(new Event("input", { bubbles: true }));
+      await sleep(150);
+      for (const type of ["keydown", "keypress", "keyup"]) {
+        tagInput.dispatchEvent(
+          new KeyboardEvent(type, {
+            key: "Enter",
+            code: "Enter",
+            keyCode: 13,
+            which: 13,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      }
+      await sleep(250);
+    }
+  }
 
   function waitFor(selector, timeoutMs) {
     return new Promise((resolve) => {
