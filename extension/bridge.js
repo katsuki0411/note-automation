@@ -7,14 +7,13 @@
 (() => {
   if (window.__noteAutomationPosterBridgeLoaded) return;
 
-  // manifest の content_scripts は *.vercel.app に広く合致させているため、
-  // ここで note-automation の本番/プレビュー/ローカルだけにスコープを絞る。
-  // 他の vercel.app サイトから誤った POST_ARTICLE を受け付けないため必須。
+  // manifest の content_scripts で localhost / 本番URL のみに限定済み。
+  // ここの host チェックは多層防御（manifest が誤って広い match を持ってしまった場合の保険）。
+  // 注: *.vercel.app は Chrome の Public Suffix List 制限で match patten として使えない。
+  // プレビューURLを対象にしたい場合は manifest に個別追加する。
   const host = location.hostname;
   const isAllowed =
-    host === "localhost" ||
-    host === "note-automation-rho.vercel.app" ||
-    (host.startsWith("note-automation-") && host.endsWith(".vercel.app"));
+    host === "localhost" || host === "note-automation-rho.vercel.app";
   if (!isAllowed) return;
 
   window.__noteAutomationPosterBridgeLoaded = true;
