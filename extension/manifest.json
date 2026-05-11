@@ -13,6 +13,14 @@
       "matches": ["https://note.com/*", "https://editor.note.com/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://localhost:3000/*",
+        "https://note-automation-rho.vercel.app/*"
+      ],
+      "js": ["bridge.js"],
+      "run_at": "document_idle"
     }
   ],
   "action": {

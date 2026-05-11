@@ -29,13 +29,21 @@ note-automation で生成した記事を note.com に自動投稿するための
 - タグ・有料/無料・コメント可否・マガジン未対応
 - アイキャッチ画像未対応
 
-## Webアプリ連携（未実装）
+## Webアプリ連携
 
-`externally_connectable` に以下を登録済み：
+note-automation のライブラリ画面の「📝 noteへ投稿」ボタンから直接呼び出せる。
+
+仕組み:
+- `bridge.js` が note-automation の Web ページに content script として注入される
+- Web アプリは `window.postMessage({ source: 'note-automation', type: 'POST_ARTICLE', ... })` で投稿リクエストを発射
+- bridge.js が拾って background に転送、結果も逆方向に返す
+- ⇒ Web アプリ側は拡張IDを知らなくて良い
+
+対応 URL（manifest の content_scripts に登録）:
 - `http://localhost:3000/*`
 - `https://note-automation-rho.vercel.app/*`
 
-Webアプリ側から `chrome.runtime.sendMessage(EXTENSION_ID, { type: 'POST_ARTICLE', payload: { title, body, publish } }, cb)` を叩けば同じ動作になる予定。Webアプリ側ボタン実装は次フェーズ。
+**重要：拡張を更新した後、Webアプリ側のタブも一度ハード再読込（Ctrl+Shift+R）が必要**（既存タブには新しい content script が反映されないため）。
 
 ## ファイル構成
 
@@ -43,5 +51,6 @@ Webアプリ側から `chrome.runtime.sendMessage(EXTENSION_ID, { type: 'POST_AR
 | --- | --- |
 | `manifest.json` | MV3 マニフェスト |
 | `background.js` | ポップアップ/Webアプリからの指示を受け、note 投稿ページのタブを開いて content.js に渡す |
-| `content.js` | note 投稿ページ上で DOM 操作してタイトル・本文を入力 |
+| `content.js` | note 投稿ページ上で DOM 操作してタイトル・本文・タグを入力 |
+| `bridge.js` | note-automation の Web ページに注入され、ページ ↔ background を window.postMessage で中継 |
 | `popup.html` / `popup.js` | 単体テスト用 UI |

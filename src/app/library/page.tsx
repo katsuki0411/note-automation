@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { Article, FeedIdea, ThemeId } from "@/lib/types";
 import { THEMES } from "@/lib/types";
 import PageHeader from "@/components/PageHeader";
+import { postToNote, type NotePostResult } from "@/lib/notePost";
 
 type GroupBy = "theme" | "source" | "keyword";
 
@@ -29,6 +30,57 @@ export default function LibraryPage() {
     state: "idle" | "loading" | "done" | "error";
     message?: string;
   }>({ state: "idle" });
+
+  // note 投稿モーダル
+  const [postModalArticle, setPostModalArticle] = useState<Article | null>(null);
+  const [postTagsInput, setPostTagsInput] = useState("");
+  const [postPublish, setPostPublish] = useState(true);
+  const [postStatus, setPostStatus] = useState<{
+    state: "idle" | "sending" | "done" | "error";
+    message?: string;
+  }>({ state: "idle" });
+
+  function openPostModal(a: Article) {
+    const fi = feedIdeaOf(a);
+    const suggestedTags: string[] = [];
+    if (fi?.keywords?.primary) suggestedTags.push(fi.keywords.primary);
+    if (fi?.keywords?.secondary) suggestedTags.push(...fi.keywords.secondary);
+    setPostTagsInput(suggestedTags.slice(0, 5).join(", "));
+    setPostPublish(true);
+    setPostStatus({ state: "idle" });
+    setPostModalArticle(a);
+  }
+
+  function closePostModal() {
+    if (postStatus.state === "sending") return;
+    setPostModalArticle(null);
+  }
+
+  async function submitPost() {
+    if (!postModalArticle) return;
+    const tags = postTagsInput
+      .split(/[,、]/)
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .slice(0, 5);
+    setPostStatus({ state: "sending", message: "拡張に送信中..." });
+    const res: NotePostResult = await postToNote({
+      title: postModalArticle.bestTitle,
+      body: postModalArticle.bodyMarkdown,
+      tags,
+      publish: postPublish,
+    });
+    if (res.ok) {
+      setPostStatus({
+        state: "done",
+        message: postPublish
+          ? "公開ボタン押下まで送信。noteタブで結果を確認してください"
+          : "下書きに入力完了。noteタブで確認してください",
+      });
+    } else {
+      setPostStatus({ state: "error", message: res.error ?? "不明" });
+    }
+  }
 
   async function generateDerivative(articleId: string) {
     setDerivativeStatus({ state: "loading", message: "派生案を発掘中..." });
@@ -318,14 +370,21 @@ export default function LibraryPage() {
 
                 <div className="flex flex-wrap gap-2 mb-3">
                   <button
-                    onClick={() => copy(current.bestTitle, "title")}
+                    onClick={() => openPostModal(current)}
                     className="btn-primary"
+                    title="拡張経由で note.com に投稿する"
+                  >
+                    📝 noteへ投稿
+                  </button>
+                  <button
+                    onClick={() => copy(current.bestTitle, "title")}
+                    className="btn-ghost"
                   >
                     {copied === "title" ? "✓ コピー完了" : "タイトルをコピー"}
                   </button>
                   <button
                     onClick={() => copy(current.bodyMarkdown, "body")}
-                    className="btn-primary"
+                    className="btn-ghost"
                   >
                     {copied === "body" ? "✓ コピー完了" : "本文をコピー"}
                   </button>
@@ -376,6 +435,81 @@ export default function LibraryPage() {
             )}
           </div>
         </>
+      )}
+
+      {postModalArticle && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={closePostModal}
+        >
+          <div
+            className="card w-full max-w-md mx-4 p-6 bg-white"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-2">
+              POST TO NOTE
+            </div>
+            <h3 className="text-[18px] font-semibold tracking-tight mb-1">
+              {postModalArticle.bestTitle}
+            </h3>
+            <p className="text-[12px] text-[color:var(--fg-secondary)] mb-4">
+              拡張経由で note.com に投稿します
+            </p>
+
+            <label className="block text-[12px] font-medium text-[color:var(--fg-secondary)] mb-1">
+              タグ（カンマ区切り、最大5個）
+            </label>
+            <input
+              type="text"
+              value={postTagsInput}
+              onChange={(e) => setPostTagsInput(e.target.value)}
+              placeholder="例: AI, 時短, 主婦"
+              className="w-full text-[13px] px-3 py-2 mb-4 rounded-lg border border-[var(--border-card)] bg-white"
+              disabled={postStatus.state === "sending"}
+            />
+
+            <label className="flex items-center gap-2 text-[13px] mb-5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={postPublish}
+                onChange={(e) => setPostPublish(e.target.checked)}
+                disabled={postStatus.state === "sending"}
+              />
+              公開まで進める（OFF = 下書きで止める）
+            </label>
+
+            {postStatus.message && (
+              <div
+                className={`mb-4 text-[12px] px-3 py-2 rounded-lg ${
+                  postStatus.state === "error"
+                    ? "bg-red-50 text-red-700 border border-red-100"
+                    : postStatus.state === "done"
+                      ? "bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)]"
+                      : "bg-amber-50 text-amber-800"
+                }`}
+              >
+                {postStatus.message}
+              </div>
+            )}
+
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={closePostModal}
+                className="btn-ghost"
+                disabled={postStatus.state === "sending"}
+              >
+                閉じる
+              </button>
+              <button
+                onClick={submitPost}
+                className="btn-primary"
+                disabled={postStatus.state === "sending" || postStatus.state === "done"}
+              >
+                {postStatus.state === "sending" ? "送信中..." : "投稿実行"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );
