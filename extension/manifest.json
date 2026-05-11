@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "note-automation Poster",
+  "version": "0.0.1",
+  "description": "note-automation で生成した記事を note.com に自動投稿する内部ツール",
+  "permissions": ["tabs", "scripting", "storage"],
+  "host_permissions": ["https://note.com/*", "https://editor.note.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://note.com/*", "https://editor.note.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://localhost:3000/*",
+        "https://*.vercel.app/*"
+      ],
+      "js": ["bridge.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "note-automation Poster"
+  },
+  "externally_connectable": {
+    "matches": [
+      "http://localhost:3000/*",
+      "https://note-automation-rho.vercel.app/*"
+    ]
+  }
+}

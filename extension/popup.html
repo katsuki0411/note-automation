@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>note-automation Poster</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        padding: 12px;
+        width: 360px;
+      }
+      h1 {
+        font-size: 13px;
+        margin: 0 0 8px;
+        letter-spacing: 0.08em;
+        color: #555;
+      }
+      label {
+        font-size: 11px;
+        color: #555;
+        display: block;
+        margin-top: 8px;
+      }
+      input,
+      textarea {
+        width: 100%;
+        box-sizing: border-box;
+        font: inherit;
+        font-size: 12px;
+        padding: 6px 8px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+      }
+      textarea {
+        min-height: 140px;
+        resize: vertical;
+      }
+      button {
+        margin-top: 10px;
+        width: 100%;
+        padding: 8px;
+        border: 0;
+        border-radius: 6px;
+        background: #111;
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: wait;
+      }
+      .status {
+        margin-top: 10px;
+        font-size: 11px;
+        padding: 6px 8px;
+        border-radius: 6px;
+        background: #f3f3f3;
+        color: #333;
+        white-space: pre-wrap;
+        display: none;
+      }
+      .status.ok {
+        background: #e6f5ec;
+        color: #166534;
+      }
+      .status.err {
+        background: #fdecec;
+        color: #991b1b;
+      }
+      .toggle {
+        margin-top: 10px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: #333;
+      }
+      .toggle input {
+        width: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>NOTE-AUTOMATION POSTER (TEST)</h1>
+    <label for="title">タイトル</label>
+    <input id="title" type="text" placeholder="記事タイトル" />
+    <label for="body">本文（プレーンテキスト or Markdown）</label>
+    <textarea id="body" placeholder="本文を貼り付け"></textarea>
+    <label for="tags">タグ（カンマ区切り、最大5個）</label>
+    <input id="tags" type="text" placeholder="例: AI, 時短, 主婦" />
+    <label class="toggle">
+      <input id="publishToggle" type="checkbox" />
+      公開まで進める（OFF = 下書きで止める）
+    </label>
+    <button id="post">投稿テスト</button>
+    <div id="status" class="status"></div>
+    <script src="popup.js"></script>
+  </body>
+</html>
