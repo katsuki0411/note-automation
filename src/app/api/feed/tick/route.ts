@@ -388,6 +388,7 @@ export async function POST(req: Request) {
       added: result.added,
       skipped: result.skipped,
       total: result.state.ideas.length,
+      addedIdeas: result.addedIdeas,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "unknown";

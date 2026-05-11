@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { FeedIdea } from "@/lib/types";
 
 type DoneRecord = { id: string; title: string };
@@ -31,13 +31,18 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
     lastFinishAt: null,
   });
 
+  // 進行中ジョブのID（重複起動ガード）
+  const inFlightRef = useRef<string | null>(null);
+
   // worker: queueに何かあって currentが空ならlift→fetch
   useEffect(() => {
     if (state.current || state.queue.length === 0) return;
     const next = state.queue[0];
+    if (inFlightRef.current === next.id) return;
+    inFlightRef.current = next.id;
+
     setState((s) => ({ ...s, queue: s.queue.slice(1), current: next }));
 
-    let cancelled = false;
     (async () => {
       try {
         const res = await fetch("/api/generate", {
@@ -47,7 +52,6 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "生成失敗");
-        if (cancelled) return;
         setState((s) => ({
           ...s,
           completed: [...s.completed, { id: next.id, title: next.title }],
@@ -55,7 +59,6 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
           lastFinishAt: Date.now(),
         }));
       } catch (e) {
-        if (cancelled) return;
         const msg = e instanceof Error ? e.message : "失敗";
         setState((s) => ({
           ...s,
@@ -63,12 +66,10 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
           current: null,
           lastFinishAt: Date.now(),
         }));
+      } finally {
+        inFlightRef.current = null;
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
   }, [state.current, state.queue]);
 
   const enqueue = useCallback((ideas: FeedIdea[]) => {
