@@ -1,9 +1,13 @@
 import { NextRequest } from "next/server";
-import { claude, CLAUDE_MODEL } from "@/lib/claude";
 import { ARTICLE_SYSTEM, ARTICLE_USER } from "@/lib/prompts";
 import { loadArticles, saveArticle, type Article, type Idea } from "@/lib/storage";
 import { BRAND, getCtaConfig, MID_ENGAGE_CTA, type ThemeTagKey } from "@/lib/brand";
 import { attachArticleToKeyword, loadKeywords } from "@/lib/keywords";
+import {
+  DEFAULT_ARTICLE_MODEL,
+  generateArticleJsonText,
+  isArticleModel,
+} from "@/lib/articleGen";
 import type { FeedIdea, Keyword, ThemeId } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -57,13 +61,15 @@ async function pickTargetKeyword(
 
 export async function POST(req: NextRequest) {
   try {
-    const { idea, targetKeywordId } = (await req.json()) as {
+    const { idea, targetKeywordId, model } = (await req.json()) as {
       idea: Idea | FeedIdea;
       targetKeywordId?: string;
+      model?: string;
     };
     if (!idea?.title) {
       return Response.json({ error: "ideaが必要です" }, { status: 400 });
     }
+    const articleModel = isArticleModel(model) ? model : DEFAULT_ARTICLE_MODEL;
 
     const feed = idea as FeedIdea;
     const fixedTags = buildTags(feed.themeId);
@@ -99,18 +105,12 @@ export async function POST(req: NextRequest) {
       ctaButton: cta.buttonMarkdown,
     });
 
-    const message = await claude().messages.create({
-      model: CLAUDE_MODEL,
-      max_tokens: 12000,
+    const responseText = await generateArticleJsonText({
+      model: articleModel,
       system: ARTICLE_SYSTEM,
-      messages: [{ role: "user", content: userPrompt }],
+      user: userPrompt,
     });
-
-    const textBlock = message.content.find((c) => c.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
-      throw new Error("Claude応答にテキストブロックがありません");
-    }
-    const parsed = extractJson(textBlock.text);
+    const parsed = extractJson(responseText);
 
     let body = (parsed.body_markdown as string) ?? "";
     body = body.replaceAll("---FIXED_AUTHOR_BIO_PLACEHOLDER---", BRAND.authorBio);
