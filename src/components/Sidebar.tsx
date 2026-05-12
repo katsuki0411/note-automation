@@ -13,10 +13,29 @@ const NAV = [
   { href: "/settings", num: "05", label: "設定", desc: "Settings" },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({
+  isMobileOpen = false,
+  onCloseMobile,
+}: {
+  isMobileOpen?: boolean;
+  onCloseMobile?: () => void;
+}) {
   const pathname = usePathname();
   return (
-    <aside className="w-64 shrink-0 sticky top-0 h-screen flex flex-col bg-white border-r border-[var(--border-subtle)]">
+    <>
+      {/* モバイル用バックドロップ */}
+      <div
+        className={`md:hidden fixed inset-0 z-40 bg-black/40 transition-opacity ${
+          isMobileOpen ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+        onClick={onCloseMobile}
+        aria-hidden
+      />
+      <aside
+        className={`fixed md:static z-50 top-0 left-0 w-64 shrink-0 h-screen md:h-screen md:sticky md:top-0 flex flex-col bg-white border-r border-[var(--border-subtle)] transition-transform md:transform-none ${
+          isMobileOpen ? "translate-x-0" : "-translate-x-full"
+        } md:translate-x-0`}
+      >
       <div className="px-6 pt-7 pb-5">
         <NoteLogoFull />
       </div>
@@ -86,6 +105,7 @@ export default function Sidebar() {
           </button>
         </form>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }
