@@ -714,21 +714,27 @@ function HotKeywordCard({
     >
       <div
         onClick={onToggleExpand}
-        className="flex items-center px-4 py-3 gap-3 cursor-pointer select-none"
+        className="flex items-center px-3 md:px-4 py-3 gap-2 md:gap-3 cursor-pointer select-none"
       >
         <ScoreBadge score={hot.priority} />
         <span
-          className="px-2 py-0.5 rounded-full bg-gray-100 text-[10px] text-[color:var(--fg-secondary)] shrink-0 max-w-[160px] truncate"
+          className="px-2 py-0.5 rounded-full bg-gray-100 text-[10px] text-[color:var(--fg-secondary)] shrink-0 max-w-[80px] md:max-w-[160px] truncate"
           title={themeLabel}
         >
           {themeLabel}
         </span>
-        {hot.painIntensity && <PainBadge intensity={hot.painIntensity} />}
-        <h3 className="flex-1 min-w-0 font-semibold text-[14.5px] tracking-tight truncate text-[color:var(--fg-primary)]">
+        {hot.painIntensity && (
+          <div className="hidden md:block">
+            <PainBadge intensity={hot.painIntensity} />
+          </div>
+        )}
+        <h3 className="flex-1 min-w-0 font-semibold text-[13.5px] md:text-[14.5px] tracking-tight truncate text-[color:var(--fg-primary)]">
           {hot.kw}
         </h3>
+        <div className="hidden md:contents">
         <RiseBadge status={hot.riseStatus} />
         <VerifyBadge hot={hot} />
+        </div>
         <span
           className="hidden md:inline-flex items-center text-[9.5px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0"
           style={(() => {
@@ -759,7 +765,7 @@ function HotKeywordCard({
             実行中
           </span>
         ) : (
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="hidden md:flex items-center gap-1 shrink-0">
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -1061,16 +1067,18 @@ function IdeaCard({
           <ScoreBadge score={idea.priorityScore} />
         )}
         <span
-          className="px-2 py-0.5 rounded-full bg-gray-100 text-[10px] text-[color:var(--fg-secondary)] shrink-0 max-w-[160px] truncate"
+          className="px-2 py-0.5 rounded-full bg-gray-100 text-[10px] text-[color:var(--fg-secondary)] shrink-0 max-w-[80px] md:max-w-[160px] truncate"
           title={idea.customLabel ?? THEME_LABEL[idea.themeId] ?? idea.themeId}
         >
           {idea.sourceMode === "derivative" && "↳ "}
           {idea.customLabel ?? THEME_LABEL[idea.themeId] ?? idea.themeId}
         </span>
         {idea.target?.painIntensity && (
-          <PainBadge intensity={idea.target.painIntensity} />
+          <div className="hidden md:block">
+            <PainBadge intensity={idea.target.painIntensity} />
+          </div>
         )}
-        <h3 className="flex-1 min-w-0 font-semibold text-[14.5px] tracking-tight truncate text-[color:var(--fg-primary)]">
+        <h3 className="flex-1 min-w-0 font-semibold text-[13.5px] md:text-[14.5px] tracking-tight truncate text-[color:var(--fg-primary)]">
           {idea.title}
         </h3>
         {idea.voice && (
@@ -1079,7 +1087,9 @@ function IdeaCard({
           </span>
         )}
         {idea.impression && (
-          <MiniMetrics impression={idea.impression} />
+          <div className="hidden md:block">
+            <MiniMetrics impression={idea.impression} />
+          </div>
         )}
         {generated && (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] text-[10px] font-bold shrink-0">
@@ -1093,7 +1103,7 @@ function IdeaCard({
           </span>
         )}
         {isFresh && (
-          <span className="inline-flex items-center gap-1 text-[10px] text-[color:var(--accent-dark)] shrink-0">
+          <span className="hidden md:inline-flex items-center gap-1 text-[10px] text-[color:var(--accent-dark)] shrink-0">
             <span className="w-1 h-1 rounded-full bg-[color:var(--accent)]" />
             NEW
           </span>

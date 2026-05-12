@@ -44,3 +44,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# extension zip（社長配布用一時ファイル）
+/note-automation-extension*.zip
+
+# playwright screenshots / cache
+/mobile-*.png
+/.playwright-mcp
