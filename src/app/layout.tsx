@@ -1,8 +1,5 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import Sidebar from "@/components/Sidebar";
-import { GenerationProvider } from "@/components/GenerationProvider";
-import GenerationStatusBar from "@/components/GenerationStatusBar";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -28,15 +25,7 @@ export default function RootLayout({
       lang="ja"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex">
-        <GenerationProvider>
-          <Sidebar />
-          <div className="flex-1 min-w-0 flex flex-col">
-            <main className="flex-1 max-w-[1400px] mx-auto w-full px-8 py-10">{children}</main>
-          </div>
-          <GenerationStatusBar />
-        </GenerationProvider>
-      </body>
+      <body className="min-h-full">{children}</body>
     </html>
   );
 }

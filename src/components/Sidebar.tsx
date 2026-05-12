@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { NoteLogoFull } from "./NoteLogo";
+import { logout } from "@/app/login/actions";
 
 const NAV = [
   { href: "/", num: "01", label: "ネタ収集 ＆ 生成", desc: "Research & Generate" },
@@ -67,13 +68,23 @@ export default function Sidebar() {
         })}
       </nav>
 
-      <div className="px-6 py-5 border-t border-[var(--border-subtle)]">
-        <div className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--fg-muted)] mb-1.5">
-          Phase
+      <div className="px-6 py-5 border-t border-[var(--border-subtle)] space-y-3">
+        <div>
+          <div className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--fg-muted)] mb-1.5">
+            Phase
+          </div>
+          <div className="text-[12px] text-[color:var(--fg-secondary)]">
+            1 / 2 — Research & Generate
+          </div>
         </div>
-        <div className="text-[12px] text-[color:var(--fg-secondary)]">
-          1 / 2 — Research & Generate
-        </div>
+        <form action={logout}>
+          <button
+            type="submit"
+            className="text-[11px] text-[color:var(--fg-muted)] hover:text-[color:var(--fg-primary)] transition-colors"
+          >
+            ログアウト →
+          </button>
+        </form>
       </div>
     </aside>
   );
