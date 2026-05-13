@@ -126,7 +126,6 @@ export default function PlatformsPage() {
   return (
     <>
       <PageHeader
-        step="STEP 04 / SOURCES"
         title="情報源プラットフォーム"
         description={`ネタ収集で検索する主婦悩み相談サイト。有効${enabledCount}/${platforms.length}件`}
         right={

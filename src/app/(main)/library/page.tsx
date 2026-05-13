@@ -184,7 +184,6 @@ export default function LibraryPage() {
   return (
     <>
       <PageHeader
-        step="STEP 03 / LIBRARY"
         title="ライブラリ"
         description="生成された記事一覧。Markdownをコピーしてnoteに貼り付け → 予約投稿。"
       />

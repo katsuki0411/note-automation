@@ -301,7 +301,6 @@ export default function KeywordsPage() {
   return (
     <>
       <PageHeader
-        step="STEP 03 / KEYWORDS"
         title="キーワード戦略"
         description="🔥 ホットKWを発見 → そのKWで記事を作る／📚 蓄積したKWの進捗管理"
         right={

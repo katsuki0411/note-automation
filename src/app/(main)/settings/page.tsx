@@ -83,7 +83,6 @@ export default function SettingsPage() {
   return (
     <>
       <PageHeader
-        step="STEP 06 / SETTINGS"
         title="設定"
         description="記事生成モデルと、SEO順位チェック用の記事URLを管理します。"
       />

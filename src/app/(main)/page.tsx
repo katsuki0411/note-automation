@@ -359,7 +359,6 @@ export default function ResearchPage() {
   return (
     <>
       <PageHeader
-        step="STEP 01 / RESEARCH"
         title="ライブネタフィード"
         description="主婦のリアルな悩みをGeminiが定期的に発掘します。気になるネタにチェックを入れて記事生成へ。"
         right={

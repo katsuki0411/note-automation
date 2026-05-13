@@ -4,15 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { NoteLogoFull } from "./NoteLogo";
 import { logout } from "@/app/login/actions";
-
-const NAV = [
-  { href: "/", num: "01", label: "ネタ収集 ＆ 生成", desc: "Research & Generate" },
-  { href: "/library", num: "02", label: "ライブラリ", desc: "Library" },
-  { href: "/keywords", num: "03", label: "キーワード戦略", desc: "Keywords" },
-  { href: "/platforms", num: "04", label: "情報源", desc: "Sources" },
-  { href: "/seo", num: "05", label: "SEO順位", desc: "SEO Rank" },
-  { href: "/settings", num: "06", label: "設定", desc: "Settings" },
-];
+import { NAV_ITEMS } from "@/lib/navItems";
 
 export default function Sidebar({
   isMobileOpen = false,
@@ -42,11 +34,12 @@ export default function Sidebar({
       </div>
 
       <nav className="px-3 flex-1 space-y-0.5">
-        {NAV.map((item) => {
+        {NAV_ITEMS.map((item) => {
           const active =
             item.href === "/"
               ? pathname === "/"
               : pathname.startsWith(item.href);
+          const Icon = item.icon;
           return (
             <Link
               key={item.href}
@@ -58,15 +51,17 @@ export default function Sidebar({
               }`}
             >
               <span
-                className={`text-[10px] font-mono tracking-widest ${
-                  active ? "text-[color:var(--accent-dark)]" : "text-[color:var(--fg-muted)]"
+                className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${
+                  active
+                    ? "bg-white text-[color:var(--accent-dark)] ring-1 ring-[color:var(--accent)]/30"
+                    : "bg-gray-50 text-[color:var(--fg-secondary)] group-hover:text-[color:var(--fg-primary)]"
                 }`}
               >
-                {item.num}
+                <Icon size={18} />
               </span>
-              <span className="flex-1 leading-tight">
+              <span className="flex-1 leading-tight min-w-0">
                 <span
-                  className={`block text-[14px] font-semibold ${
+                  className={`block text-[14px] font-semibold truncate ${
                     active ? "text-[color:var(--accent-dark)]" : "text-[color:var(--fg-primary)]"
                   }`}
                 >
@@ -81,7 +76,7 @@ export default function Sidebar({
                 </span>
               </span>
               {active && (
-                <span className="w-1.5 h-1.5 rounded-full bg-[color:var(--accent)]" />
+                <span className="w-1.5 h-1.5 rounded-full bg-[color:var(--accent)] shrink-0" />
               )}
             </Link>
           );
