@@ -140,13 +140,7 @@ export default function PlatformsPage() {
       />
 
       {message && (
-        <div
-          className={`mb-4 px-4 py-2.5 rounded-lg text-[13px] ${
-            message.kind === "success"
-              ? "bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)]"
-              : "bg-red-50 text-red-700 border border-red-100"
-          }`}
-        >
+        <div className={`alert ${message.kind === "success" ? "alert-success" : "alert-error"}`}>
           {message.text}
         </div>
       )}
@@ -243,7 +237,7 @@ export default function PlatformsPage() {
                     className="w-2 h-2 rounded-full"
                     style={{ background: meta.color, border: "1px solid rgba(0,0,0,0.1)" }}
                   />
-                  <h2 className="font-semibold text-[14px]">{meta.label}</h2>
+                  <h2 className="section-title">{meta.label}</h2>
                   <span className="text-[11px] font-mono text-[color:var(--fg-muted)]">
                     {list.filter((p) => p.enabled).length}/{list.length}
                   </span>

@@ -165,13 +165,7 @@ export default function SeoPage() {
       />
 
       {message && (
-        <div
-          className={`mb-4 px-4 py-2.5 rounded-lg text-[13px] ${
-            message.kind === "success"
-              ? "bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)]"
-              : "bg-red-50 text-red-700 border border-red-100"
-          }`}
-        >
+        <div className={`alert ${message.kind === "success" ? "alert-success" : "alert-error"}`}>
           {message.text}
         </div>
       )}

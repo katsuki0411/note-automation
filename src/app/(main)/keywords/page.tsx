@@ -343,13 +343,7 @@ export default function KeywordsPage() {
       </div>
 
       {message && (
-        <div
-          className={`mb-4 px-4 py-2.5 rounded-lg text-[13px] ${
-            message.kind === "success"
-              ? "bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)]"
-              : "bg-red-50 text-red-700 border border-red-100"
-          }`}
-        >
+        <div className={`alert ${message.kind === "success" ? "alert-success" : "alert-error"}`}>
           {message.text}
         </div>
       )}
@@ -387,7 +381,7 @@ export default function KeywordsPage() {
         <section className="card p-5 mb-5">
           <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
             <div>
-              <h2 className="font-bold text-[15px] mb-0.5">
+              <h2 className="section-title">
                 {THEMES.find((t) => t.id === activeTheme)?.label}で今熱いKW
               </h2>
               <p className="text-[11px] text-[color:var(--fg-secondary)]">
@@ -450,7 +444,7 @@ export default function KeywordsPage() {
             <section key={sub.id} className="card p-5">
               <div className="flex items-center justify-between mb-3 gap-3">
                 <div>
-                  <h2 className="font-semibold text-[15px]">
+                  <h2 className="section-title">
                     {sub.label}
                     <span className="ml-2 text-[11px] font-mono text-[color:var(--fg-muted)]">
                       {sorted.length}件

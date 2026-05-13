@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import PageHeader from "@/components/PageHeader";
 import {
   ARTICLE_MODEL_OPTIONS,
   DEFAULT_ARTICLE_MODEL,
@@ -80,19 +81,17 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="max-w-2xl">
-      <header className="mb-8">
-        <div className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--fg-muted)] mb-2">
-          Settings
-        </div>
-        <h1 className="text-2xl font-semibold text-[color:var(--fg-primary)]">設定</h1>
-      </header>
+    <>
+      <PageHeader
+        step="STEP 06 / SETTINGS"
+        title="設定"
+        description="記事生成モデルと、SEO順位チェック用の記事URLを管理します。"
+      />
 
+      <div className="max-w-2xl">
       <section className="space-y-4">
         <div>
-          <h2 className="text-base font-semibold text-[color:var(--fg-primary)] mb-1">
-            記事生成モデル
-          </h2>
+          <h2 className="section-title mb-1">記事生成モデル</h2>
           <p className="text-[13px] text-[color:var(--fg-secondary)] leading-relaxed">
             記事本文の生成に使うAIモデルを選択します。設定はこのブラウザにのみ保存されます。
           </p>
@@ -136,11 +135,7 @@ export default function SettingsPage() {
             type="button"
             onClick={handleSave}
             disabled={!hasUnsaved}
-            className={`px-5 py-2 rounded-lg text-[13px] font-semibold transition-colors ${
-              hasUnsaved
-                ? "bg-[color:var(--accent)] text-white hover:bg-[color:var(--accent-dark)]"
-                : "bg-gray-100 text-gray-400 cursor-not-allowed"
-            }`}
+            className="btn-accent disabled:opacity-30 disabled:cursor-not-allowed"
           >
             保存
           </button>
@@ -160,9 +155,7 @@ export default function SettingsPage() {
 
       <section className="space-y-4 mt-12 pt-8 border-t border-[var(--border-subtle)]">
         <div>
-          <h2 className="text-base font-semibold text-[color:var(--fg-primary)] mb-1">
-            自分の記事URL
-          </h2>
+          <h2 className="section-title mb-1">自分の記事URL</h2>
           <p className="text-[13px] text-[color:var(--fg-secondary)] leading-relaxed">
             SEO順位チェックで「自分の記事」と判定するためのURLを登録します。
             登録したURLは <span className="font-mono">/seo</span> の追加フォームでプルダウンから選べます。
@@ -222,17 +215,14 @@ export default function SettingsPage() {
               type="button"
               onClick={addArticleUrl}
               disabled={!newUrlLabel.trim() || !newUrlPrefix.trim()}
-              className={`px-4 py-1.5 rounded-lg text-[12px] font-semibold transition-colors ${
-                newUrlLabel.trim() && newUrlPrefix.trim()
-                  ? "bg-[color:var(--accent)] text-white hover:bg-[color:var(--accent-dark)]"
-                  : "bg-gray-100 text-gray-400 cursor-not-allowed"
-              }`}
+              className="btn-accent disabled:opacity-30 disabled:cursor-not-allowed"
             >
               + 追加
             </button>
           </div>
         </div>
       </section>
-    </div>
+      </div>
+    </>
   );
 }
