@@ -390,7 +390,7 @@ export default function ResearchPage() {
         }
       />
 
-      <div className="card p-4 mb-5 space-y-3">
+      <div className="card sticky top-[120px] md:top-[80px] z-10 p-4 mb-5 space-y-3 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
             <GroupTab active={groupBy === "theme"} onClick={() => selectGroup("theme")}>
@@ -977,6 +977,7 @@ function GroupTab({
   );
 }
 
+// FilterPill / SortPill は同じ UI に統一 (active: 黒丸 / inactive: 白枠)
 function FilterPill({
   active,
   onClick,
@@ -1000,28 +1001,7 @@ function FilterPill({
   );
 }
 
-function SortPill({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-3 py-1 rounded-full text-[11px] font-medium transition ${
-        active
-          ? "bg-[color:var(--accent)] text-white"
-          : "bg-gray-100 text-[color:var(--fg-secondary)] hover:bg-gray-200"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
+const SortPill = FilterPill;
 
 function IdeaCard({
   idea,
