@@ -283,6 +283,7 @@ export default function ResearchPage() {
     setGroupBy(g);
     setFilter("all");
     setHotFilter("all");
+    setShowFreeInput(false);
     if (g === "keyword" && !hotFetched.current) {
       hotFetched.current = true;
       fetchHotKeywords();
@@ -389,44 +390,6 @@ export default function ResearchPage() {
         }
       />
 
-      <div className="card p-4 mb-3 space-y-2">
-        <button
-          onClick={() => setShowFreeInput((s) => !s)}
-          className="w-full flex items-center gap-2 text-left text-[13px] text-[color:var(--fg-secondary)] hover:text-[color:var(--accent-dark)] transition"
-        >
-          <span className="text-[color:var(--accent)]">+</span>
-          <span>自分で指定したお題で即リサーチ</span>
-          <ChevronIcon expanded={showFreeInput} />
-        </button>
-        {showFreeInput && (
-          <div className="flex gap-2 pt-2 border-t border-[var(--border-subtle)]">
-            <input
-              value={freeTheme}
-              onChange={(e) => setFreeTheme(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && freeTheme.trim() && !ticking) {
-                  tick({ mode: "free", theme: freeTheme.trim() });
-                  setFreeTheme("");
-                }
-              }}
-              placeholder="例: 夏休み 自由研究 / 運動会 弁当 / 七五三 着付け"
-              className="flex-1 px-4 py-2.5 rounded-full border border-[var(--border-card)] bg-white text-[13px] focus:outline-none focus:border-[color:var(--accent)] transition"
-            />
-            <button
-              onClick={() => {
-                if (!freeTheme.trim() || ticking) return;
-                tick({ mode: "free", theme: freeTheme.trim() });
-                setFreeTheme("");
-              }}
-              disabled={!freeTheme.trim() || ticking}
-              className="btn-primary"
-            >
-              探す →
-            </button>
-          </div>
-        )}
-      </div>
-
       <div className="card p-4 mb-5 space-y-3">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
@@ -458,6 +421,14 @@ export default function ResearchPage() {
                 </span>
               )}
               <button
+                onClick={() => setShowFreeInput((s) => !s)}
+                className="btn-ghost text-[11px] px-3 py-1.5"
+                title="自分で指定したお題で即リサーチ"
+              >
+                <span className="text-[color:var(--accent)] mr-0.5">+</span>
+                お題指定
+              </button>
+              <button
                 onClick={refreshHotKeywords}
                 disabled={hotLoading}
                 className="btn-ghost text-[11px] px-3 py-1.5"
@@ -471,6 +442,36 @@ export default function ResearchPage() {
             </div>
           )}
         </div>
+        {groupBy === "keyword" && showFreeInput && (
+          <div className="flex gap-2 pt-2 border-t border-[var(--border-subtle)]">
+            <input
+              value={freeTheme}
+              onChange={(e) => setFreeTheme(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && freeTheme.trim() && !ticking) {
+                  tick({ mode: "free", theme: freeTheme.trim() });
+                  setFreeTheme("");
+                  setShowFreeInput(false);
+                }
+              }}
+              placeholder="例: 夏休み 自由研究 / 運動会 弁当 / 七五三 着付け"
+              className="flex-1 px-4 py-2.5 rounded-full border border-[var(--border-card)] bg-white text-[13px] focus:outline-none focus:border-[color:var(--accent)] transition"
+              autoFocus
+            />
+            <button
+              onClick={() => {
+                if (!freeTheme.trim() || ticking) return;
+                tick({ mode: "free", theme: freeTheme.trim() });
+                setFreeTheme("");
+                setShowFreeInput(false);
+              }}
+              disabled={!freeTheme.trim() || ticking}
+              className="btn-primary"
+            >
+              探す →
+            </button>
+          </div>
+        )}
         {groupBy !== "keyword" && (
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-1.5 flex-wrap">
