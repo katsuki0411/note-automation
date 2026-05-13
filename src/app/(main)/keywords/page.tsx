@@ -319,13 +319,18 @@ export default function KeywordsPage() {
       />
 
       <FilterBar>
-        <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
-          <GroupTab active={activeTab === "hot"} onClick={() => setActiveTab("hot")}>
-            🔥 ホットKW発見
-          </GroupTab>
-          <GroupTab active={activeTab === "owned"} onClick={() => setActiveTab("owned")}>
-            📚 保有KW <span className="opacity-60 ml-0.5">{keywords.length}</span>
-          </GroupTab>
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
+            <GroupTab active={activeTab === "hot"} onClick={() => setActiveTab("hot")}>
+              🔥 ホットKW発見
+            </GroupTab>
+            <GroupTab active={activeTab === "owned"} onClick={() => setActiveTab("owned")}>
+              📚 保有KW <span className="opacity-60 ml-0.5">{keywords.length}</span>
+            </GroupTab>
+          </div>
+          <div className="text-[11px] font-mono text-[color:var(--fg-muted)]">
+            {THEMES.find((t) => t.id === activeTheme)?.label.toUpperCase()}
+          </div>
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
           {THEMES.filter((t) => t.id !== "custom").map((t) => {

@@ -204,16 +204,21 @@ export default function LibraryPage() {
       ) : (
         <>
           <FilterBar>
-            <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
-              <GroupTab active={groupBy === "theme"} onClick={() => selectGroup("theme")}>
-                テーマ別
-              </GroupTab>
-              <GroupTab active={groupBy === "source"} onClick={() => selectGroup("source")}>
-                公式サイト別 <span className="opacity-60 ml-0.5">{sourceCounts.length}</span>
-              </GroupTab>
-              <GroupTab active={groupBy === "keyword"} onClick={() => selectGroup("keyword")}>
-                キーワード別 <span className="opacity-60 ml-0.5">{keywordCounts.length}</span>
-              </GroupTab>
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
+                <GroupTab active={groupBy === "theme"} onClick={() => selectGroup("theme")}>
+                  テーマ別
+                </GroupTab>
+                <GroupTab active={groupBy === "source"} onClick={() => selectGroup("source")}>
+                  公式サイト別 <span className="opacity-60 ml-0.5">{sourceCounts.length}</span>
+                </GroupTab>
+                <GroupTab active={groupBy === "keyword"} onClick={() => selectGroup("keyword")}>
+                  キーワード別 <span className="opacity-60 ml-0.5">{keywordCounts.length}</span>
+                </GroupTab>
+              </div>
+              <div className="text-[11px] font-mono text-[color:var(--fg-muted)]">
+                {articles.length} ARTICLES
+              </div>
             </div>
             <div className="flex items-center gap-1.5 flex-wrap">
               <FilterPill active={filter === "all"} onClick={() => setFilter("all")}>
