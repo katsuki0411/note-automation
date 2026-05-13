@@ -10,7 +10,8 @@ const NAV = [
   { href: "/library", num: "02", label: "ライブラリ", desc: "Library" },
   { href: "/keywords", num: "03", label: "キーワード戦略", desc: "Keywords" },
   { href: "/platforms", num: "04", label: "情報源", desc: "Sources" },
-  { href: "/settings", num: "05", label: "設定", desc: "Settings" },
+  { href: "/seo", num: "05", label: "SEO順位", desc: "SEO Rank" },
+  { href: "/settings", num: "06", label: "設定", desc: "Settings" },
 ];
 
 export default function Sidebar({
