@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
+import Loading from "@/components/Loading";
 import type { SeoRanking, SeoTargetWithLatest } from "@/lib/seoRank";
 import { readArticleUrls, type ArticleUrl } from "@/lib/clientSettings";
 
 export default function SeoPage() {
   const [targets, setTargets] = useState<SeoTargetWithLatest[]>([]);
+  const [initialLoaded, setInitialLoaded] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -23,6 +25,7 @@ export default function SeoPage() {
     const res = await fetch("/api/seo/targets", { cache: "no-store" });
     const data = await res.json();
     setTargets(data.targets ?? []);
+    setInitialLoaded(true);
   }, []);
 
   useEffect(() => {
@@ -246,7 +249,11 @@ export default function SeoPage() {
         </section>
       )}
 
-      {targets.length === 0 ? (
+      {!initialLoaded ? (
+        <div className="card p-10">
+          <Loading size="lg" message="SEO追跡対象を読み込み中…" fill={false} />
+        </div>
+      ) : targets.length === 0 ? (
         <div className="card p-10 text-center text-[color:var(--fg-muted)] text-[13px]">
           まだ追跡対象がありません。右上の「+ 追加」から始めてください。
         </div>

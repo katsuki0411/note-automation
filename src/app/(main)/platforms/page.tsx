@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/PageHeader";
+import Loading from "@/components/Loading";
 import {
   PLATFORM_CATEGORY_META,
   type Platform,
@@ -12,6 +13,7 @@ const CATEGORIES: PlatformCategory[] = ["qa", "forum", "sns", "blog", "news", "o
 
 export default function PlatformsPage() {
   const [platforms, setPlatforms] = useState<Platform[]>([]);
+  const [initialLoaded, setInitialLoaded] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
 
@@ -26,6 +28,7 @@ export default function PlatformsPage() {
     const res = await fetch("/api/platforms", { cache: "no-store" });
     const data = await res.json();
     setPlatforms(data.platforms ?? []);
+    setInitialLoaded(true);
   }, []);
 
   useEffect(() => {
@@ -216,6 +219,11 @@ export default function PlatformsPage() {
         </section>
       )}
 
+      {!initialLoaded ? (
+        <div className="card p-10">
+          <Loading size="lg" message="情報源を読み込み中…" fill={false} />
+        </div>
+      ) : (
       <div className="space-y-5">
         {CATEGORIES.map((cat) => {
           const list = grouped[cat];
@@ -251,6 +259,7 @@ export default function PlatformsPage() {
           );
         })}
       </div>
+      )}
     </>
   );
 }

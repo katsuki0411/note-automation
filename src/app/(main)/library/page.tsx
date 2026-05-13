@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { Article, FeedIdea, ThemeId } from "@/lib/types";
 import { THEMES } from "@/lib/types";
 import PageHeader from "@/components/PageHeader";
+import Loading from "@/components/Loading";
 import { postToNote, type NotePostResult } from "@/lib/notePost";
 
 type GroupBy = "theme" | "source" | "keyword";
@@ -22,6 +23,7 @@ function feedIdeaOf(a: Article): FeedIdea | null {
 
 export default function LibraryPage() {
   const [articles, setArticles] = useState<Article[]>([]);
+  const [initialLoaded, setInitialLoaded] = useState(false);
   const [active, setActive] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [groupBy, setGroupBy] = useState<GroupBy>("theme");
@@ -112,7 +114,8 @@ export default function LibraryPage() {
       .then((d) => {
         setArticles(d.articles ?? []);
         if (d.articles?.[0]) setActive(d.articles[0].id);
-      });
+      })
+      .finally(() => setInitialLoaded(true));
   }, []);
 
   function copy(text: string, label: string) {
@@ -179,7 +182,11 @@ export default function LibraryPage() {
         description="生成された記事一覧。Markdownをコピーしてnoteに貼り付け → 予約投稿。"
       />
 
-      {articles.length === 0 ? (
+      {!initialLoaded ? (
+        <div className="card p-10">
+          <Loading size="lg" message="ライブラリを読み込み中…" fill={false} />
+        </div>
+      ) : articles.length === 0 ? (
         <div className="card p-12 text-center">
           <div className="text-5xl mb-4 opacity-30">∅</div>
           <p className="text-[color:var(--fg-secondary)] mb-5">まだ記事がありません。</p>

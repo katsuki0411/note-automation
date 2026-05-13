@@ -5,6 +5,7 @@ import type { FeedIdea, FeedState, ThemeId } from "@/lib/types";
 import { THEMES } from "@/lib/types";
 import type { HotKeyword } from "@/lib/hotKeywords";
 import PageHeader from "@/components/PageHeader";
+import Loading from "@/components/Loading";
 import { useGeneration } from "@/components/GenerationProvider";
 
 const POLL_INTERVAL_MS = 30 * 1000; // 30sec
@@ -59,10 +60,12 @@ export default function ResearchPage() {
   const hotFetched = useRef(false);
 
   const initialFetched = useRef(false);
+  const [initialLoaded, setInitialLoaded] = useState(false);
 
   const refreshFeed = useCallback(async () => {
     const res = await fetch("/api/feed", { cache: "no-store" });
     if (res.ok) setState(await res.json());
+    setInitialLoaded(true);
   }, []);
 
   const tick = useCallback(
@@ -576,7 +579,11 @@ export default function ResearchPage() {
         </p>
       )}
 
-      {groupBy === "keyword" ? (
+      {!initialLoaded ? (
+        <div className="card p-10">
+          <Loading size="lg" message="ネタフィードを読み込み中…" fill={false} />
+        </div>
+      ) : groupBy === "keyword" ? (
         sortedHotKeywords.length === 0 ? (
           <div className="card p-12 text-center">
             {hotLoading ? (

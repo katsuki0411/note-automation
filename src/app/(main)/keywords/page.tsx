@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/PageHeader";
+import Loading from "@/components/Loading";
 import { useGeneration } from "@/components/GenerationProvider";
 import {
   SUBCATEGORIES,
@@ -47,6 +48,7 @@ export default function KeywordsPage() {
   const { enqueue } = useGeneration();
   const [activeTab, setActiveTab] = useState<Tab>("hot");
   const [keywords, setKeywords] = useState<Keyword[]>([]);
+  const [initialLoaded, setInitialLoaded] = useState(false);
   const [activeTheme, setActiveTheme] = useState<ThemeId>("renraku");
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
@@ -61,6 +63,7 @@ export default function KeywordsPage() {
     const res = await fetch("/api/keywords", { cache: "no-store" });
     const data = await res.json();
     setKeywords(data.keywords ?? []);
+    setInitialLoaded(true);
   }, []);
 
   useEffect(() => {
@@ -425,7 +428,12 @@ export default function KeywordsPage() {
       )}
 
       {/* 保有KWタブ・サブカテゴリ別表示 */}
-      {activeTab === "owned" && (
+      {activeTab === "owned" && !initialLoaded && (
+        <div className="card p-10">
+          <Loading size="lg" message="キーワードを読み込み中…" fill={false} />
+        </div>
+      )}
+      {activeTab === "owned" && initialLoaded && (
       <div className="space-y-6">
         {SUBCATEGORIES[activeTheme].map((sub) => {
           const subKws = themeKws.filter((k) => k.subcategoryId === sub.id);
