@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import Loading from "@/components/Loading";
 import { useGeneration } from "@/components/GenerationProvider";
+import { getCache, setCache } from "@/lib/clientCache";
+
+const CACHE_KEY = "keywords:list";
 import {
   SUBCATEGORIES,
   THEMES,
@@ -47,8 +50,9 @@ type Tab = "owned" | "hot";
 export default function KeywordsPage() {
   const { enqueue } = useGeneration();
   const [activeTab, setActiveTab] = useState<Tab>("hot");
-  const [keywords, setKeywords] = useState<Keyword[]>([]);
-  const [initialLoaded, setInitialLoaded] = useState(false);
+  const cachedKeywords = getCache<Keyword[]>(CACHE_KEY);
+  const [keywords, setKeywords] = useState<Keyword[]>(cachedKeywords ?? []);
+  const [initialLoaded, setInitialLoaded] = useState(cachedKeywords !== undefined);
   const [activeTheme, setActiveTheme] = useState<ThemeId>("renraku");
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
@@ -62,7 +66,9 @@ export default function KeywordsPage() {
   const refresh = useCallback(async () => {
     const res = await fetch("/api/keywords", { cache: "no-store" });
     const data = await res.json();
-    setKeywords(data.keywords ?? []);
+    const next = data.keywords ?? [];
+    setKeywords(next);
+    setCache(CACHE_KEY, next);
     setInitialLoaded(true);
   }, []);
 

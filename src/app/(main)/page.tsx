@@ -7,6 +7,9 @@ import type { HotKeyword } from "@/lib/hotKeywords";
 import PageHeader from "@/components/PageHeader";
 import Loading from "@/components/Loading";
 import { useGeneration } from "@/components/GenerationProvider";
+import { getCache, setCache } from "@/lib/clientCache";
+
+const CACHE_KEY = "research:feed";
 
 const POLL_INTERVAL_MS = 30 * 1000; // 30sec
 const DAILY_FIRE_HOUR = 9; // JST 9時に1日1回tick
@@ -36,7 +39,8 @@ type HotStats = {
 
 export default function ResearchPage() {
   const { enqueue, state: genState } = useGeneration();
-  const [state, setState] = useState<FeedState>({ ideas: [], tickCount: 0 });
+  const cachedFeed = getCache<FeedState>(CACHE_KEY);
+  const [state, setState] = useState<FeedState>(cachedFeed ?? { ideas: [], tickCount: 0 });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [groupBy, setGroupBy] = useState<GroupBy>("theme");
   const [filter, setFilter] = useState<string>("all");
@@ -60,11 +64,15 @@ export default function ResearchPage() {
   const hotFetched = useRef(false);
 
   const initialFetched = useRef(false);
-  const [initialLoaded, setInitialLoaded] = useState(false);
+  const [initialLoaded, setInitialLoaded] = useState(cachedFeed !== undefined);
 
   const refreshFeed = useCallback(async () => {
     const res = await fetch("/api/feed", { cache: "no-store" });
-    if (res.ok) setState(await res.json());
+    if (res.ok) {
+      const next: FeedState = await res.json();
+      setState(next);
+      setCache(CACHE_KEY, next);
+    }
     setInitialLoaded(true);
   }, []);
 

@@ -3,17 +3,21 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import Loading from "@/components/Loading";
+import { getCache, setCache } from "@/lib/clientCache";
 import {
   PLATFORM_CATEGORY_META,
   type Platform,
   type PlatformCategory,
 } from "@/lib/types";
 
+const CACHE_KEY = "platforms:list";
+
 const CATEGORIES: PlatformCategory[] = ["qa", "forum", "sns", "blog", "news", "other"];
 
 export default function PlatformsPage() {
-  const [platforms, setPlatforms] = useState<Platform[]>([]);
-  const [initialLoaded, setInitialLoaded] = useState(false);
+  const cached = getCache<Platform[]>(CACHE_KEY);
+  const [platforms, setPlatforms] = useState<Platform[]>(cached ?? []);
+  const [initialLoaded, setInitialLoaded] = useState(cached !== undefined);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
 
@@ -27,7 +31,9 @@ export default function PlatformsPage() {
   const refresh = useCallback(async () => {
     const res = await fetch("/api/platforms", { cache: "no-store" });
     const data = await res.json();
-    setPlatforms(data.platforms ?? []);
+    const next = data.platforms ?? [];
+    setPlatforms(next);
+    setCache(CACHE_KEY, next);
     setInitialLoaded(true);
   }, []);
 

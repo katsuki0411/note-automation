@@ -6,10 +6,14 @@ import PageHeader from "@/components/PageHeader";
 import Loading from "@/components/Loading";
 import type { SeoRanking, SeoTargetWithLatest } from "@/lib/seoRank";
 import { readArticleUrls, type ArticleUrl } from "@/lib/clientSettings";
+import { getCache, setCache } from "@/lib/clientCache";
+
+const CACHE_KEY = "seo:targets";
 
 export default function SeoPage() {
-  const [targets, setTargets] = useState<SeoTargetWithLatest[]>([]);
-  const [initialLoaded, setInitialLoaded] = useState(false);
+  const cached = getCache<SeoTargetWithLatest[]>(CACHE_KEY);
+  const [targets, setTargets] = useState<SeoTargetWithLatest[]>(cached ?? []);
+  const [initialLoaded, setInitialLoaded] = useState(cached !== undefined);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -24,7 +28,9 @@ export default function SeoPage() {
   const refresh = useCallback(async () => {
     const res = await fetch("/api/seo/targets", { cache: "no-store" });
     const data = await res.json();
-    setTargets(data.targets ?? []);
+    const next = data.targets ?? [];
+    setTargets(next);
+    setCache(CACHE_KEY, next);
     setInitialLoaded(true);
   }, []);
 

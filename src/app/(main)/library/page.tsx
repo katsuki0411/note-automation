@@ -6,7 +6,10 @@ import type { Article, FeedIdea, ThemeId } from "@/lib/types";
 import { THEMES } from "@/lib/types";
 import PageHeader from "@/components/PageHeader";
 import Loading from "@/components/Loading";
+import { getCache, setCache } from "@/lib/clientCache";
 import { postToNote, type NotePostResult } from "@/lib/notePost";
+
+const CACHE_KEY = "library:articles";
 
 type GroupBy = "theme" | "source" | "keyword";
 
@@ -22,8 +25,9 @@ function feedIdeaOf(a: Article): FeedIdea | null {
 }
 
 export default function LibraryPage() {
-  const [articles, setArticles] = useState<Article[]>([]);
-  const [initialLoaded, setInitialLoaded] = useState(false);
+  const cached = getCache<Article[]>(CACHE_KEY);
+  const [articles, setArticles] = useState<Article[]>(cached ?? []);
+  const [initialLoaded, setInitialLoaded] = useState(cached !== undefined);
   const [active, setActive] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [groupBy, setGroupBy] = useState<GroupBy>("theme");
@@ -112,10 +116,13 @@ export default function LibraryPage() {
     fetch("/api/articles")
       .then((r) => r.json())
       .then((d) => {
-        setArticles(d.articles ?? []);
-        if (d.articles?.[0]) setActive(d.articles[0].id);
+        const next = d.articles ?? [];
+        setArticles(next);
+        setCache(CACHE_KEY, next);
+        if (next[0] && !active) setActive(next[0].id);
       })
       .finally(() => setInitialLoaded(true));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function copy(text: string, label: string) {
