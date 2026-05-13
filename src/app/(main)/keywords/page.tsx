@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import Loading from "@/components/Loading";
+import { FilterBar, GroupTab, FilterPill } from "@/components/FilterBar";
 import { useGeneration } from "@/components/GenerationProvider";
 import { getCache, setCache } from "@/lib/clientCache";
 
@@ -317,63 +318,42 @@ export default function KeywordsPage() {
         }
       />
 
-      {/* タブ切替 */}
-      <div className="flex gap-1 mb-5 border-b border-[var(--border-subtle)]">
-        <button
-          onClick={() => setActiveTab("hot")}
-          className={`px-5 py-2.5 text-[13px] font-semibold border-b-2 transition ${
-            activeTab === "hot"
-              ? "border-[color:var(--accent)] text-[color:var(--accent-dark)]"
-              : "border-transparent text-[color:var(--fg-secondary)] hover:text-[color:var(--fg-primary)]"
-          }`}
-        >
-          🔥 ホットKW発見
-        </button>
-        <button
-          onClick={() => setActiveTab("owned")}
-          className={`px-5 py-2.5 text-[13px] font-semibold border-b-2 transition ${
-            activeTab === "owned"
-              ? "border-[color:var(--accent)] text-[color:var(--accent-dark)]"
-              : "border-transparent text-[color:var(--fg-secondary)] hover:text-[color:var(--fg-primary)]"
-          }`}
-        >
-          📚 保有KW <span className="text-[10px] font-mono opacity-60 ml-1">{keywords.length}</span>
-        </button>
-      </div>
+      <FilterBar>
+        <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
+          <GroupTab active={activeTab === "hot"} onClick={() => setActiveTab("hot")}>
+            🔥 ホットKW発見
+          </GroupTab>
+          <GroupTab active={activeTab === "owned"} onClick={() => setActiveTab("owned")}>
+            📚 保有KW <span className="opacity-60 ml-0.5">{keywords.length}</span>
+          </GroupTab>
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {THEMES.filter((t) => t.id !== "custom").map((t) => {
+            const count = keywords.filter((k) => k.themeId === t.id).length;
+            const covered = keywords.filter(
+              (k) => k.themeId === t.id && k.status === "covered",
+            ).length;
+            return (
+              <FilterPill
+                key={t.id}
+                active={activeTheme === t.id}
+                onClick={() => setActiveTheme(t.id)}
+              >
+                {t.label}
+                {activeTab === "owned" && (
+                  <span className="opacity-60 ml-1">{covered}/{count}</span>
+                )}
+              </FilterPill>
+            );
+          })}
+        </div>
+      </FilterBar>
 
       {message && (
         <div className={`alert ${message.kind === "success" ? "alert-success" : "alert-error"}`}>
           {message.text}
         </div>
       )}
-
-      {/* テーマタブ */}
-      <div className="card p-2 mb-5 flex gap-1 overflow-x-auto">
-        {THEMES.filter((t) => t.id !== "custom").map((t) => {
-          const count = keywords.filter((k) => k.themeId === t.id).length;
-          const covered = keywords.filter(
-            (k) => k.themeId === t.id && k.status === "covered",
-          ).length;
-          return (
-            <button
-              key={t.id}
-              onClick={() => setActiveTheme(t.id)}
-              className={`px-4 py-2 rounded-lg text-[13px] font-medium transition shrink-0 ${
-                activeTheme === t.id
-                  ? "bg-[color:var(--black)] text-white"
-                  : "text-[color:var(--fg-secondary)] hover:bg-gray-100"
-              }`}
-            >
-              {t.label}
-              {activeTab === "owned" && (
-                <span className="ml-2 text-[11px] font-mono opacity-60">
-                  {covered}/{count}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
 
       {/* ホットKW発見タブ */}
       {activeTab === "hot" && (

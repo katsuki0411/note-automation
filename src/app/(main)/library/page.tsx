@@ -6,6 +6,7 @@ import type { Article, FeedIdea, ThemeId } from "@/lib/types";
 import { THEMES } from "@/lib/types";
 import PageHeader from "@/components/PageHeader";
 import Loading from "@/components/Loading";
+import { FilterBar, GroupTab, FilterPill } from "@/components/FilterBar";
 import { getCache, setCache } from "@/lib/clientCache";
 import { postToNote, type NotePostResult } from "@/lib/notePost";
 
@@ -202,7 +203,7 @@ export default function LibraryPage() {
         </div>
       ) : (
         <>
-          <div className="card p-4 mb-5 space-y-3">
+          <FilterBar>
             <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
               <GroupTab active={groupBy === "theme"} onClick={() => selectGroup("theme")}>
                 テーマ別
@@ -266,7 +267,7 @@ export default function LibraryPage() {
                   })
                 ))}
             </div>
-          </div>
+          </FilterBar>
 
           <div className="grid md:grid-cols-[320px_1fr] gap-6">
             <aside className="space-y-2">
@@ -528,48 +529,3 @@ export default function LibraryPage() {
   );
 }
 
-function GroupTab({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-4 py-2 text-[13px] font-semibold border-b-2 transition ${
-        active
-          ? "border-[color:var(--accent)] text-[color:var(--fg-primary)]"
-          : "border-transparent text-[color:var(--fg-muted)] hover:text-[color:var(--fg-secondary)]"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function FilterPill({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium transition ${
-        active
-          ? "bg-[color:var(--black)] text-white"
-          : "bg-white border border-[var(--border-card)] text-[color:var(--fg-secondary)] hover:border-gray-400"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}

@@ -6,6 +6,7 @@ import { THEMES } from "@/lib/types";
 import type { HotKeyword } from "@/lib/hotKeywords";
 import PageHeader from "@/components/PageHeader";
 import Loading from "@/components/Loading";
+import { FilterBar, GroupTab, FilterPill } from "@/components/FilterBar";
 import { useGeneration } from "@/components/GenerationProvider";
 import { getCache, setCache } from "@/lib/clientCache";
 
@@ -390,7 +391,7 @@ export default function ResearchPage() {
         }
       />
 
-      <div className="card sticky top-[120px] md:top-[80px] z-10 p-4 mb-5 space-y-3 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
+      <FilterBar>
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
             <GroupTab active={groupBy === "theme"} onClick={() => selectGroup("theme")}>
@@ -568,7 +569,7 @@ export default function ResearchPage() {
             </button>
           </div>
         </div>
-      </div>
+      </FilterBar>
 
       {tickError && (
         <p className="mb-4 text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-4 py-2.5">
@@ -952,53 +953,6 @@ function VerifyBadge({ hot }: { hot: HotKeyword }) {
     );
   }
   return null;
-}
-
-function GroupTab({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-4 py-2 text-[13px] font-semibold border-b-2 transition ${
-        active
-          ? "border-[color:var(--accent)] text-[color:var(--fg-primary)]"
-          : "border-transparent text-[color:var(--fg-muted)] hover:text-[color:var(--fg-secondary)]"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-// FilterPill / SortPill は同じ UI に統一 (active: 黒丸 / inactive: 白枠)
-function FilterPill({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium transition ${
-        active
-          ? "bg-[color:var(--black)] text-white"
-          : "bg-white border border-[var(--border-card)] text-[color:var(--fg-secondary)] hover:border-gray-400"
-      }`}
-    >
-      {children}
-    </button>
-  );
 }
 
 const SortPill = FilterPill;
