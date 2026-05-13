@@ -128,7 +128,7 @@ export default function SeoPage() {
       <PageHeader
         step="STEP 05 / SEO RANK"
         title="SEO順位チェック"
-        description={`Custom Search APIで上位30位までスキャン・毎日10時自動更新。追跡中${enabledCount}/${targets.length}件`}
+        description={`Brave Searchで上位30位までスキャン・毎日10時自動更新。追跡中${enabledCount}/${targets.length}件`}
         right={
           <>
             <button
