@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
 import type { SeoRanking, SeoTargetWithLatest } from "@/lib/seoRank";
+import { readArticleUrls, type ArticleUrl } from "@/lib/clientSettings";
 
 export default function SeoPage() {
   const [targets, setTargets] = useState<SeoTargetWithLatest[]>([]);
@@ -15,6 +17,7 @@ export default function SeoPage() {
   const [newKw, setNewKw] = useState("");
   const [newUrl, setNewUrl] = useState("");
   const [newMemo, setNewMemo] = useState("");
+  const [articleUrls, setArticleUrls] = useState<ArticleUrl[]>([]);
 
   const refresh = useCallback(async () => {
     const res = await fetch("/api/seo/targets", { cache: "no-store" });
@@ -25,6 +28,10 @@ export default function SeoPage() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    setArticleUrls(readArticleUrls());
+  }, [showAdd]);
 
   async function addTarget() {
     if (!newKw.trim() || !newUrl.trim()) {
@@ -181,15 +188,36 @@ export default function SeoPage() {
               <label className="block text-[11px] text-[color:var(--fg-muted)] mb-1">
                 対象URL（前方一致） *
               </label>
-              <input
-                value={newUrl}
-                onChange={(e) => setNewUrl(e.target.value)}
-                placeholder="例: https://note.com/your_username/"
-                className="w-full px-3 py-2 rounded-lg border border-[var(--border-card)] text-[13px] focus:outline-none focus:border-[color:var(--accent)] font-mono"
-              />
-              <p className="text-[10px] text-[color:var(--fg-muted)] mt-1">
-                このURLで始まる検索結果を「自分のページ」と判定します
-              </p>
+              {articleUrls.length > 0 ? (
+                <>
+                  <select
+                    value={newUrl}
+                    onChange={(e) => setNewUrl(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-[var(--border-card)] text-[13px] focus:outline-none focus:border-[color:var(--accent)] bg-white"
+                  >
+                    <option value="">選択してください</option>
+                    {articleUrls.map((u) => (
+                      <option key={u.id} value={u.urlPrefix}>
+                        {u.label}（{u.urlPrefix}）
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-[color:var(--fg-muted)] mt-1">
+                    このURLで始まる検索結果を「自分のページ」と判定します。
+                    <Link href="/settings" className="text-[color:var(--accent-dark)] underline ml-1">
+                      設定で編集
+                    </Link>
+                  </p>
+                </>
+              ) : (
+                <div className="px-3 py-2 rounded-lg border border-dashed border-[var(--border-card)] text-[12px] text-[color:var(--fg-muted)]">
+                  記事URLが未登録です。
+                  <Link href="/settings" className="text-[color:var(--accent-dark)] underline ml-1">
+                    設定ページで登録
+                  </Link>
+                  してください。
+                </div>
+              )}
             </div>
             <div className="md:col-span-2">
               <label className="block text-[11px] text-[color:var(--fg-muted)] mb-1">
