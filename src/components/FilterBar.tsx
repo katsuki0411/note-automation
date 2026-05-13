@@ -2,8 +2,8 @@
 
 // PageHeader 直下に置く sticky なタブ + フィルター + ソートのコンテナ。
 // 各ページで共有してデザイン統一する。
-// PageHeader の mb-6/md:mb-8 を打ち消す負のマージン (-mt-6 md:-mt-8) で
-// 初期状態からタイトル直下にピッタリ並ぶ。スクロールしても同じ見た目を維持。
+// PageHeader と同じく負のマージンで全幅展開し、縁を取って一体感を出す。
+// 半透明白 + backdrop blur で下の card が透けて溶け込む。
 
 import type { ReactNode } from "react";
 
@@ -11,7 +11,7 @@ type Props = { children: ReactNode };
 
 export function FilterBar({ children }: Props) {
   return (
-    <div className="card sticky top-[120px] md:top-[84px] z-10 p-4 mb-5 -mt-6 md:-mt-8 space-y-3 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
+    <div className="sticky top-[120px] md:top-[84px] z-10 -mx-4 md:-mx-8 -mt-6 md:-mt-8 px-4 md:px-8 py-3 md:py-3.5 mb-5 md:mb-6 space-y-2.5 bg-white/85 backdrop-blur supports-[backdrop-filter]:bg-white/70 border-b border-[var(--border-subtle)]">
       {children}
     </div>
   );
@@ -41,7 +41,8 @@ export function GroupTab({
   );
 }
 
-/** 丸ピル (フィルター / ソート 兼用 / 「すべて」「新着1h」など) */
+/** 丸ピル (フィルター / ソート 兼用 / 「すべて」「新着1h」など)
+ *  Linear / Stripe Dashboard 風 — 縁線なし、bg のみで差別化 */
 export function FilterPill({
   active,
   onClick,
@@ -54,10 +55,10 @@ export function FilterPill({
   return (
     <button
       onClick={onClick}
-      className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium transition ${
+      className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium transition-all ${
         active
-          ? "bg-[color:var(--black)] text-white"
-          : "bg-white border border-[var(--border-card)] text-[color:var(--fg-secondary)] hover:border-gray-400"
+          ? "bg-[color:var(--fg-primary)] text-white shadow-sm shadow-black/10"
+          : "bg-gray-50 text-[color:var(--fg-secondary)] hover:bg-gray-100 hover:text-[color:var(--fg-primary)]"
       }`}
     >
       {children}
