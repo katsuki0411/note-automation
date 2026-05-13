@@ -405,6 +405,9 @@ export default function ResearchPage() {
                 <span className="opacity-60 ml-0.5">{hotKeywords.length}</span>
               )}
             </GroupTab>
+            <GroupTab active={showFreeInput} onClick={() => setShowFreeInput((s) => !s)}>
+              <span className="text-[color:var(--accent)] mr-0.5">+</span>お題指定
+            </GroupTab>
           </div>
           {groupBy !== "keyword" ? (
             <div className="text-[11px] font-mono text-[color:var(--fg-muted)]">
@@ -421,14 +424,6 @@ export default function ResearchPage() {
                 </span>
               )}
               <button
-                onClick={() => setShowFreeInput((s) => !s)}
-                className="btn-ghost text-[11px] px-3 py-1.5"
-                title="自分で指定したお題で即リサーチ"
-              >
-                <span className="text-[color:var(--accent)] mr-0.5">+</span>
-                お題指定
-              </button>
-              <button
                 onClick={refreshHotKeywords}
                 disabled={hotLoading}
                 className="btn-ghost text-[11px] px-3 py-1.5"
@@ -442,7 +437,7 @@ export default function ResearchPage() {
             </div>
           )}
         </div>
-        {groupBy === "keyword" && showFreeInput && (
+        {showFreeInput && (
           <div className="flex gap-2 pt-2 border-t border-[var(--border-subtle)]">
             <input
               value={freeTheme}
