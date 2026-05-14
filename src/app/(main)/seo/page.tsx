@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
 import Loading from "@/components/Loading";
@@ -11,6 +11,9 @@ import { getCache, setCache } from "@/lib/clientCache";
 const CACHE_KEY = "seo:targets";
 const EXPANDED_CACHE_KEY = "seo:expandedId";
 const HISTORY_CACHE_KEY = "seo:historyMap";
+const RANK_SORT_CACHE_KEY = "seo:rankSort";
+
+type RankSort = "none" | "asc" | "desc";
 
 export default function SeoPage() {
   const cached = getCache<SeoTargetWithLatest[]>(CACHE_KEY);
@@ -44,6 +47,32 @@ export default function SeoPage() {
   const [newUrl, setNewUrl] = useState("");
   const [newMemo, setNewMemo] = useState("");
   const [articleUrls, setArticleUrls] = useState<ArticleUrl[]>([]);
+
+  const cachedRankSort = getCache<RankSort>(RANK_SORT_CACHE_KEY);
+  const [rankSort, setRankSortState] = useState<RankSort>(cachedRankSort ?? "none");
+  const cycleRankSort = useCallback(() => {
+    setRankSortState((prev) => {
+      const next: RankSort = prev === "none" ? "asc" : prev === "asc" ? "desc" : "none";
+      setCache(RANK_SORT_CACHE_KEY, next);
+      return next;
+    });
+  }, []);
+
+  // 順位ソート適用済みの表示用 targets。
+  // 圏外/未取得 (rank === null) は順序に関わらず末尾に置く。
+  const sortedTargets = useMemo(() => {
+    if (rankSort === "none") return targets;
+    const arr = [...targets];
+    arr.sort((a, b) => {
+      const ra = a.latest?.rank ?? null;
+      const rb = b.latest?.rank ?? null;
+      if (ra == null && rb == null) return 0;
+      if (ra == null) return 1; // null は末尾
+      if (rb == null) return -1;
+      return rankSort === "asc" ? ra - rb : rb - ra;
+    });
+    return arr;
+  }, [targets, rankSort]);
 
   const refresh = useCallback(async () => {
     const res = await fetch("/api/seo/targets", { cache: "no-store" });
@@ -287,8 +316,28 @@ export default function SeoPage() {
                 <th className="text-[9.5px] font-mono tracking-[0.2em] uppercase text-[color:var(--fg-muted)] font-semibold px-3 py-3 text-left">
                   キーワード / URL
                 </th>
-                <th className="text-[9.5px] font-mono tracking-[0.2em] uppercase text-[color:var(--fg-muted)] font-semibold px-3 py-3 text-center w-24">
-                  順位
+                <th className="px-3 py-3 text-center w-24">
+                  <button
+                    type="button"
+                    onClick={cycleRankSort}
+                    className={`inline-flex items-center gap-1 text-[9.5px] font-mono tracking-[0.2em] uppercase font-semibold rounded-md px-2 py-1 transition-colors ${
+                      rankSort === "none"
+                        ? "text-[color:var(--fg-muted)] hover:bg-white/60 hover:text-[color:var(--fg-secondary)]"
+                        : "text-[color:var(--accent-dark)] bg-white shadow-sm shadow-black/5"
+                    }`}
+                    title={
+                      rankSort === "none"
+                        ? "クリックで昇順ソート"
+                        : rankSort === "asc"
+                          ? "現在: 昇順 (1位→30位)。クリックで降順へ"
+                          : "現在: 降順 (30位→1位)。クリックで解除"
+                    }
+                  >
+                    順位
+                    <span className="text-[11px] leading-none">
+                      {rankSort === "asc" ? "↑" : rankSort === "desc" ? "↓" : "⇅"}
+                    </span>
+                  </button>
                 </th>
                 <th className="text-[9.5px] font-mono tracking-[0.2em] uppercase text-[color:var(--fg-muted)] font-semibold px-3 py-3 text-center w-20">
                   変動
@@ -302,7 +351,7 @@ export default function SeoPage() {
               </tr>
             </thead>
             <tbody>
-              {targets.map((t) => (
+              {sortedTargets.map((t) => (
                 <TargetRow
                   key={t.id}
                   target={t}
