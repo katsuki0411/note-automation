@@ -29,7 +29,7 @@ const THEME_LABEL: Record<ThemeId, string> = Object.fromEntries(
 ) as Record<ThemeId, string>;
 
 type SortMode = "score" | "newest" | "pain";
-type GroupBy = "theme" | "source" | "keyword";
+type GroupBy = "theme" | "source" | "keyword" | "free";
 type HotStats = {
   candidatesTotal: number;
   verified: number;
@@ -53,7 +53,6 @@ export default function ResearchPage() {
   const [now, setNow] = useState(Date.now());
   const [tickError, setTickError] = useState<string | null>(null);
   const [freeTheme, setFreeTheme] = useState("");
-  const [showFreeInput, setShowFreeInput] = useState(false);
   const [hotKeywords, setHotKeywords] = useState<HotKeyword[]>([]);
   const [hotUpdatedAt, setHotUpdatedAt] = useState<string | null>(null);
   const [hotLoading, setHotLoading] = useState(false);
@@ -284,7 +283,6 @@ export default function ResearchPage() {
     setGroupBy(g);
     setFilter("all");
     setHotFilter("all");
-    setShowFreeInput(false);
     if (g === "keyword" && !hotFetched.current) {
       hotFetched.current = true;
       fetchHotKeywords();
@@ -402,11 +400,15 @@ export default function ResearchPage() {
                 <span className="opacity-60 ml-0.5">{hotKeywords.length}</span>
               )}
             </GroupTab>
-            <GroupTab active={showFreeInput} onClick={() => setShowFreeInput((s) => !s)}>
+            <GroupTab active={groupBy === "free"} onClick={() => selectGroup("free")}>
               <span className="text-[color:var(--accent)] mr-0.5">+</span>お題指定
             </GroupTab>
           </div>
-          {groupBy !== "keyword" ? (
+          {groupBy === "free" ? (
+            <div className="text-[11px] font-mono text-[color:var(--fg-muted)]">
+              {state.ideas.filter((i) => i.themeId === "custom").length} CUSTOM
+            </div>
+          ) : groupBy !== "keyword" ? (
             <div className="text-[11px] font-mono text-[color:var(--fg-muted)]">
               TICK #{state.tickCount}
             </div>
@@ -434,7 +436,7 @@ export default function ResearchPage() {
             </div>
           )}
         </div>
-        {showFreeInput && (
+        {groupBy === "free" && (
           <div className="flex gap-2 pt-2 border-t border-[var(--border-subtle)]">
             <input
               value={freeTheme}
@@ -443,7 +445,6 @@ export default function ResearchPage() {
                 if (e.key === "Enter" && freeTheme.trim() && !ticking) {
                   tick({ mode: "free", theme: freeTheme.trim() });
                   setFreeTheme("");
-                  setShowFreeInput(false);
                 }
               }}
               placeholder="例: 夏休み 自由研究 / 運動会 弁当 / 七五三 着付け"
@@ -455,7 +456,6 @@ export default function ResearchPage() {
                 if (!freeTheme.trim() || ticking) return;
                 tick({ mode: "free", theme: freeTheme.trim() });
                 setFreeTheme("");
-                setShowFreeInput(false);
               }}
               disabled={!freeTheme.trim() || ticking}
               className="btn-primary"
@@ -464,7 +464,7 @@ export default function ResearchPage() {
             </button>
           </div>
         )}
-        {groupBy !== "keyword" && (
+        {groupBy !== "keyword" && groupBy !== "free" && (
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-1.5 flex-wrap">
               <FilterPill active={filter === "all"} onClick={() => setFilter("all")}>
@@ -574,6 +574,50 @@ export default function ResearchPage() {
         <div className="card p-10">
           <Loading size="lg" message="ネタフィードを読み込み中…" fill={false} />
         </div>
+      ) : groupBy === "free" ? (
+        (() => {
+          const customIdeas = filtered.filter((i) => i.themeId === "custom");
+          if (customIdeas.length === 0) {
+            return (
+              <div className="card p-12 text-center">
+                {ticking ? (
+                  <>
+                    <div className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-3">
+                      FETCHING…
+                    </div>
+                    <div className="space-y-2 max-w-md mx-auto">
+                      <div className="h-3 rounded-full shimmer" />
+                      <div className="h-3 rounded-full shimmer" style={{ width: "82%" }} />
+                      <div className="h-3 rounded-full shimmer" style={{ width: "65%" }} />
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-[color:var(--fg-secondary)]">
+                    まだお題指定で探したネタがありません。上の入力欄にテーマを入れて「探す→」を押してください。
+                  </p>
+                )}
+              </div>
+            );
+          }
+          return (
+            <div className="grid gap-2 pb-28">
+              {customIdeas.map((idea) => (
+                <IdeaCard
+                  key={idea.id}
+                  idea={idea}
+                  selected={selected.has(idea.id)}
+                  expanded={expanded.has(idea.id)}
+                  generated={generatedIds.has(idea.id)}
+                  inFlight={inFlightIds.has(idea.id)}
+                  onToggle={() => toggle(idea.id)}
+                  onToggleExpand={() => toggleExpand(idea.id)}
+                  onDismiss={() => dismiss(idea.id)}
+                  onSingleGenerate={() => enqueue([idea])}
+                />
+              ))}
+            </div>
+          );
+        })()
       ) : groupBy === "keyword" ? (
         sortedHotKeywords.length === 0 ? (
           <div className="card p-12 text-center">
