@@ -30,13 +30,23 @@ export async function POST(req: NextRequest) {
     const result = await ai.models.generateContent({
       model: MODELS.image,
       contents: prompt,
+      // Nano Banana は responseModalities を明示しないと画像を返さない。
+      // TEXT も含めるのは safety フィードバックを受け取るため。
+      config: { responseModalities: ["IMAGE", "TEXT"] },
     });
 
     const parts: InlineDataPart[] =
       result.candidates?.[0]?.content?.parts ?? [];
     const base64 = parts.find((p) => p.inlineData?.data)?.inlineData?.data;
     if (!base64) {
-      throw new Error("画像生成に失敗: image bytes empty");
+      const finishReason = result.candidates?.[0]?.finishReason;
+      const textPart = parts
+        .map((p) => (p as { text?: string }).text)
+        .filter(Boolean)
+        .join(" ");
+      throw new Error(
+        `画像生成に失敗: ${finishReason ?? "no image"} ${textPart || ""}`.trim(),
+      );
     }
 
     const imagePath = await saveImage(articleId, base64);

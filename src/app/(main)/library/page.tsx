@@ -102,12 +102,16 @@ export default function LibraryPage() {
 
   async function generateImage(articleId: string) {
     setImageStatus({ state: "loading", message: "Nano Banana で生成中（約10〜20秒）..." });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 90_000);
     try {
       const res = await fetch("/api/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ articleId }),
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "失敗");
       // articles 配列内の該当記事の imagePath を更新
@@ -121,11 +125,15 @@ export default function LibraryPage() {
       setImageStatus({ state: "done", message: "見出し画像を生成しました" });
       setTimeout(() => setImageStatus({ state: "idle" }), 3000);
     } catch (e) {
-      setImageStatus({
-        state: "error",
-        message: e instanceof Error ? e.message : "失敗",
-      });
-      setTimeout(() => setImageStatus({ state: "idle" }), 6000);
+      clearTimeout(timeout);
+      const msg =
+        e instanceof Error
+          ? e.name === "AbortError"
+            ? "90秒経過してもサーバーから応答がありませんでした。Vercelのログ確認をおすすめします。"
+            : e.message
+          : "失敗";
+      setImageStatus({ state: "error", message: msg });
+      setTimeout(() => setImageStatus({ state: "idle" }), 8000);
     }
   }
 
