@@ -63,8 +63,32 @@ export default function ResearchPage() {
   const [researchingKw, setResearchingKw] = useState<string | null>(null);
   const hotFetched = useRef(false);
 
+  // ユーザーがお題指定で実際に入力して取得したネタの id 集合 (localStorage で永続化)。
+  // ホットキーワード研究も裏側で mode:"free" を使うため、データ上は区別できない。
+  // クライアント側で id を持っておくことで「ユーザー自身が指定したもの」のみを抽出する。
+  const [userFreeIds, setUserFreeIds] = useState<Set<string>>(new Set());
+
   const initialFetched = useRef(false);
   const [initialLoaded, setInitialLoaded] = useState(cachedFeed !== undefined);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem("note-automation:userFreeIds");
+    if (!stored) return;
+    try {
+      const arr = JSON.parse(stored);
+      if (Array.isArray(arr)) {
+        setUserFreeIds(new Set(arr.filter((s): s is string => typeof s === "string")));
+      }
+    } catch {
+      /* ignore parse error */
+    }
+  }, []);
+
+  const persistUserFreeIds = useCallback((ids: Set<string>) => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("note-automation:userFreeIds", JSON.stringify([...ids]));
+  }, []);
 
   const refreshFeed = useCallback(async () => {
     const res = await fetch("/api/feed", { cache: "no-store" });
@@ -98,6 +122,41 @@ export default function ResearchPage() {
       }
     },
     [refreshFeed, ticking],
+  );
+
+  /** お題指定モード専用の送信。tick との違いは「追加されたネタ id を
+   *  ユーザー由来として localStorage に記録する」点。 */
+  const submitFreeTheme = useCallback(
+    async (theme: string) => {
+      if (!theme.trim() || ticking) return;
+      setTicking(true);
+      setTickError(null);
+      try {
+        const res = await fetch("/api/feed/tick", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "free", theme: theme.trim() }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "失敗");
+        const added: FeedIdea[] = Array.isArray(data.addedIdeas) ? data.addedIdeas : [];
+        if (added.length > 0) {
+          setUserFreeIds((prev) => {
+            const next = new Set(prev);
+            for (const idea of added) next.add(idea.id);
+            persistUserFreeIds(next);
+            return next;
+          });
+        }
+        await refreshFeed();
+      } catch (e) {
+        setTickError(e instanceof Error ? e.message : "失敗");
+      } finally {
+        setTicking(false);
+        setNextTickAt(nextDailyFireAt());
+      }
+    },
+    [refreshFeed, ticking, persistUserFreeIds],
   );
 
   // 初回フェッチ（空でも自動tickはしない・1日1回9時にしか走らない）
@@ -406,7 +465,7 @@ export default function ResearchPage() {
           </div>
           {groupBy === "free" ? (
             <div className="text-[11px] font-mono text-[color:var(--fg-muted)]">
-              {state.ideas.filter((i) => i.themeId === "custom").length} CUSTOM
+              {state.ideas.filter((i) => userFreeIds.has(i.id)).length} CUSTOM
             </div>
           ) : groupBy !== "keyword" ? (
             <div className="text-[11px] font-mono text-[color:var(--fg-muted)]">
@@ -443,7 +502,7 @@ export default function ResearchPage() {
               onChange={(e) => setFreeTheme(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && freeTheme.trim() && !ticking) {
-                  tick({ mode: "free", theme: freeTheme.trim() });
+                  submitFreeTheme(freeTheme.trim());
                   setFreeTheme("");
                 }
               }}
@@ -453,8 +512,7 @@ export default function ResearchPage() {
             />
             <button
               onClick={() => {
-                if (!freeTheme.trim() || ticking) return;
-                tick({ mode: "free", theme: freeTheme.trim() });
+                submitFreeTheme(freeTheme.trim());
                 setFreeTheme("");
               }}
               disabled={!freeTheme.trim() || ticking}
@@ -576,7 +634,7 @@ export default function ResearchPage() {
         </div>
       ) : groupBy === "free" ? (
         (() => {
-          const customIdeas = filtered.filter((i) => i.themeId === "custom");
+          const customIdeas = filtered.filter((i) => userFreeIds.has(i.id));
           if (customIdeas.length === 0) {
             return (
               <div className="card p-12 text-center">
