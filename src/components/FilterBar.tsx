@@ -10,7 +10,7 @@ type Props = { children: ReactNode };
 
 export function FilterBar({ children }: Props) {
   return (
-    <div className="py-3 md:py-3.5 space-y-2.5 border-t border-[var(--border-subtle)]">
+    <div className="-mx-4 md:-mx-8 px-4 md:px-8 py-3 md:py-3.5 space-y-2.5 border-t border-[color:var(--accent)]/15 bg-[color:var(--accent-soft)]">
       {children}
     </div>
   );
