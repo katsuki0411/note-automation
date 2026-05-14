@@ -277,32 +277,57 @@ export default function SeoPage() {
           まだ追跡対象がありません。右上の「+ 追加」から始めてください。
         </div>
       ) : (
-        <div className="card overflow-hidden">
-          <div className="grid grid-cols-[auto_1fr_120px_90px_140px_auto] gap-3 px-4 py-2.5 bg-gray-50 border-b border-[var(--border-subtle)] text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)]">
-            <span></span>
-            <span>KEYWORD / URL</span>
-            <span className="text-center">RANK</span>
-            <span className="text-center">DIFF</span>
-            <span>UPDATED</span>
-            <span></span>
-          </div>
-          {targets.map((t) => (
-            <TargetRow
-              key={t.id}
-              target={t}
-              expanded={expandedId === t.id}
-              history={historyMap[t.id]}
-              busy={busy === `check:${t.id}`}
-              onToggle={() => toggleEnabled(t)}
-              onCheck={() => checkOne(t)}
-              onDelete={() => removeTarget(t)}
-              onExpand={() => toggleExpand(t)}
-            />
-          ))}
+        <div className="rounded-2xl overflow-hidden border border-[var(--border-card)] bg-white">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr className="bg-gradient-to-r from-[color:var(--accent-soft)] via-white to-[color:var(--accent-soft)] border-b border-[color:var(--accent)]/20">
+                <th className="text-[9.5px] font-mono tracking-[0.2em] uppercase text-[color:var(--fg-muted)] font-semibold px-3 py-3 text-left w-12">
+                  状態
+                </th>
+                <th className="text-[9.5px] font-mono tracking-[0.2em] uppercase text-[color:var(--fg-muted)] font-semibold px-3 py-3 text-left">
+                  キーワード / URL
+                </th>
+                <th className="text-[9.5px] font-mono tracking-[0.2em] uppercase text-[color:var(--fg-muted)] font-semibold px-3 py-3 text-center w-24">
+                  順位
+                </th>
+                <th className="text-[9.5px] font-mono tracking-[0.2em] uppercase text-[color:var(--fg-muted)] font-semibold px-3 py-3 text-center w-20">
+                  変動
+                </th>
+                <th className="text-[9.5px] font-mono tracking-[0.2em] uppercase text-[color:var(--fg-muted)] font-semibold px-3 py-3 text-left w-32">
+                  最終更新
+                </th>
+                <th className="text-[9.5px] font-mono tracking-[0.2em] uppercase text-[color:var(--fg-muted)] font-semibold px-3 py-3 text-right w-24">
+                  操作
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {targets.map((t) => (
+                <TargetRow
+                  key={t.id}
+                  target={t}
+                  expanded={expandedId === t.id}
+                  history={historyMap[t.id]}
+                  busy={busy === `check:${t.id}`}
+                  onToggle={() => toggleEnabled(t)}
+                  onCheck={() => checkOne(t)}
+                  onDelete={() => removeTarget(t)}
+                  onExpand={() => toggleExpand(t)}
+                />
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </>
   );
+}
+
+function rankTierColor(rank: number | null): string {
+  if (rank == null) return "text-[color:var(--fg-muted)]";
+  if (rank <= 3) return "text-amber-500";        // ゴールド（top3）
+  if (rank <= 10) return "text-[color:var(--accent-dark)]"; // ミント（top10）
+  return "text-[color:var(--fg-secondary)]";     // それ以外
 }
 
 function TargetRow({
@@ -326,32 +351,37 @@ function TargetRow({
 }) {
   const cur = target.latest?.rank ?? null;
   const prev = target.previous?.rank ?? null;
-  const diff = cur != null && prev != null ? prev - cur : null; // 正=上昇, 負=下降
+  const diff = cur != null && prev != null ? prev - cur : null;
 
   return (
-    <div
-      className={`border-b border-[var(--border-subtle)] last:border-b-0 ${
-        target.enabled ? "" : "bg-gray-50 opacity-60"
-      }`}
-    >
-      <div className="grid grid-cols-[auto_1fr_120px_90px_140px_auto] gap-3 px-4 py-3 items-center">
-        <button
-          onClick={onToggle}
-          title={target.enabled ? "無効化" : "有効化"}
-          className={`w-9 h-5 rounded-full transition shrink-0 relative ${
-            target.enabled ? "bg-[color:var(--accent)]" : "bg-gray-300"
-          }`}
-        >
-          <span
-            className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all ${
-              target.enabled ? "left-[18px]" : "left-0.5"
+    <>
+      <tr
+        onClick={onExpand}
+        className={`border-b border-[var(--border-subtle)] last:border-b-0 transition-colors cursor-pointer ${
+          target.enabled ? "hover:bg-[color:var(--accent-soft)]/40" : "bg-gray-50 opacity-60 hover:bg-gray-100"
+        } ${expanded ? "bg-[color:var(--accent-soft)]/30" : ""}`}
+      >
+        <td className="px-3 py-3 align-middle" onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={onToggle}
+            title={target.enabled ? "無効化" : "有効化"}
+            className={`w-9 h-5 rounded-full transition shrink-0 relative ${
+              target.enabled ? "bg-[color:var(--accent)]" : "bg-gray-300"
             }`}
-          />
-        </button>
+          >
+            <span
+              className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all shadow-sm ${
+                target.enabled ? "left-[18px]" : "left-0.5"
+              }`}
+            />
+          </button>
+        </td>
 
-        <button onClick={onExpand} className="text-left min-w-0">
-          <div className="text-[13.5px] font-medium truncate">{target.kw}</div>
-          <div className="text-[11px] text-[color:var(--fg-muted)] font-mono truncate">
+        <td className="px-3 py-3 align-middle min-w-0">
+          <div className="text-[13.5px] font-semibold text-[color:var(--fg-primary)] truncate">
+            {target.kw}
+          </div>
+          <div className="text-[11px] text-[color:var(--fg-muted)] font-mono truncate mt-0.5">
             {target.targetUrlPrefix}
           </div>
           {target.memo && (
@@ -359,71 +389,80 @@ function TargetRow({
               {target.memo}
             </div>
           )}
-        </button>
+        </td>
 
-        <div className="text-center">
+        <td className="px-3 py-3 align-middle text-center">
           {target.latest?.error ? (
-            <span className="text-[11px] text-red-500" title={target.latest.error}>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-50 text-red-600 text-[11px] font-medium" title={target.latest.error}>
               エラー
             </span>
           ) : cur != null ? (
-            <span className="text-[20px] font-bold tabular-nums text-[color:var(--accent-dark)]">
+            <span className={`text-[22px] font-bold tabular-nums ${rankTierColor(cur)}`}>
               {cur}
-              <span className="text-[10px] text-[color:var(--fg-muted)] ml-0.5">位</span>
+              <span className="text-[10px] text-[color:var(--fg-muted)] ml-0.5 font-normal">位</span>
             </span>
           ) : target.latest ? (
-            <span className="text-[11px] text-[color:var(--fg-muted)]">圏外</span>
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-gray-100 text-[color:var(--fg-muted)] text-[11px] font-medium">
+              圏外
+            </span>
           ) : (
-            <span className="text-[11px] text-[color:var(--fg-muted)]">未取得</span>
+            <span className="text-[11px] text-[color:var(--fg-muted)]">—</span>
           )}
-        </div>
+        </td>
 
-        <div className="text-center text-[12px] tabular-nums">
+        <td className="px-3 py-3 align-middle text-center text-[12px] tabular-nums">
           {diff == null ? (
             <span className="text-[color:var(--fg-muted)]">—</span>
           ) : diff === 0 ? (
             <span className="text-[color:var(--fg-muted)]">±0</span>
           ) : diff > 0 ? (
-            <span className="text-[color:var(--accent-dark)] font-semibold">↑{diff}</span>
+            <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] font-semibold">
+              ↑{diff}
+            </span>
           ) : (
-            <span className="text-red-500 font-semibold">↓{Math.abs(diff)}</span>
+            <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-red-50 text-red-600 font-semibold">
+              ↓{Math.abs(diff)}
+            </span>
           )}
-        </div>
+        </td>
 
-        <div className="text-[11px] text-[color:var(--fg-muted)] font-mono">
+        <td className="px-3 py-3 align-middle text-[11px] text-[color:var(--fg-muted)] font-mono whitespace-nowrap">
           {target.latest ? formatDate(target.latest.checkedAt) : "—"}
-        </div>
+        </td>
 
-        <div className="flex items-center gap-1">
-          <button
-            onClick={onCheck}
-            disabled={busy}
-            className="text-[11px] px-2 py-1 rounded border border-[var(--border-card)] hover:border-[color:var(--accent)] disabled:opacity-50"
-            title="いま更新"
-          >
-            {busy ? "..." : "更新"}
-          </button>
-          <button
-            onClick={onDelete}
-            className="text-[color:var(--fg-muted)] hover:text-red-500 text-base leading-none px-1.5"
-            title="削除"
-          >
-            ×
-          </button>
-        </div>
-      </div>
+        <td className="px-3 py-3 align-middle text-right" onClick={(e) => e.stopPropagation()}>
+          <div className="inline-flex items-center gap-1">
+            <button
+              onClick={onCheck}
+              disabled={busy}
+              className="text-[11px] px-2.5 py-1 rounded-full bg-gray-50 hover:bg-[color:var(--accent-soft)] hover:text-[color:var(--accent-dark)] disabled:opacity-50 transition-colors font-medium"
+              title="いま更新"
+            >
+              {busy ? "..." : "更新"}
+            </button>
+            <button
+              onClick={onDelete}
+              className="text-[color:var(--fg-muted)] hover:text-red-500 text-base leading-none px-1.5 transition-colors"
+              title="削除"
+            >
+              ×
+            </button>
+          </div>
+        </td>
+      </tr>
 
       {expanded && (
-        <div className="px-4 pb-4 bg-gray-50 border-t border-[var(--border-subtle)]">
-          <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)] py-2">
-            HISTORY (直近60件)
-          </div>
-          {history == null ? (
-            <div className="text-[11px] text-[color:var(--fg-muted)] py-2">読み込み中...</div>
-          ) : history.length === 0 ? (
-            <div className="text-[11px] text-[color:var(--fg-muted)] py-2">履歴なし</div>
-          ) : (
-            <>
+        <tr className="border-b border-[var(--border-subtle)] last:border-b-0">
+          <td colSpan={6} className="px-4 pb-4 pt-1 bg-gradient-to-b from-[color:var(--accent-soft)]/20 to-white">
+            <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)] py-2">
+              HISTORY (直近60件)
+            </div>
+            {history == null ? (
+              <div className="text-[11px] text-[color:var(--fg-muted)] py-2">読み込み中...</div>
+            ) : history.length === 0 ? (
+              <div className="text-[11px] text-[color:var(--fg-muted)] py-2">履歴なし</div>
+            ) : (
+              <>
               <HistoryChart history={history} />
               <div className="mt-3 max-h-48 overflow-y-auto">
                 <table className="w-full text-[11px]">
@@ -467,10 +506,11 @@ function TargetRow({
                 </table>
               </div>
             </>
-          )}
-        </div>
+            )}
+          </td>
+        </tr>
       )}
-    </div>
+    </>
   );
 }
 
