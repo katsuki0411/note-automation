@@ -389,8 +389,7 @@ export default function ResearchPage() {
             </button>
           </>
         }
-      />
-
+      >
       <FilterBar>
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
@@ -570,6 +569,7 @@ export default function ResearchPage() {
           </div>
         </div>
       </FilterBar>
+      </PageHeader>
 
       {tickError && (
         <p className="mb-4 text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-4 py-2.5">

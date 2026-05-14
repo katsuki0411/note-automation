@@ -1,9 +1,8 @@
 "use client";
 
-// PageHeader 直下に置く sticky なタブ + フィルター + ソートのコンテナ。
-// 各ページで共有してデザイン統一する。
-// PageHeader と同じく負のマージンで全幅展開し、縁を取って一体感を出す。
-// 半透明白 + backdrop blur で下の card が透けて溶け込む。
+// PageHeader の children として使う「タブ + フィルター + ソート」のレイアウト。
+// sticky 配置や bg/border は PageHeader 側がまとめて持つので、こちらはレイアウトだけ。
+// PageHeader と1つの sticky コンテナに入ることで、スクロール時に「片方だけ少し動く」現象を回避。
 
 import type { ReactNode } from "react";
 
@@ -11,7 +10,7 @@ type Props = { children: ReactNode };
 
 export function FilterBar({ children }: Props) {
   return (
-    <div className="sticky top-[120px] md:top-[84px] z-10 -mx-4 md:-mx-8 -mt-6 md:-mt-8 px-4 md:px-8 py-3 md:py-3.5 mb-5 md:mb-6 space-y-2.5 bg-white/85 backdrop-blur supports-[backdrop-filter]:bg-white/70 border-b border-[var(--border-subtle)]">
+    <div className="py-3 md:py-3.5 space-y-2.5 border-t border-[var(--border-subtle)]">
       {children}
     </div>
   );

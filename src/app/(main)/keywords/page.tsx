@@ -316,8 +316,7 @@ export default function KeywordsPage() {
             </>
           ) : null
         }
-      />
-
+      >
       <FilterBar>
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
@@ -353,6 +352,7 @@ export default function KeywordsPage() {
           })}
         </div>
       </FilterBar>
+      </PageHeader>
 
       {message && (
         <div className={`alert ${message.kind === "success" ? "alert-success" : "alert-error"}`}>

@@ -187,22 +187,8 @@ export default function LibraryPage() {
       <PageHeader
         title="ライブラリ"
         description="生成された記事一覧。Markdownをコピーしてnoteに貼り付け → 予約投稿。"
-      />
-
-      {!initialLoaded ? (
-        <div className="card p-10">
-          <Loading size="lg" message="ライブラリを読み込み中…" fill={false} />
-        </div>
-      ) : articles.length === 0 ? (
-        <div className="card p-12 text-center">
-          <div className="text-5xl mb-4 opacity-30">∅</div>
-          <p className="text-[color:var(--fg-secondary)] mb-5">まだ記事がありません。</p>
-          <Link href="/" className="btn-primary inline-block">
-            ① ネタ収集から始める
-          </Link>
-        </div>
-      ) : (
-        <>
+      >
+        {initialLoaded && articles.length > 0 && (
           <FilterBar>
             <div className="flex items-center justify-between gap-4 flex-wrap">
               <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
@@ -273,7 +259,23 @@ export default function LibraryPage() {
                 ))}
             </div>
           </FilterBar>
+        )}
+      </PageHeader>
 
+      {!initialLoaded ? (
+        <div className="card p-10">
+          <Loading size="lg" message="ライブラリを読み込み中…" fill={false} />
+        </div>
+      ) : articles.length === 0 ? (
+        <div className="card p-12 text-center">
+          <div className="text-5xl mb-4 opacity-30">∅</div>
+          <p className="text-[color:var(--fg-secondary)] mb-5">まだ記事がありません。</p>
+          <Link href="/" className="btn-primary inline-block">
+            ① ネタ収集から始める
+          </Link>
+        </div>
+      ) : (
+        <>
           <div className="grid md:grid-cols-[320px_1fr] gap-6">
             <aside className="space-y-2">
               <div className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-3 px-2">
