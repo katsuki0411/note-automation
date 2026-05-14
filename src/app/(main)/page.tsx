@@ -11,6 +11,13 @@ import { useGeneration } from "@/components/GenerationProvider";
 import { getCache, setCache } from "@/lib/clientCache";
 
 const CACHE_KEY = "research:feed";
+const HOT_CACHE_KEY = "research:hotKeywords";
+
+type HotCache = {
+  keywords: HotKeyword[];
+  updatedAt: string | null;
+  stats: HotStats | null;
+};
 
 const POLL_INTERVAL_MS = 30 * 1000; // 30sec
 const DAILY_FIRE_HOUR = 9; // JST 9時に1日1回tick
@@ -53,11 +60,12 @@ export default function ResearchPage() {
   const [now, setNow] = useState(Date.now());
   const [tickError, setTickError] = useState<string | null>(null);
   const [freeTheme, setFreeTheme] = useState("");
-  const [hotKeywords, setHotKeywords] = useState<HotKeyword[]>([]);
-  const [hotUpdatedAt, setHotUpdatedAt] = useState<string | null>(null);
+  const cachedHot = getCache<HotCache>(HOT_CACHE_KEY);
+  const [hotKeywords, setHotKeywords] = useState<HotKeyword[]>(cachedHot?.keywords ?? []);
+  const [hotUpdatedAt, setHotUpdatedAt] = useState<string | null>(cachedHot?.updatedAt ?? null);
   const [hotLoading, setHotLoading] = useState(false);
   const [hotError, setHotError] = useState<string | null>(null);
-  const [hotStats, setHotStats] = useState<HotStats | null>(null);
+  const [hotStats, setHotStats] = useState<HotStats | null>(cachedHot?.stats ?? null);
   const [hotFilter, setHotFilter] = useState<string>("all");
   const [expandedHot, setExpandedHot] = useState<Set<string>>(new Set());
   const [researchingKw, setResearchingKw] = useState<string | null>(null);
@@ -280,9 +288,15 @@ export default function ResearchPage() {
       keywords: HotKeyword[];
       stats?: HotStats;
     };
-    setHotKeywords(data.keywords ?? []);
-    setHotUpdatedAt(data.updatedAt);
-    setHotStats(data.stats ?? null);
+    const next: HotCache = {
+      keywords: data.keywords ?? [],
+      updatedAt: data.updatedAt,
+      stats: data.stats ?? null,
+    };
+    setHotKeywords(next.keywords);
+    setHotUpdatedAt(next.updatedAt);
+    setHotStats(next.stats);
+    setCache(HOT_CACHE_KEY, next);
   }, []);
 
   const refreshHotKeywords = useCallback(async () => {
@@ -293,9 +307,15 @@ export default function ResearchPage() {
       const res = await fetch("/api/keywords/hot", { method: "POST" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "失敗");
-      setHotKeywords(data.keywords ?? []);
-      setHotUpdatedAt(data.updatedAt);
-      setHotStats(data.stats ?? null);
+      const next: HotCache = {
+        keywords: data.keywords ?? [],
+        updatedAt: data.updatedAt,
+        stats: data.stats ?? null,
+      };
+      setHotKeywords(next.keywords);
+      setHotUpdatedAt(next.updatedAt);
+      setHotStats(next.stats);
+      setCache(HOT_CACHE_KEY, next);
     } catch (e) {
       setHotError(e instanceof Error ? e.message : "失敗");
     } finally {
