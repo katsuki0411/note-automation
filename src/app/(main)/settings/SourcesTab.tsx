@@ -1,7 +1,9 @@
 "use client";
 
+// 設定ページ「情報源」タブ。旧 /platforms ページの中身を移植したもの。
+// PageHeader は親 (settings/page.tsx) 側で持つので、ここはコンテンツのみ。
+
 import { useCallback, useEffect, useMemo, useState } from "react";
-import PageHeader from "@/components/PageHeader";
 import Loading from "@/components/Loading";
 import { getCache, setCache } from "@/lib/clientCache";
 import {
@@ -11,17 +13,15 @@ import {
 } from "@/lib/types";
 
 const CACHE_KEY = "platforms:list";
-
 const CATEGORIES: PlatformCategory[] = ["qa", "forum", "sns", "blog", "news", "other"];
 
-export default function PlatformsPage() {
+export default function SourcesTab() {
   const cached = getCache<Platform[]>(CACHE_KEY);
   const [platforms, setPlatforms] = useState<Platform[]>(cached ?? []);
   const [initialLoaded, setInitialLoaded] = useState(cached !== undefined);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
 
-  // 追加フォーム
   const [showAdd, setShowAdd] = useState(false);
   const [newDomain, setNewDomain] = useState("");
   const [newLabel, setNewLabel] = useState("");
@@ -45,9 +45,7 @@ export default function PlatformsPage() {
     const g: Record<PlatformCategory, Platform[]> = {
       qa: [], forum: [], sns: [], blog: [], news: [], other: [],
     };
-    for (const p of platforms) {
-      g[p.category].push(p);
-    }
+    for (const p of platforms) g[p.category].push(p);
     return g;
   }, [platforms]);
 
@@ -124,19 +122,21 @@ export default function PlatformsPage() {
   const enabledCount = platforms.filter((p) => p.enabled).length;
 
   return (
-    <>
-      <PageHeader
-        title="情報源プラットフォーム"
-        description={`ネタ収集で検索する主婦悩み相談サイト。有効${enabledCount}/${platforms.length}件`}
-        right={
-          <button
-            onClick={() => setShowAdd((s) => !s)}
-            className={showAdd ? "btn-ghost" : "btn-primary"}
-          >
-            {showAdd ? "× 閉じる" : "+ サイト追加"}
-          </button>
-        }
-      />
+    <div className="space-y-5">
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <h2 className="section-title">情報源プラットフォーム</h2>
+          <p className="text-[13px] text-[color:var(--fg-secondary)] mt-0.5">
+            ネタ収集で検索する主婦悩み相談サイト。有効 {enabledCount} / {platforms.length} 件
+          </p>
+        </div>
+        <button
+          onClick={() => setShowAdd((s) => !s)}
+          className={showAdd ? "btn-ghost" : "btn-primary"}
+        >
+          {showAdd ? "× 閉じる" : "+ サイト追加"}
+        </button>
+      </div>
 
       {message && (
         <div className={`alert ${message.kind === "success" ? "alert-success" : "alert-error"}`}>
@@ -145,7 +145,7 @@ export default function PlatformsPage() {
       )}
 
       {showAdd && (
-        <section className="card p-5 mb-5 space-y-3">
+        <section className="card p-5 space-y-3">
           <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)]">
             NEW SOURCE
           </div>
@@ -158,7 +158,7 @@ export default function PlatformsPage() {
                 value={newDomain}
                 onChange={(e) => setNewDomain(e.target.value)}
                 placeholder="例: ameblo.jp"
-                className="w-full px-3 py-2 rounded-lg border border-[var(--border-card)] text-[13px] focus:outline-none focus:border-[color:var(--accent)]"
+                className="input-base"
               />
             </div>
             <div>
@@ -169,7 +169,7 @@ export default function PlatformsPage() {
                 value={newLabel}
                 onChange={(e) => setNewLabel(e.target.value)}
                 placeholder="例: アメーバブログ"
-                className="w-full px-3 py-2 rounded-lg border border-[var(--border-card)] text-[13px] focus:outline-none focus:border-[color:var(--accent)]"
+                className="input-base"
               />
             </div>
             <div>
@@ -179,7 +179,7 @@ export default function PlatformsPage() {
               <select
                 value={newCategory}
                 onChange={(e) => setNewCategory(e.target.value as PlatformCategory)}
-                className="w-full px-3 py-2 rounded-lg border border-[var(--border-card)] text-[13px] bg-white"
+                className="input-base"
               >
                 {CATEGORIES.map((c) => (
                   <option key={c} value={c}>
@@ -196,15 +196,12 @@ export default function PlatformsPage() {
                 value={newMemo}
                 onChange={(e) => setNewMemo(e.target.value)}
                 placeholder="このサイトを使う理由など"
-                className="w-full px-3 py-2 rounded-lg border border-[var(--border-card)] text-[13px] focus:outline-none focus:border-[color:var(--accent)]"
+                className="input-base"
               />
             </div>
           </div>
           <div className="flex justify-end gap-2 pt-2">
-            <button
-              onClick={() => setShowAdd(false)}
-              className="btn-ghost"
-            >
+            <button onClick={() => setShowAdd(false)} className="btn-ghost">
               キャンセル
             </button>
             <button
@@ -223,43 +220,43 @@ export default function PlatformsPage() {
           <Loading size="lg" message="情報源を読み込み中…" fill={false} />
         </div>
       ) : (
-      <div className="space-y-5">
-        {CATEGORIES.map((cat) => {
-          const list = grouped[cat];
-          if (list.length === 0) return null;
-          const meta = PLATFORM_CATEGORY_META[cat];
-          return (
-            <section key={cat} className="card p-5">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <span
-                    className="w-2 h-2 rounded-full"
-                    style={{ background: meta.color, border: "1px solid rgba(0,0,0,0.1)" }}
-                  />
-                  <h2 className="section-title">{meta.label}</h2>
-                  <span className="text-[11px] font-mono text-[color:var(--fg-muted)]">
-                    {list.filter((p) => p.enabled).length}/{list.length}
-                  </span>
+        <div className="space-y-5">
+          {CATEGORIES.map((cat) => {
+            const list = grouped[cat];
+            if (list.length === 0) return null;
+            const meta = PLATFORM_CATEGORY_META[cat];
+            return (
+              <section key={cat} className="card p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="w-2 h-2 rounded-full"
+                      style={{ background: meta.color, border: "1px solid rgba(0,0,0,0.1)" }}
+                    />
+                    <h3 className="section-title">{meta.label}</h3>
+                    <span className="text-[11px] font-mono text-[color:var(--fg-muted)]">
+                      {list.filter((p) => p.enabled).length}/{list.length}
+                    </span>
+                  </div>
                 </div>
-              </div>
-              <div className="space-y-1">
-                {list.map((p) => (
-                  <PlatformRow
-                    key={p.id}
-                    platform={p}
-                    onToggle={() => toggleEnabled(p)}
-                    onLabelChange={(l) => updateLabel(p, l)}
-                    onCategoryChange={(c) => updateCategory(p, c)}
-                    onDelete={() => deletePlatform(p)}
-                  />
-                ))}
-              </div>
-            </section>
-          );
-        })}
-      </div>
+                <div className="space-y-1">
+                  {list.map((p) => (
+                    <PlatformRow
+                      key={p.id}
+                      platform={p}
+                      onToggle={() => toggleEnabled(p)}
+                      onLabelChange={(l) => updateLabel(p, l)}
+                      onCategoryChange={(c) => updateCategory(p, c)}
+                      onDelete={() => deletePlatform(p)}
+                    />
+                  ))}
+                </div>
+              </section>
+            );
+          })}
+        </div>
       )}
-    </>
+    </div>
   );
 }
 
