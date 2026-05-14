@@ -113,6 +113,9 @@ export async function POST(req: NextRequest) {
     const parsed = extractJson(responseText);
 
     let body = (parsed.body_markdown as string) ?? "";
+    // note のタイトル欄に best_title をコピペするため、本文先頭の H1 ("# タイトル") は
+    // プロンプトで禁止しているが、AI が含めてしまった場合に備えて剥がす safety net。
+    body = body.replace(/^\s*#\s+[^\n]+\n+/, "");
     body = body.replaceAll("---FIXED_AUTHOR_BIO_PLACEHOLDER---", BRAND.authorBio);
     body = body.replaceAll("---MID_ENGAGE_CTA_PLACEHOLDER---", MID_ENGAGE_CTA);
     body = body.replaceAll("{{cta.channel}}", cta.channel);
