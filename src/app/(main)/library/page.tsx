@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { Article, FeedIdea, ThemeId } from "@/lib/types";
 import { THEMES } from "@/lib/types";
@@ -11,6 +11,7 @@ import { getCache, setCache } from "@/lib/clientCache";
 import { postToNote, type NotePostResult } from "@/lib/notePost";
 
 const CACHE_KEY = "library:articles";
+const ACTIVE_CACHE_KEY = "library:activeId";
 
 type GroupBy = "theme" | "source" | "keyword";
 
@@ -27,9 +28,15 @@ function feedIdeaOf(a: Article): FeedIdea | null {
 
 export default function LibraryPage() {
   const cached = getCache<Article[]>(CACHE_KEY);
+  const cachedActive = getCache<string | null>(ACTIVE_CACHE_KEY);
   const [articles, setArticles] = useState<Article[]>(cached ?? []);
   const [initialLoaded, setInitialLoaded] = useState(cached !== undefined);
-  const [active, setActive] = useState<string | null>(null);
+  const [active, setActiveState] = useState<string | null>(cachedActive ?? null);
+
+  const setActive = useCallback((id: string | null) => {
+    setActiveState(id);
+    setCache(ACTIVE_CACHE_KEY, id);
+  }, []);
   const [copied, setCopied] = useState<string | null>(null);
   const [groupBy, setGroupBy] = useState<GroupBy>("source");
   const [filter, setFilter] = useState<string>("all");
@@ -117,10 +124,13 @@ export default function LibraryPage() {
     fetch("/api/articles")
       .then((r) => r.json())
       .then((d) => {
-        const next = d.articles ?? [];
+        const next: Article[] = d.articles ?? [];
         setArticles(next);
         setCache(CACHE_KEY, next);
-        if (next[0] && !active) setActive(next[0].id);
+        // active が無いか、キャッシュ済みの active が存在しない場合は先頭を選択
+        if (next.length > 0 && (!active || !next.some((a) => a.id === active))) {
+          setActive(next[0].id);
+        }
       })
       .finally(() => setInitialLoaded(true));
   // eslint-disable-next-line react-hooks/exhaustive-deps

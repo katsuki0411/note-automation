@@ -9,15 +9,35 @@ import { readArticleUrls, type ArticleUrl } from "@/lib/clientSettings";
 import { getCache, setCache } from "@/lib/clientCache";
 
 const CACHE_KEY = "seo:targets";
+const EXPANDED_CACHE_KEY = "seo:expandedId";
+const HISTORY_CACHE_KEY = "seo:historyMap";
 
 export default function SeoPage() {
   const cached = getCache<SeoTargetWithLatest[]>(CACHE_KEY);
+  const cachedExpanded = getCache<string | null>(EXPANDED_CACHE_KEY);
+  const cachedHistory = getCache<Record<string, SeoRanking[]>>(HISTORY_CACHE_KEY);
   const [targets, setTargets] = useState<SeoTargetWithLatest[]>(cached ?? []);
   const [initialLoaded, setInitialLoaded] = useState(cached !== undefined);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [historyMap, setHistoryMap] = useState<Record<string, SeoRanking[]>>({});
+  const [expandedId, setExpandedIdState] = useState<string | null>(cachedExpanded ?? null);
+  const [historyMap, setHistoryMapState] = useState<Record<string, SeoRanking[]>>(cachedHistory ?? {});
+
+  const setExpandedId = useCallback((id: string | null) => {
+    setExpandedIdState(id);
+    setCache(EXPANDED_CACHE_KEY, id);
+  }, []);
+
+  const setHistoryMap = useCallback(
+    (updater: Record<string, SeoRanking[]> | ((prev: Record<string, SeoRanking[]>) => Record<string, SeoRanking[]>)) => {
+      setHistoryMapState((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        setCache(HISTORY_CACHE_KEY, next);
+        return next;
+      });
+    },
+    [],
+  );
 
   const [showAdd, setShowAdd] = useState(false);
   const [newKw, setNewKw] = useState("");
