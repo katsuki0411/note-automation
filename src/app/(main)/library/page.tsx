@@ -31,7 +31,7 @@ export default function LibraryPage() {
   const [initialLoaded, setInitialLoaded] = useState(cached !== undefined);
   const [active, setActive] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
-  const [groupBy, setGroupBy] = useState<GroupBy>("theme");
+  const [groupBy, setGroupBy] = useState<GroupBy>("source");
   const [filter, setFilter] = useState<string>("all");
   const [derivativeStatus, setDerivativeStatus] = useState<{
     state: "idle" | "loading" | "done" | "error";
@@ -192,9 +192,6 @@ export default function LibraryPage() {
           <FilterBar>
             <div className="flex items-center justify-between gap-4 flex-wrap">
               <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
-                <GroupTab active={groupBy === "theme"} onClick={() => selectGroup("theme")}>
-                  テーマ別
-                </GroupTab>
                 <GroupTab active={groupBy === "source"} onClick={() => selectGroup("source")}>
                   公式サイト別 <span className="opacity-60 ml-0.5">{sourceCounts.length}</span>
                 </GroupTab>
@@ -211,22 +208,6 @@ export default function LibraryPage() {
                 すべて <span className="opacity-60 ml-1">{articles.length}</span>
               </FilterPill>
               <span className="mx-1 w-px h-5 bg-[var(--border-subtle)]" />
-              {groupBy === "theme" &&
-                THEMES.map((t) => {
-                  const count = themeCounts.get(t.id) ?? 0;
-                  if (count === 0) return null;
-                  const v = `theme:${t.id}`;
-                  return (
-                    <FilterPill key={t.id} active={filter === v} onClick={() => setFilter(v)}>
-                      {t.label} <span className="opacity-60 ml-1">{count}</span>
-                    </FilterPill>
-                  );
-                })}
-              {groupBy === "theme" && themeCounts.size === 0 && (
-                <span className="text-[12px] text-[color:var(--fg-muted)] italic">
-                  テーマ情報を持つ記事がまだありません
-                </span>
-              )}
               {groupBy === "source" &&
                 (sourceCounts.length === 0 ? (
                   <span className="text-[12px] text-[color:var(--fg-muted)] italic">

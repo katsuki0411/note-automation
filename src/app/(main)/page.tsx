@@ -43,7 +43,7 @@ export default function ResearchPage() {
   const cachedFeed = getCache<FeedState>(CACHE_KEY);
   const [state, setState] = useState<FeedState>(cachedFeed ?? { ideas: [], tickCount: 0 });
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [groupBy, setGroupBy] = useState<GroupBy>("theme");
+  const [groupBy, setGroupBy] = useState<GroupBy>("source");
   const [filter, setFilter] = useState<string>("all");
   const [sortMode, setSortMode] = useState<SortMode>("score");
   const [paused, setPaused] = useState(false);
@@ -393,9 +393,6 @@ export default function ResearchPage() {
       <FilterBar>
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
-            <GroupTab active={groupBy === "theme"} onClick={() => selectGroup("theme")}>
-              テーマ別
-            </GroupTab>
             <GroupTab active={groupBy === "source"} onClick={() => selectGroup("source")}>
               公式サイト別 <span className="opacity-60 ml-0.5">{sourceCounts.length}</span>
             </GroupTab>
@@ -483,16 +480,6 @@ export default function ResearchPage() {
                 ⭐ 高スコア(70+)
               </FilterPill>
               <span className="mx-1 w-px h-5 bg-[var(--border-subtle)]" />
-              {groupBy === "theme" &&
-                THEMES.map((t) => {
-                  const count = state.ideas.filter((i) => i.themeId === t.id).length;
-                  const v = `theme:${t.id}`;
-                  return (
-                    <FilterPill key={t.id} active={filter === v} onClick={() => setFilter(v)}>
-                      {t.label} <span className="opacity-60 ml-1">{count}</span>
-                    </FilterPill>
-                  );
-                })}
               {groupBy === "source" &&
                 (sourceCounts.length === 0 ? (
                   <span className="text-[12px] text-[color:var(--fg-muted)] italic">
