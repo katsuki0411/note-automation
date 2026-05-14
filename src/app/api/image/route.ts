@@ -6,6 +6,8 @@ import { loadArticles, saveArticle, saveImage } from "@/lib/storage";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
+type InlineDataPart = { inlineData?: { data?: string; mimeType?: string } };
+
 export async function POST(req: NextRequest) {
   try {
     const { articleId, subject } = (await req.json()) as {
@@ -25,30 +27,16 @@ export async function POST(req: NextRequest) {
     const prompt = buildImagePrompt(finalSubject);
 
     const ai = gemini();
-    const fallbackModels = [
-      MODELS.image,
-      "imagen-4.0-generate-001",
-      "imagen-4.0-ultra-generate-001",
-    ];
-    let base64: string | undefined;
-    let lastErr: unknown;
-    for (const model of fallbackModels) {
-      try {
-        const result = await ai.models.generateImages({
-          model,
-          prompt,
-          config: { numberOfImages: 1, aspectRatio: "16:9" },
-        });
-        base64 = result.generatedImages?.[0]?.image?.imageBytes;
-        if (base64) break;
-      } catch (e) {
-        lastErr = e;
-      }
-    }
+    const result = await ai.models.generateContent({
+      model: MODELS.image,
+      contents: prompt,
+    });
+
+    const parts: InlineDataPart[] =
+      result.candidates?.[0]?.content?.parts ?? [];
+    const base64 = parts.find((p) => p.inlineData?.data)?.inlineData?.data;
     if (!base64) {
-      throw new Error(
-        `画像生成に失敗: ${lastErr instanceof Error ? lastErr.message : "image bytes empty"}`
-      );
+      throw new Error("画像生成に失敗: image bytes empty");
     }
 
     const imagePath = await saveImage(articleId, base64);

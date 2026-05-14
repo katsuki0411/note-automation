@@ -1,11 +1,10 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import { sql } from "./db";
+import { supabaseAdmin } from "./supabase/admin";
 import type { Article, Idea } from "./types";
 
 export type { Article, Idea } from "./types";
 
-const IMAGES_DIR = path.join(process.cwd(), "public", "generated-images");
+const IMAGES_BUCKET = "images";
 
 type ArticleRow = {
   id: string;
@@ -76,11 +75,22 @@ export async function saveArticle(article: Article): Promise<void> {
   `;
 }
 
-// 画像は当面ローカルfsに保存（Vercel本番運用は Task 5 で Supabase Storage 対応予定）
+// Supabase Storage の `images` 公開バケットに保存し、public URL を返す。
+// 再生成時に上書きされるよう upsert: true。
 export async function saveImage(articleId: string, base64: string): Promise<string> {
-  await fs.mkdir(IMAGES_DIR, { recursive: true });
-  const filename = `${articleId}.png`;
-  const filepath = path.join(IMAGES_DIR, filename);
-  await fs.writeFile(filepath, Buffer.from(base64, "base64"));
-  return `/generated-images/${filename}`;
+  const supa = supabaseAdmin();
+  const filename = `articles/${articleId}.png`;
+  const buffer = Buffer.from(base64, "base64");
+  const { error: uploadError } = await supa.storage
+    .from(IMAGES_BUCKET)
+    .upload(filename, buffer, {
+      contentType: "image/png",
+      upsert: true,
+    });
+  if (uploadError) {
+    throw new Error(`Storage upload failed: ${uploadError.message}`);
+  }
+  const { data } = supa.storage.from(IMAGES_BUCKET).getPublicUrl(filename);
+  // キャッシュ破棄用クエリ（再生成時に同URLでも新画像が表示されるよう）
+  return `${data.publicUrl}?t=${Date.now()}`;
 }

@@ -13,5 +13,5 @@ export function gemini() {
 
 export const MODELS = {
   research: "gemini-2.5-flash",
-  image: "imagen-4.0-fast-generate-001",
+  image: "gemini-2.5-flash-image",
 } as const;

@@ -44,6 +44,10 @@ export default function LibraryPage() {
     state: "idle" | "loading" | "done" | "error";
     message?: string;
   }>({ state: "idle" });
+  const [imageStatus, setImageStatus] = useState<{
+    state: "idle" | "loading" | "done" | "error";
+    message?: string;
+  }>({ state: "idle" });
 
   // note 投稿モーダル
   const [postModalArticle, setPostModalArticle] = useState<Article | null>(null);
@@ -93,6 +97,35 @@ export default function LibraryPage() {
       });
     } else {
       setPostStatus({ state: "error", message: res.error ?? "不明" });
+    }
+  }
+
+  async function generateImage(articleId: string) {
+    setImageStatus({ state: "loading", message: "Nano Banana で生成中（約10〜20秒）..." });
+    try {
+      const res = await fetch("/api/image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ articleId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "失敗");
+      // articles 配列内の該当記事の imagePath を更新
+      setArticles((prev) => {
+        const next = prev.map((a) =>
+          a.id === articleId ? { ...a, imagePath: data.imagePath as string } : a,
+        );
+        setCache(CACHE_KEY, next);
+        return next;
+      });
+      setImageStatus({ state: "done", message: "見出し画像を生成しました" });
+      setTimeout(() => setImageStatus({ state: "idle" }), 3000);
+    } catch (e) {
+      setImageStatus({
+        state: "error",
+        message: e instanceof Error ? e.message : "失敗",
+      });
+      setTimeout(() => setImageStatus({ state: "idle" }), 6000);
     }
   }
 
@@ -406,6 +439,18 @@ export default function LibraryPage() {
                     </a>
                   )}
                   <button
+                    onClick={() => generateImage(current.id)}
+                    disabled={imageStatus.state === "loading"}
+                    className="btn-ghost"
+                    title="Nano Banana (Gemini 2.5 Flash Image) で見出し画像を生成（約6円/枚）"
+                  >
+                    {imageStatus.state === "loading"
+                      ? "🎨 生成中..."
+                      : current.imagePath
+                        ? "🔄 画像を再生成"
+                        : "🎨 見出し画像を生成"}
+                  </button>
+                  <button
                     onClick={() => generateDerivative(current.id)}
                     disabled={derivativeStatus.state === "loading"}
                     className="btn-ghost"
@@ -416,6 +461,19 @@ export default function LibraryPage() {
                       : "↳ このテーマで派生案"}
                   </button>
                 </div>
+                {imageStatus.message && (
+                  <div
+                    className={`mb-3 text-[12px] px-4 py-2 rounded-lg ${
+                      imageStatus.state === "error"
+                        ? "bg-red-50 text-red-700 border border-red-100"
+                        : imageStatus.state === "done"
+                          ? "bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)]"
+                          : "bg-amber-50 text-amber-800"
+                    }`}
+                  >
+                    {imageStatus.message}
+                  </div>
+                )}
                 {derivativeStatus.message && (
                   <div
                     className={`mb-6 text-[12px] px-4 py-2 rounded-lg ${
