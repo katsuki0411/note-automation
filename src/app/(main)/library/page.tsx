@@ -87,6 +87,7 @@ export default function LibraryPage() {
       body: postModalArticle.bodyMarkdown,
       tags,
       publish: postPublish,
+      imageUrl: postModalArticle.imagePath,
     });
     if (res.ok) {
       setPostStatus({

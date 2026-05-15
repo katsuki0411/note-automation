@@ -6,6 +6,7 @@ export type NotePostPayload = {
   body: string;
   tags?: string[];
   publish?: boolean;
+  imageUrl?: string;
 };
 
 export type NotePostResult = {
