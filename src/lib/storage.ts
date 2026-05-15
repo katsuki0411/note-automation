@@ -17,6 +17,7 @@ type ArticleRow = {
   image_prompt_subject: string;
   image_alt_text: string | null;
   image_path: string | null;
+  posted_at: string | null;
 };
 
 function rowToArticle(r: ArticleRow): Article {
@@ -31,6 +32,7 @@ function rowToArticle(r: ArticleRow): Article {
     imagePromptSubject: r.image_prompt_subject ?? "",
     imageAltText: r.image_alt_text ?? undefined,
     imagePath: r.image_path ?? undefined,
+    postedAt: r.posted_at ?? undefined,
   };
 }
 
@@ -38,7 +40,7 @@ export async function loadArticles(): Promise<Article[]> {
   const rows = await sql<ArticleRow[]>`
     select id, created_at, idea, best_title, title_candidates,
            best_title_reason, body_markdown, image_prompt_subject,
-           image_alt_text, image_path
+           image_alt_text, image_path, posted_at
     from articles
     order by created_at desc
   `;
@@ -50,7 +52,7 @@ export async function saveArticle(article: Article): Promise<void> {
     insert into articles (
       id, created_at, idea, best_title, title_candidates,
       best_title_reason, body_markdown, image_prompt_subject,
-      image_alt_text, image_path
+      image_alt_text, image_path, posted_at
     ) values (
       ${article.id},
       ${article.createdAt},
@@ -61,7 +63,8 @@ export async function saveArticle(article: Article): Promise<void> {
       ${article.bodyMarkdown ?? ""},
       ${article.imagePromptSubject ?? ""},
       ${article.imageAltText ?? null},
-      ${article.imagePath ?? null}
+      ${article.imagePath ?? null},
+      ${article.postedAt ?? null}
     )
     on conflict (id) do update set
       idea = excluded.idea,
@@ -71,7 +74,16 @@ export async function saveArticle(article: Article): Promise<void> {
       body_markdown = excluded.body_markdown,
       image_prompt_subject = excluded.image_prompt_subject,
       image_alt_text = excluded.image_alt_text,
-      image_path = excluded.image_path
+      image_path = excluded.image_path,
+      posted_at = excluded.posted_at
+  `;
+}
+
+export async function markArticlePosted(articleId: string): Promise<void> {
+  await sql`
+    update articles
+       set posted_at = now()
+     where id = ${articleId}
   `;
 }
 

@@ -186,4 +186,5 @@ export type Article = {
   imagePromptSubject: string;
   imageAltText?: string;
   imagePath?: string;
+  postedAt?: string;
 };

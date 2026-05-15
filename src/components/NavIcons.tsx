@@ -56,6 +56,17 @@ export function SourcesIcon({ size = 20, className }: IconProps) {
   );
 }
 
+/** 投稿レコード - チェック付きドキュメント */
+export function PostedIcon({ size = 20, className }: IconProps) {
+  return (
+    <svg {...baseProps(size)} className={className} aria-hidden>
+      <path d="M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z" />
+      <path d="M14 3v6h6" />
+      <path d="M9 14l2 2 4-4" />
+    </svg>
+  );
+}
+
 /** SEO順位 - 上昇するトレンドライン */
 export function SeoIcon({ size = 20, className }: IconProps) {
   return (

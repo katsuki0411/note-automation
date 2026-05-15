@@ -5,6 +5,7 @@ import type { ComponentType } from "react";
 import {
   SparklesIcon,
   LibraryIcon,
+  PostedIcon,
   SeoIcon,
   SettingsIcon,
 } from "@/components/NavIcons";
@@ -21,6 +22,7 @@ export type NavItem = {
 export const NAV_ITEMS: NavItem[] = [
   { href: "/", label: "ネタ収集 ＆ 生成", desc: "Research & Generate", icon: SparklesIcon },
   { href: "/library", label: "ライブラリ", desc: "Library", icon: LibraryIcon },
+  { href: "/posted", label: "投稿レコード", desc: "Post Records", icon: PostedIcon },
   { href: "/seo", label: "SEO順位", desc: "SEO Rank", icon: SeoIcon },
   { href: "/settings", label: "設定", desc: "Settings", icon: SettingsIcon },
 ];

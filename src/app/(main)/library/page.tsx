@@ -95,6 +95,25 @@ export default function LibraryPage() {
           ? "公開ボタン押下まで送信。noteタブで結果を確認してください"
           : "下書きに入力完了。noteタブで確認してください",
       });
+      // 投稿レコードに記録（拡張が「公開ボタン押下」まで到達した時点で済とみなす）
+      try {
+        const articleId = postModalArticle.id;
+        await fetch("/api/articles/posted", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ articleId }),
+        });
+        const nowIso = new Date().toISOString();
+        setArticles((prev) => {
+          const next = prev.map((a) =>
+            a.id === articleId ? { ...a, postedAt: nowIso } : a,
+          );
+          setCache(CACHE_KEY, next);
+          return next;
+        });
+      } catch {
+        // 記録は失敗してもフロー継続（後追いで手動修正可能）
+      }
     } else {
       setPostStatus({ state: "error", message: res.error ?? "不明" });
     }
@@ -162,14 +181,20 @@ export default function LibraryPage() {
   }
 
   useEffect(() => {
+    // ?id=xxx で来た場合（投稿レコード等から）はそれを active に設定
+    const urlId =
+      typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("id")
+        : null;
     fetch("/api/articles")
       .then((r) => r.json())
       .then((d) => {
         const next: Article[] = d.articles ?? [];
         setArticles(next);
         setCache(CACHE_KEY, next);
-        // active が無いか、キャッシュ済みの active が存在しない場合は先頭を選択
-        if (next.length > 0 && (!active || !next.some((a) => a.id === active))) {
+        if (urlId && next.some((a) => a.id === urlId)) {
+          setActive(urlId);
+        } else if (next.length > 0 && (!active || !next.some((a) => a.id === active))) {
           setActive(next[0].id);
         }
       })

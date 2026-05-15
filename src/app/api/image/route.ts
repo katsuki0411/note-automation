@@ -32,7 +32,11 @@ export async function POST(req: NextRequest) {
       contents: prompt,
       // Nano Banana は responseModalities を明示しないと画像を返さない。
       // TEXT も含めるのは safety フィードバックを受け取るため。
-      config: { responseModalities: ["IMAGE", "TEXT"] },
+      // aspectRatio は imageConfig 配下に置く必要がある（"16:9" で note 推奨の 1280×670 比率）。
+      config: {
+        responseModalities: ["IMAGE", "TEXT"],
+        imageConfig: { aspectRatio: "16:9" },
+      },
     });
 
     const parts: InlineDataPart[] =
