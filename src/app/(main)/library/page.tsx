@@ -9,6 +9,7 @@ import Loading from "@/components/Loading";
 import { FilterBar, GroupTab, FilterPill } from "@/components/FilterBar";
 import { getCache, setCache } from "@/lib/clientCache";
 import { postToNote, type NotePostResult } from "@/lib/notePost";
+import { PLATFORM_LABELS, type Platform, type PostingDestinationRow } from "@/lib/posters";
 
 const CACHE_KEY = "library:articles";
 const ACTIVE_CACHE_KEY = "library:activeId";
@@ -49,7 +50,7 @@ export default function LibraryPage() {
     message?: string;
   }>({ state: "idle" });
 
-  // note 投稿モーダル
+  // マルチポストモーダル（note拡張 + 登録済み外部宛先を選んで一括投稿）
   const [postModalArticle, setPostModalArticle] = useState<Article | null>(null);
   const [postTagsInput, setPostTagsInput] = useState("");
   const [postPublish, setPostPublish] = useState(true);
@@ -57,6 +58,16 @@ export default function LibraryPage() {
     state: "idle" | "sending" | "done" | "error";
     message?: string;
   }>({ state: "idle" });
+  const [destinations, setDestinations] = useState<PostingDestinationRow[]>([]);
+  // 選択中の宛先 (id) — "note" は拡張経由のnote投稿を表す擬似ID
+  const [selectedTargets, setSelectedTargets] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    fetch("/api/destinations")
+      .then((r) => r.json())
+      .then((d) => setDestinations(d.destinations ?? []))
+      .catch(() => {});
+  }, []);
 
   function openPostModal(a: Article) {
     const fi = feedIdeaOf(a);
@@ -66,7 +77,20 @@ export default function LibraryPage() {
     setPostTagsInput(suggestedTags.slice(0, 5).join(", "));
     setPostPublish(true);
     setPostStatus({ state: "idle" });
+    // 初期状態: note + 有効な宛先全部にチェック
+    const init = new Set<string>(["note"]);
+    destinations.filter((d) => d.enabled).forEach((d) => init.add(d.id));
+    setSelectedTargets(init);
     setPostModalArticle(a);
+  }
+
+  function toggleTarget(id: string) {
+    setSelectedTargets((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
   function closePostModal() {
@@ -76,48 +100,101 @@ export default function LibraryPage() {
 
   async function submitPost() {
     if (!postModalArticle) return;
+    if (selectedTargets.size === 0) {
+      setPostStatus({ state: "error", message: "投稿先を1つ以上選んでください" });
+      return;
+    }
     const tags = postTagsInput
       .split(/[,、]/)
       .map((t) => t.trim())
       .filter(Boolean)
       .slice(0, 5);
-    setPostStatus({ state: "sending", message: "拡張に送信中..." });
-    const res: NotePostResult = await postToNote({
-      title: postModalArticle.bestTitle,
-      body: postModalArticle.bodyMarkdown,
-      tags,
-      publish: postPublish,
-      imageUrl: postModalArticle.imagePath,
-    });
-    if (res.ok) {
-      setPostStatus({
-        state: "done",
-        message: postPublish
-          ? "公開ボタン押下まで送信。noteタブで結果を確認してください"
-          : "下書きに入力完了。noteタブで確認してください",
-      });
-      // 投稿レコードに記録（拡張が「公開ボタン押下」まで到達した時点で済とみなす）
+    setPostStatus({ state: "sending", message: "投稿中…" });
+
+    const noteSelected = selectedTargets.has("note");
+    const destIds = [...selectedTargets].filter((t) => t !== "note");
+    const messages: string[] = [];
+    let hasError = false;
+
+    // 1) 外部宛先への並列投稿（API ベース、サーバー側で実行）
+    if (destIds.length > 0) {
       try {
-        const articleId = postModalArticle.id;
-        await fetch("/api/articles/posted", {
+        const res = await fetch("/api/multipost", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ articleId }),
+          body: JSON.stringify({
+            articleId: postModalArticle.id,
+            destinationIds: destIds,
+            draft: !postPublish,
+          }),
         });
-        const nowIso = new Date().toISOString();
-        setArticles((prev) => {
-          const next = prev.map((a) =>
-            a.id === articleId ? { ...a, postedAt: nowIso } : a,
-          );
-          setCache(CACHE_KEY, next);
-          return next;
-        });
-      } catch {
-        // 記録は失敗してもフロー継続（後追いで手動修正可能）
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "失敗");
+        const results = (data.results ?? []) as Array<{
+          ok: boolean;
+          destinationLabel?: string;
+          platform?: string;
+          url?: string;
+          error?: string;
+        }>;
+        for (const r of results) {
+          if (r.ok) {
+            messages.push(`✅ ${r.destinationLabel}: ${r.url ? "投稿完了 → " + r.url : "投稿完了"}`);
+          } else {
+            hasError = true;
+            messages.push(`❌ ${r.destinationLabel ?? r.platform}: ${r.error}`);
+          }
+        }
+      } catch (e) {
+        hasError = true;
+        messages.push(`❌ multipost API: ${e instanceof Error ? e.message : "失敗"}`);
       }
-    } else {
-      setPostStatus({ state: "error", message: res.error ?? "不明" });
     }
+
+    // 2) note 拡張への送信（クライアント側、Chrome拡張経由）
+    if (noteSelected) {
+      const res: NotePostResult = await postToNote({
+        title: postModalArticle.bestTitle,
+        body: postModalArticle.bodyMarkdown,
+        tags,
+        publish: postPublish,
+        imageUrl: postModalArticle.imagePath,
+      });
+      if (res.ok) {
+        messages.push(
+          postPublish
+            ? "✅ note: 公開ボタン押下まで送信"
+            : "✅ note: 下書きに入力完了",
+        );
+        // 既存の投稿レコード機能と互換性のため articles.posted_at を更新
+        try {
+          await fetch("/api/articles/posted", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ articleId: postModalArticle.id }),
+          });
+        } catch {}
+      } else {
+        hasError = true;
+        messages.push(`❌ note: ${res.error ?? "失敗"}`);
+      }
+    }
+
+    // ローカル state 更新（posted_at をフロントにも反映）
+    const articleId = postModalArticle.id;
+    const nowIso = new Date().toISOString();
+    setArticles((prev) => {
+      const next = prev.map((a) =>
+        a.id === articleId ? { ...a, postedAt: a.postedAt ?? nowIso } : a,
+      );
+      setCache(CACHE_KEY, next);
+      return next;
+    });
+
+    setPostStatus({
+      state: hasError ? "error" : "done",
+      message: messages.join("\n"),
+    });
   }
 
   async function generateImage(articleId: string) {
@@ -451,9 +528,9 @@ export default function LibraryPage() {
                   <button
                     onClick={() => openPostModal(current)}
                     className="btn-primary"
-                    title="拡張経由で note.com に投稿する"
+                    title="note + 登録済み外部ブログにマルチポストする"
                   >
-                    📝 noteへ投稿
+                    📤 マルチポスト
                   </button>
                   <button
                     onClick={() => copy(current.bestTitle, "title")}
@@ -551,17 +628,70 @@ export default function LibraryPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-2">
-              POST TO NOTE
+              MULTI-POST
             </div>
             <h3 className="text-[18px] font-semibold tracking-tight mb-1">
               {postModalArticle.bestTitle}
             </h3>
             <p className="text-[12px] text-[color:var(--fg-secondary)] mb-4">
-              拡張経由で note.com に投稿します
+              チェックを入れた宛先すべてに同じ記事を一括投稿します
             </p>
 
+            <div className="mb-4">
+              <div className="text-[11px] font-medium text-[color:var(--fg-secondary)] mb-2">
+                投稿先
+              </div>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-[13px] cursor-pointer p-2 rounded-lg border border-[var(--border-subtle)] hover:bg-gray-50">
+                  <input
+                    type="checkbox"
+                    checked={selectedTargets.has("note")}
+                    onChange={() => toggleTarget("note")}
+                    disabled={postStatus.state === "sending"}
+                  />
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
+                    note (拡張)
+                  </span>
+                  <span className="text-[12px] text-[color:var(--fg-secondary)]">
+                    Chrome拡張経由 (画像は手動セット)
+                  </span>
+                </label>
+                {destinations.length === 0 ? (
+                  <div className="text-[11px] text-[color:var(--fg-muted)] italic py-2 px-2">
+                    外部ブログ未登録。{" "}
+                    <Link href="/settings" className="underline">
+                      設定 → 投稿先
+                    </Link>{" "}
+                    から追加してください
+                  </div>
+                ) : (
+                  destinations.map((d) => (
+                    <label
+                      key={d.id}
+                      className={`flex items-center gap-2 text-[13px] cursor-pointer p-2 rounded-lg border border-[var(--border-subtle)] hover:bg-gray-50 ${
+                        !d.enabled ? "opacity-50" : ""
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedTargets.has(d.id)}
+                        onChange={() => toggleTarget(d.id)}
+                        disabled={postStatus.state === "sending" || !d.enabled}
+                      />
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)]">
+                        {PLATFORM_LABELS[d.platform as Platform] ?? d.platform}
+                      </span>
+                      <span className="text-[12px] text-[color:var(--fg-primary)]">
+                        {d.label}
+                      </span>
+                    </label>
+                  ))
+                )}
+              </div>
+            </div>
+
             <label className="block text-[12px] font-medium text-[color:var(--fg-secondary)] mb-1">
-              タグ（カンマ区切り、最大5個）
+              タグ（カンマ区切り、最大5個・noteのみ反映）
             </label>
             <input
               type="text"
@@ -584,7 +714,7 @@ export default function LibraryPage() {
 
             {postStatus.message && (
               <div
-                className={`mb-4 text-[12px] px-3 py-2 rounded-lg ${
+                className={`mb-4 text-[12px] px-3 py-2 rounded-lg whitespace-pre-line ${
                   postStatus.state === "error"
                     ? "bg-red-50 text-red-700 border border-red-100"
                     : postStatus.state === "done"
