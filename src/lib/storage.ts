@@ -36,25 +36,32 @@ function rowToArticle(r: ArticleRow): Article {
   };
 }
 
-export async function loadArticles(): Promise<Article[]> {
+export async function loadArticles(projectId: string): Promise<Article[]> {
   const rows = await sql<ArticleRow[]>`
     select id, created_at, idea, best_title, title_candidates,
            best_title_reason, body_markdown, image_prompt_subject,
            image_alt_text, image_path, posted_at
     from articles
+    where project_id = ${projectId}
     order by created_at desc
   `;
   return rows.map(rowToArticle);
 }
 
-export async function saveArticle(article: Article): Promise<void> {
+export async function saveArticle(
+  projectId: string,
+  userId: string,
+  article: Article,
+): Promise<void> {
   await sql`
     insert into articles (
-      id, created_at, idea, best_title, title_candidates,
+      id, project_id, user_id, created_at, idea, best_title, title_candidates,
       best_title_reason, body_markdown, image_prompt_subject,
       image_alt_text, image_path, posted_at
     ) values (
       ${article.id},
+      ${projectId},
+      ${userId},
       ${article.createdAt},
       ${sql.json(article.idea)},
       ${article.bestTitle},
@@ -79,19 +86,28 @@ export async function saveArticle(article: Article): Promise<void> {
   `;
 }
 
-export async function markArticlePosted(articleId: string): Promise<void> {
+export async function markArticlePosted(
+  projectId: string,
+  articleId: string,
+): Promise<void> {
   await sql`
     update articles
        set posted_at = now()
-     where id = ${articleId}
+     where id = ${articleId} and project_id = ${projectId}
   `;
 }
 
 // Supabase Storage の `images` 公開バケットに保存し、public URL を返す。
 // 再生成時に上書きされるよう upsert: true。
-export async function saveImage(articleId: string, base64: string): Promise<string> {
+// 画像パスにも projectId を含めて、別 project が同じ articleId を使うことが
+// 仮にあっても衝突しないようにする。
+export async function saveImage(
+  projectId: string,
+  articleId: string,
+  base64: string,
+): Promise<string> {
   const supa = supabaseAdmin();
-  const filename = `articles/${articleId}.png`;
+  const filename = `articles/${projectId}/${articleId}.png`;
   const buffer = Buffer.from(base64, "base64");
   const { error: uploadError } = await supa.storage
     .from(IMAGES_BUCKET)
@@ -103,6 +119,5 @@ export async function saveImage(articleId: string, base64: string): Promise<stri
     throw new Error(`Storage upload failed: ${uploadError.message}`);
   }
   const { data } = supa.storage.from(IMAGES_BUCKET).getPublicUrl(filename);
-  // キャッシュ破棄用クエリ（再生成時に同URLでも新画像が表示されるよう）
   return `${data.publicUrl}?t=${Date.now()}`;
 }

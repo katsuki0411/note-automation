@@ -45,25 +45,37 @@ function rowToIdea(r: IdeaRow): FeedIdea {
   };
 }
 
-async function loadFeedStateRow(): Promise<{ tickCount: number; lastTickAt: string | null }> {
+async function loadFeedStateRow(
+  projectId: string,
+): Promise<{ tickCount: number; lastTickAt: string | null }> {
   const rows = await sql<{ tick_count: number; last_tick_at: string | null }[]>`
-    select tick_count, last_tick_at from feed_state where id = 1
+    select tick_count, last_tick_at from feed_state where project_id = ${projectId}
   `;
   if (rows.length === 0) return { tickCount: 0, lastTickAt: null };
   return { tickCount: rows[0].tick_count, lastTickAt: rows[0].last_tick_at };
 }
 
-export async function loadFeed(): Promise<FeedState> {
+// project の feed_state 行が無ければ作る（新規プロジェクト初期化用）
+async function ensureFeedStateRow(projectId: string, userId: string): Promise<void> {
+  await sql`
+    insert into feed_state (project_id, user_id, tick_count)
+    values (${projectId}, ${userId}, 0)
+    on conflict (project_id) do nothing
+  `;
+}
+
+export async function loadFeed(projectId: string): Promise<FeedState> {
   const [ideas, meta] = await Promise.all([
     sql<IdeaRow[]>`
       select id, created_at, source, theme_id, custom_label, source_mode,
              title, hook, angle, trend_source, voice, tool_concept,
              keywords, target, impression, priority_score, target_keyword_id
       from ideas
+      where project_id = ${projectId}
       order by created_at desc
       limit ${MAX_FEED}
     `,
-    loadFeedStateRow(),
+    loadFeedStateRow(projectId),
   ]);
   return {
     ideas: ideas.map(rowToIdea),
@@ -88,10 +100,16 @@ function similar(a: string, b: string): boolean {
 }
 
 export async function appendIdeas(
+  projectId: string,
+  userId: string,
   newIdeas: Omit<FeedIdea, "id" | "createdAt">[],
 ): Promise<{ added: number; skipped: number; state: FeedState; addedIdeas: FeedIdea[] }> {
+  await ensureFeedStateRow(projectId, userId);
+
   const existing = await sql<{ title: string }[]>`
-    select title from ideas order by created_at desc limit ${MAX_FEED}
+    select title from ideas
+    where project_id = ${projectId}
+    order by created_at desc limit ${MAX_FEED}
   `;
   const existingTitles = existing.map((e) => e.title);
 
@@ -109,11 +127,13 @@ export async function appendIdeas(
     const createdAt = new Date().toISOString();
     await sql`
       insert into ideas (
-        id, created_at, source, theme_id, custom_label, source_mode,
+        id, project_id, user_id, created_at, source, theme_id, custom_label, source_mode,
         title, hook, angle, trend_source, voice, tool_concept,
         keywords, target, impression, priority_score, target_keyword_id
       ) values (
         ${id},
+        ${projectId},
+        ${userId},
         ${createdAt},
         ${idea.source},
         ${idea.themeId},
@@ -137,29 +157,31 @@ export async function appendIdeas(
     added++;
   }
 
-  // 古いideaを削除（MAX_FEED超え分）
+  // 古いideaを削除（MAX_FEED超え分）— project 単位
   await sql`
     delete from ideas
     where id in (
-      select id from ideas order by created_at desc offset ${MAX_FEED}
+      select id from ideas
+      where project_id = ${projectId}
+      order by created_at desc offset ${MAX_FEED}
     )
   `;
 
-  // feed_stateのtick_count更新
+  // feed_state の tick_count 更新
   const now = new Date().toISOString();
   await sql`
     update feed_state
     set tick_count = tick_count + 1,
         last_tick_at = ${now}
-    where id = 1
+    where project_id = ${projectId}
   `;
 
-  const state = await loadFeed();
+  const state = await loadFeed(projectId);
   return { added, skipped, state, addedIdeas };
 }
 
-export async function dismissIdea(id: string): Promise<void> {
-  await sql`delete from ideas where id = ${id}`;
+export async function dismissIdea(projectId: string, id: string): Promise<void> {
+  await sql`delete from ideas where id = ${id} and project_id = ${projectId}`;
 }
 
 export function pickNextTheme(tickCount: number): { id: ThemeId; label: string; desc: string } {

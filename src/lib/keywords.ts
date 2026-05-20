@@ -43,11 +43,12 @@ function rowToKw(r: KeywordRow): Keyword {
   };
 }
 
-export async function loadKeywords(): Promise<KeywordsState> {
+export async function loadKeywords(projectId: string): Promise<KeywordsState> {
   const rows = await sql<KeywordRow[]>`
     select id, theme_id, subcategory_id, kw, intent, vol, comp,
            priority, memo, status, article_ids, created_at, updated_at
     from keywords
+    where project_id = ${projectId}
     order by priority desc, created_at desc
   `;
   return { keywords: rows.map(rowToKw) };
@@ -61,13 +62,18 @@ export function normalizeKw(s: string): string {
   return s.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
-export async function findKeyword(kw: string, themeId?: ThemeId): Promise<Keyword | undefined> {
+export async function findKeyword(
+  projectId: string,
+  kw: string,
+  themeId?: ThemeId,
+): Promise<Keyword | undefined> {
   const norm = normalizeKw(kw);
   const rows = await sql<KeywordRow[]>`
     select id, theme_id, subcategory_id, kw, intent, vol, comp,
            priority, memo, status, article_ids, created_at, updated_at
     from keywords
-    where lower(trim(kw)) = ${norm}
+    where project_id = ${projectId}
+      and lower(trim(kw)) = ${norm}
       ${themeId ? sql`and theme_id = ${themeId}` : sql``}
     limit 1
   `;
@@ -87,18 +93,24 @@ export type CreateKeywordInput = {
   articleIds?: string[];
 };
 
-export async function createKeyword(input: CreateKeywordInput): Promise<Keyword> {
-  const dup = await findKeyword(input.kw, input.themeId);
+export async function createKeyword(
+  projectId: string,
+  userId: string,
+  input: CreateKeywordInput,
+): Promise<Keyword> {
+  const dup = await findKeyword(projectId, input.kw, input.themeId);
   if (dup) return dup;
 
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
   await sql`
     insert into keywords (
-      id, theme_id, subcategory_id, kw, intent, vol, comp,
+      id, project_id, user_id, theme_id, subcategory_id, kw, intent, vol, comp,
       priority, memo, status, article_ids, created_at, updated_at
     ) values (
       ${id},
+      ${projectId},
+      ${userId},
       ${input.themeId},
       ${input.subcategoryId},
       ${input.kw.trim()},
@@ -131,6 +143,7 @@ export async function createKeyword(input: CreateKeywordInput): Promise<Keyword>
 }
 
 export async function updateKeyword(
+  projectId: string,
   id: string,
   patch: Partial<Omit<Keyword, "id" | "createdAt">>,
 ): Promise<Keyword | undefined> {
@@ -148,21 +161,26 @@ export async function updateKeyword(
       status = coalesce(${patch.status ?? null}, status),
       article_ids = coalesce(${patch.articleIds ? sql.json(patch.articleIds) : null}, article_ids),
       updated_at = ${now}
-    where id = ${id}
+    where id = ${id} and project_id = ${projectId}
     returning id, theme_id, subcategory_id, kw, intent, vol, comp,
               priority, memo, status, article_ids, created_at, updated_at
   `;
   return rows.length ? rowToKw(rows[0]) : undefined;
 }
 
-export async function deleteKeyword(id: string): Promise<boolean> {
-  const result = await sql`delete from keywords where id = ${id}`;
+export async function deleteKeyword(projectId: string, id: string): Promise<boolean> {
+  const result = await sql`delete from keywords where id = ${id} and project_id = ${projectId}`;
   return result.count > 0;
 }
 
-export async function attachArticleToKeyword(keywordId: string, articleId: string) {
+export async function attachArticleToKeyword(
+  projectId: string,
+  keywordId: string,
+  articleId: string,
+) {
   const rows = await sql<{ article_ids: string[] }[]>`
-    select article_ids from keywords where id = ${keywordId}
+    select article_ids from keywords
+    where id = ${keywordId} and project_id = ${projectId}
   `;
   if (rows.length === 0) return;
   const ids = rows[0].article_ids ?? [];
@@ -173,6 +191,6 @@ export async function attachArticleToKeyword(keywordId: string, articleId: strin
       article_ids = ${sql.json(ids)},
       status = 'covered',
       updated_at = ${now}
-    where id = ${keywordId}
+    where id = ${keywordId} and project_id = ${projectId}
   `;
 }

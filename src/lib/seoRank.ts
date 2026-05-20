@@ -73,17 +73,18 @@ function normalizePrefix(s: string): string {
   return s.trim();
 }
 
-export async function listTargets(): Promise<SeoTarget[]> {
+export async function listTargets(projectId: string): Promise<SeoTarget[]> {
   const rows = await sql<TargetRow[]>`
     select id, kw, target_url_prefix, memo, enabled, created_at, updated_at
     from seo_targets
+    where project_id = ${projectId}
     order by created_at desc
   `;
   return rows.map(rowToTarget);
 }
 
-export async function listTargetsWithLatest(): Promise<SeoTargetWithLatest[]> {
-  const targets = await listTargets();
+export async function listTargetsWithLatest(projectId: string): Promise<SeoTargetWithLatest[]> {
+  const targets = await listTargets(projectId);
   if (targets.length === 0) return [];
   const ids = targets.map((t) => t.id);
   const rankRows = await sql<(RankingRow & { rn: number })[]>`
@@ -91,7 +92,7 @@ export async function listTargetsWithLatest(): Promise<SeoTargetWithLatest[]> {
       select id, target_id, rank, found_url, total_scanned, checked_at, error,
              row_number() over (partition by target_id order by checked_at desc) as rn
       from seo_rankings
-      where target_id in ${sql(ids)}
+      where project_id = ${projectId} and target_id in ${sql(ids)}
     ) t where rn <= 2
   `;
   const byTarget = new Map<string, SeoRanking[]>();
@@ -106,11 +107,15 @@ export async function listTargetsWithLatest(): Promise<SeoTargetWithLatest[]> {
   });
 }
 
-export async function getHistory(targetId: string, limit = 60): Promise<SeoRanking[]> {
+export async function getHistory(
+  projectId: string,
+  targetId: string,
+  limit = 60,
+): Promise<SeoRanking[]> {
   const rows = await sql<RankingRow[]>`
     select id, target_id, rank, found_url, total_scanned, checked_at, error
     from seo_rankings
-    where target_id = ${targetId}
+    where project_id = ${projectId} and target_id = ${targetId}
     order by checked_at desc
     limit ${limit}
   `;
@@ -124,7 +129,11 @@ export type CreateTargetInput = {
   enabled?: boolean;
 };
 
-export async function createTarget(input: CreateTargetInput): Promise<SeoTarget> {
+export async function createTarget(
+  projectId: string,
+  userId: string,
+  input: CreateTargetInput,
+): Promise<SeoTarget> {
   const kw = input.kw.trim();
   const prefix = normalizePrefix(input.targetUrlPrefix);
   if (!kw) throw new Error("キーワードが空です");
@@ -132,15 +141,21 @@ export async function createTarget(input: CreateTargetInput): Promise<SeoTarget>
   if (!/^https?:\/\//i.test(prefix)) throw new Error("対象URLは http:// または https:// で始めてください");
 
   const dup = await sql<{ id: string }[]>`
-    select id from seo_targets where kw = ${kw} and target_url_prefix = ${prefix} limit 1
+    select id from seo_targets
+    where kw = ${kw} and target_url_prefix = ${prefix} and project_id = ${projectId}
+    limit 1
   `;
   if (dup.length > 0) throw new Error("同じキーワード×URLが既に存在します");
 
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   await sql`
-    insert into seo_targets (id, kw, target_url_prefix, memo, enabled, created_at, updated_at)
-    values (${id}, ${kw}, ${prefix}, ${input.memo ?? ""}, ${input.enabled ?? true}, ${now}, ${now})
+    insert into seo_targets (
+      id, project_id, user_id, kw, target_url_prefix, memo, enabled, created_at, updated_at
+    ) values (
+      ${id}, ${projectId}, ${userId},
+      ${kw}, ${prefix}, ${input.memo ?? ""}, ${input.enabled ?? true}, ${now}, ${now}
+    )
   `;
   return {
     id,
@@ -154,6 +169,7 @@ export async function createTarget(input: CreateTargetInput): Promise<SeoTarget>
 }
 
 export async function updateTarget(
+  projectId: string,
   id: string,
   patch: Partial<Omit<SeoTarget, "id" | "createdAt">>,
 ): Promise<SeoTarget | undefined> {
@@ -169,23 +185,24 @@ export async function updateTarget(
       memo = coalesce(${patch.memo ?? null}, memo),
       enabled = coalesce(${patch.enabled ?? null}, enabled),
       updated_at = ${now}
-    where id = ${id}
+    where id = ${id} and project_id = ${projectId}
     returning id, kw, target_url_prefix, memo, enabled, created_at, updated_at
   `;
   return rows.length ? rowToTarget(rows[0]) : undefined;
 }
 
-export async function deleteTarget(id: string): Promise<boolean> {
-  const result = await sql`delete from seo_targets where id = ${id}`;
+export async function deleteTarget(projectId: string, id: string): Promise<boolean> {
+  const result = await sql`
+    delete from seo_targets where id = ${id} and project_id = ${projectId}
+  `;
   return result.count > 0;
 }
 
 // ===== Brave Search API による順位スキャン =====
-// Google CSE は michisu.inc@gmail.com 配下のアカウントで原因不明の403が継続発生したため Brave に切替
 
 const BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search";
-const SCAN_DEPTH = 30; // 上位30位まで
-const PAGE_SIZE = 20; // Brave Search の1ページ最大件数
+const SCAN_DEPTH = 30;
+const PAGE_SIZE = 20;
 
 type BraveItem = { url?: string };
 type BraveResponse = { web?: { results?: BraveItem[] } };
@@ -252,12 +269,20 @@ export async function scanRank(kw: string, targetUrlPrefix: string): Promise<Sca
   }
 }
 
-export async function recordRanking(targetId: string, result: ScanResult): Promise<SeoRanking> {
+export async function recordRanking(
+  projectId: string,
+  targetId: string,
+  result: ScanResult,
+): Promise<SeoRanking> {
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   await sql`
-    insert into seo_rankings (id, target_id, rank, found_url, total_scanned, checked_at, error)
-    values (${id}, ${targetId}, ${result.rank}, ${result.foundUrl}, ${result.totalScanned}, ${now}, ${result.error})
+    insert into seo_rankings (
+      id, project_id, target_id, rank, found_url, total_scanned, checked_at, error
+    ) values (
+      ${id}, ${projectId}, ${targetId},
+      ${result.rank}, ${result.foundUrl}, ${result.totalScanned}, ${now}, ${result.error}
+    )
   `;
   return {
     id,
@@ -270,23 +295,44 @@ export async function recordRanking(targetId: string, result: ScanResult): Promi
   };
 }
 
-export async function checkTarget(target: SeoTarget): Promise<SeoRanking> {
+export async function checkTarget(projectId: string, target: SeoTarget): Promise<SeoRanking> {
   const result = await scanRank(target.kw, target.targetUrlPrefix);
-  return recordRanking(target.id, result);
+  return recordRanking(projectId, target.id, result);
 }
 
-export async function checkAllEnabled(): Promise<{ checked: number; errors: number }> {
+// 単一プロジェクトの有効ターゲット全件をチェック
+export async function checkAllEnabled(
+  projectId: string,
+): Promise<{ checked: number; errors: number }> {
   const rows = await sql<TargetRow[]>`
     select id, kw, target_url_prefix, memo, enabled, created_at, updated_at
-    from seo_targets where enabled = true
+    from seo_targets
+    where project_id = ${projectId} and enabled = true
     order by created_at asc
   `;
   let checked = 0;
   let errors = 0;
   for (const r of rows) {
-    const result = await checkTarget(rowToTarget(r));
+    const result = await checkTarget(projectId, rowToTarget(r));
     checked++;
     if (result.error) errors++;
   }
   return { checked, errors };
+}
+
+// cron 用: 全プロジェクトを横断して、有効ターゲットを全部チェック
+export async function checkAllEnabledAllProjects(): Promise<{
+  checked: number;
+  errors: number;
+  projects: number;
+}> {
+  const projects = await sql<{ id: string }[]>`select id from projects`;
+  let checked = 0;
+  let errors = 0;
+  for (const p of projects) {
+    const r = await checkAllEnabled(p.id);
+    checked += r.checked;
+    errors += r.errors;
+  }
+  return { checked, errors, projects: projects.length };
 }

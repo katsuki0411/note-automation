@@ -156,11 +156,12 @@ export function isProviderAvailable(p: SearchProviderName): boolean {
  * targetPlatforms 指定が無ければ data/platforms.json の有効ドメインを使用。
  */
 export async function buildSearchQueriesAsync(
+  projectId: string,
   themeKeywords: string[],
   options: { maxQueries?: number; targetPlatforms?: string[] } = {},
 ): Promise<string[]> {
   const max = options.maxQueries ?? 6;
-  const platforms = options.targetPlatforms ?? (await getEnabledDomains()).slice(0, 5);
+  const platforms = options.targetPlatforms ?? (await getEnabledDomains(projectId)).slice(0, 5);
   const queries: string[] = [];
   for (const kw of themeKeywords) {
     for (const platform of platforms) {
@@ -174,8 +175,8 @@ export async function buildSearchQueriesAsync(
 /**
  * 検索結果フィルタ用: 有効プラットフォームのドメインのみ通す
  */
-export async function getAllowedPlatformDomains(): Promise<string[]> {
-  return getEnabledDomains();
+export async function getAllowedPlatformDomains(projectId: string): Promise<string[]> {
+  return getEnabledDomains(projectId);
 }
 
 /** 同期版: ドメインから既知のラベルを推定（非同期不要のUI表示用フォールバック） */

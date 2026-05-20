@@ -134,11 +134,15 @@ export async function discoverHotKeywordsForTheme(themeId: ThemeId): Promise<Hot
 
 /**
  * ホットキーワード候補を実検索で検証する。
- * - 許可ドメイン（platforms.json）に対して検索を投げ、ヒット数と実プラットフォーム名を取得
+ * - プロジェクトの許可ドメイン一覧に対して検索を投げ、ヒット数と実プラットフォーム名を取得
  * - 0件のものは "no-hits"、検索プロバイダ未設定/失敗は "search-failed" マーク
  * - sources は実ヒットしたドメインのラベルで上書き
  */
-export async function verifyHotKeyword(hot: HotKeyword): Promise<HotKeyword> {
+export async function verifyHotKeyword(
+  projectId: string,
+  userId: string,
+  hot: HotKeyword,
+): Promise<HotKeyword> {
   const providersAvailable =
     isProviderAvailable("brave") || isProviderAvailable("google");
   if (!providersAvailable) {
@@ -147,7 +151,7 @@ export async function verifyHotKeyword(hot: HotKeyword): Promise<HotKeyword> {
 
   try {
     const results = await multiSearch([hot.kw], { perQueryCount: 5 });
-    const allowed = await getAllowedPlatformDomains();
+    const allowed = await getAllowedPlatformDomains(projectId);
     const matched = results.filter((r) =>
       allowed.some((d) => r.domain.includes(d)),
     );
@@ -158,7 +162,7 @@ export async function verifyHotKeyword(hot: HotKeyword): Promise<HotKeyword> {
 
     const labelSet = new Set<string>();
     for (const r of matched) {
-      const label = await platformLabelForDomainAsync(r.domain);
+      const label = await platformLabelForDomainAsync(projectId, userId, r.domain);
       labelSet.add(label);
     }
 
@@ -179,6 +183,8 @@ export async function verifyHotKeyword(hot: HotKeyword): Promise<HotKeyword> {
  * 並列度を制限しながら検証
  */
 export async function verifyHotKeywords(
+  projectId: string,
+  userId: string,
   candidates: HotKeyword[],
   opts: { concurrency?: number } = {},
 ): Promise<HotKeyword[]> {
@@ -189,7 +195,7 @@ export async function verifyHotKeywords(
     while (true) {
       const i = cursor++;
       if (i >= candidates.length) return;
-      out[i] = await verifyHotKeyword(candidates[i]);
+      out[i] = await verifyHotKeyword(projectId, userId, candidates[i]);
     }
   });
   await Promise.all(workers);
