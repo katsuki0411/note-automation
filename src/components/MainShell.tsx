@@ -6,19 +6,27 @@ import Sidebar from "@/components/Sidebar";
 import { GenerationProvider } from "@/components/GenerationProvider";
 import GenerationStatusBar from "@/components/GenerationStatusBar";
 import { NoteLogoFull } from "@/components/NoteLogo";
+import type { ProjectMembership } from "@/lib/projects";
 
-export default function MainShell({ children }: { children: React.ReactNode }) {
+export default function MainShell({
+  children,
+  currentProject,
+  allProjects,
+}: {
+  children: React.ReactNode;
+  currentProject: ProjectMembership;
+  allProjects: ProjectMembership[];
+}) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const pathname = usePathname();
 
-  // ルート遷移時にドロワーを閉じる
   useEffect(() => {
     setDrawerOpen(false);
   }, [pathname]);
 
   return (
     <GenerationProvider>
-      {/* モバイル用ヘッダーバー（md以上で非表示） */}
+      {/* モバイル用ヘッダーバー */}
       <header className="md:hidden sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-white border-b border-[var(--border-subtle)]">
         <button
           type="button"
@@ -37,8 +45,12 @@ export default function MainShell({ children }: { children: React.ReactNode }) {
       </header>
 
       <div className="md:flex md:min-h-full">
-        {/* デスクトップ: 通常のサイドバー / モバイル: ドロワーオーバーレイ */}
-        <Sidebar isMobileOpen={drawerOpen} onCloseMobile={() => setDrawerOpen(false)} />
+        <Sidebar
+          isMobileOpen={drawerOpen}
+          onCloseMobile={() => setDrawerOpen(false)}
+          currentProject={currentProject}
+          allProjects={allProjects}
+        />
 
         <div className="flex-1 min-w-0 flex flex-col">
           <main className="flex-1 max-w-[1400px] mx-auto w-full px-4 md:px-8 py-6 md:py-10">
