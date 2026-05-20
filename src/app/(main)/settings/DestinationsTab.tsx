@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PLATFORM_LABELS, type Platform, type PostingDestinationRow } from "@/lib/posters";
+import { PLATFORM_LABELS, type Platform, type PostingDestinationRow } from "@/lib/posters/types";
 
 type HatenaConfigForm = {
   hatenaId: string;
@@ -17,22 +17,30 @@ const PLATFORM_OPTIONS: { value: Platform; label: string; help: string }[] = [
   },
 ];
 
+const EMPTY_HATENA: HatenaConfigForm = { hatenaId: "", blogDomain: "", apiKey: "" };
+
 function maskKey(key: string | undefined): string {
   if (!key || key.length < 4) return "***";
   return `${key.slice(0, 2)}***${key.slice(-2)}`;
 }
 
+// 入力ぶれを吸収して AtomPub URL に使える純粋なホスト名にする
+// 例: "https://ally-desu.hatenablog.com/" → "ally-desu.hatenablog.com"
+function normalizeBlogDomain(input: string): string {
+  return input
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/+$/, "");
+}
+
 export default function DestinationsTab() {
   const [destinations, setDestinations] = useState<PostingDestinationRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [adding, setAdding] = useState(false);
+  // null = 新規作成 / string = その id を編集 / undefined = フォーム非表示
+  const [editingId, setEditingId] = useState<string | null | undefined>(undefined);
   const [platform, setPlatform] = useState<Platform>("hatena");
   const [label, setLabel] = useState("");
-  const [hatena, setHatena] = useState<HatenaConfigForm>({
-    hatenaId: "",
-    blogDomain: "",
-    apiKey: "",
-  });
+  const [hatena, setHatena] = useState<HatenaConfigForm>(EMPTY_HATENA);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,7 +59,35 @@ export default function DestinationsTab() {
     refresh();
   }, []);
 
-  async function submitAdd() {
+  function resetForm() {
+    setLabel("");
+    setHatena(EMPTY_HATENA);
+    setPlatform("hatena");
+    setError(null);
+    setEditingId(undefined);
+  }
+
+  function startAdd() {
+    resetForm();
+    setEditingId(null);
+  }
+
+  function startEdit(d: PostingDestinationRow) {
+    setError(null);
+    setPlatform(d.platform);
+    setLabel(d.label);
+    if (d.platform === "hatena") {
+      const cfg = d.config as { hatenaId?: string; blogDomain?: string; apiKey?: string };
+      setHatena({
+        hatenaId: cfg.hatenaId ?? "",
+        blogDomain: cfg.blogDomain ?? "",
+        apiKey: cfg.apiKey ?? "",
+      });
+    }
+    setEditingId(d.id);
+  }
+
+  async function submitForm() {
     setError(null);
     if (!label.trim()) {
       setError("ラベルを入力してください");
@@ -59,32 +95,34 @@ export default function DestinationsTab() {
     }
     let config: Record<string, unknown>;
     if (platform === "hatena") {
-      if (!hatena.hatenaId.trim() || !hatena.blogDomain.trim() || !hatena.apiKey.trim()) {
+      const id = hatena.hatenaId.trim();
+      const domain = normalizeBlogDomain(hatena.blogDomain);
+      const key = hatena.apiKey.trim();
+      if (!id || !domain || !key) {
         setError("はてなID / ブログURL / APIキーは全て必須です");
         return;
       }
-      config = {
-        hatenaId: hatena.hatenaId.trim(),
-        blogDomain: hatena.blogDomain.trim(),
-        apiKey: hatena.apiKey.trim(),
-      };
+      config = { hatenaId: id, blogDomain: domain, apiKey: key };
     } else {
       setError("未対応のプラットフォーム");
       return;
     }
     setSubmitting(true);
     try {
-      const res = await fetch("/api/destinations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform, label: label.trim(), config }),
-      });
+      const isEdit = typeof editingId === "string";
+      const res = await fetch(
+        isEdit ? `/api/destinations/${editingId}` : "/api/destinations",
+        {
+          method: isEdit ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            isEdit ? { label: label.trim(), config } : { platform, label: label.trim(), config },
+          ),
+        },
+      );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "失敗");
-      // クリア
-      setLabel("");
-      setHatena({ hatenaId: "", blogDomain: "", apiKey: "" });
-      setAdding(false);
+      resetForm();
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "失敗");
@@ -107,6 +145,9 @@ export default function DestinationsTab() {
     await fetch(`/api/destinations/${d.id}`, { method: "DELETE" });
     refresh();
   }
+
+  const formVisible = editingId !== undefined;
+  const isEditMode = typeof editingId === "string";
 
   return (
     <div className="max-w-2xl space-y-5">
@@ -152,6 +193,13 @@ export default function DestinationsTab() {
               </button>
               <button
                 type="button"
+                onClick={() => startEdit(d)}
+                className="text-[12px] text-[color:var(--accent-dark)] hover:underline shrink-0"
+              >
+                編集
+              </button>
+              <button
+                type="button"
                 onClick={() => deleteDest(d)}
                 className="text-[12px] text-red-500 hover:text-red-700 shrink-0"
               >
@@ -166,25 +214,22 @@ export default function DestinationsTab() {
         </div>
       )}
 
-      {!adding ? (
-        <button
-          type="button"
-          onClick={() => setAdding(true)}
-          className="btn-accent"
-        >
+      {!formVisible ? (
+        <button type="button" onClick={startAdd} className="btn-accent">
           + 投稿先を追加
         </button>
       ) : (
         <div className="space-y-3 p-4 rounded-lg border border-dashed border-[var(--border-card)]">
           <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)]">
-            NEW DESTINATION
+            {isEditMode ? "EDIT DESTINATION" : "NEW DESTINATION"}
           </div>
           <label className="block">
             <span className="text-[11px] text-[color:var(--fg-secondary)]">プラットフォーム</span>
             <select
               value={platform}
               onChange={(e) => setPlatform(e.target.value as Platform)}
-              className="input-base mt-1"
+              disabled={isEditMode}
+              className="input-base mt-1 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {PLATFORM_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>
@@ -201,6 +246,9 @@ export default function DestinationsTab() {
               placeholder="例: メインブログ"
               className="input-base mt-1"
             />
+            <span className="block text-[10px] text-[color:var(--fg-muted)] mt-1">
+              一覧で識別するための名前（自由入力）
+            </span>
           </label>
           {platform === "hatena" && (
             <>
@@ -209,50 +257,48 @@ export default function DestinationsTab() {
                 <input
                   value={hatena.hatenaId}
                   onChange={(e) => setHatena({ ...hatena, hatenaId: e.target.value })}
-                  placeholder="例: t3zztwzmay"
+                  placeholder="例: ally-desu"
                   className="input-base mt-1 font-mono"
                 />
+                <span className="block text-[10px] text-[color:var(--fg-muted)] mt-1">
+                  ログイン時に使う本来のはてなID。AtomPub URL の `/blog.hatena.ne.jp/<b>ここ</b>/xxx.hatenablog.com/atom` 部分
+                </span>
               </label>
               <label className="block">
-                <span className="text-[11px] text-[color:var(--fg-secondary)]">
-                  ブログURL（.hatenablog.com まで全部）
-                </span>
+                <span className="text-[11px] text-[color:var(--fg-secondary)]">ブログURL</span>
                 <input
                   value={hatena.blogDomain}
                   onChange={(e) => setHatena({ ...hatena, blogDomain: e.target.value })}
-                  placeholder="例: t3zztwzmay.hatenablog.com"
+                  placeholder="例: ally-desu.hatenablog.com"
                   className="input-base mt-1 font-mono"
                 />
+                <span className="block text-[10px] text-[color:var(--fg-muted)] mt-1">
+                  ホスト名のみ。https:// や末尾スラッシュは自動で除去します
+                </span>
               </label>
               <label className="block">
-                <span className="text-[11px] text-[color:var(--fg-secondary)]">
-                  APIキー（投稿用メールアドレスの「.」より右側）
-                </span>
+                <span className="text-[11px] text-[color:var(--fg-secondary)]">APIキー</span>
                 <input
                   type="password"
                   value={hatena.apiKey}
                   onChange={(e) => setHatena({ ...hatena, apiKey: e.target.value })}
-                  placeholder="設定→詳細設定→AtomPub に表示"
+                  placeholder={isEditMode ? "変更しない場合も再入力が必要です" : "例: t3zztwzmay"}
                   className="input-base mt-1 font-mono"
                 />
+                <span className="block text-[10px] text-[color:var(--fg-muted)] mt-1">
+                  はてな「アカウント設定」→ APIキー欄に表示される値。投稿用メアド <span className="font-mono">xxxxx.yyyyy@blog.hatena.ne.jp</span> の <span className="font-mono">「.」より左側</span> と同じ
+                </span>
               </label>
             </>
           )}
           {error && <p className="text-[11px] text-red-600">{error}</p>}
           <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setAdding(false);
-                setError(null);
-              }}
-              className="btn-ghost"
-            >
+            <button type="button" onClick={resetForm} className="btn-ghost">
               キャンセル
             </button>
             <button
               type="button"
-              onClick={submitAdd}
+              onClick={submitForm}
               disabled={submitting}
               className="btn-accent disabled:opacity-30 disabled:cursor-not-allowed"
             >
