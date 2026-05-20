@@ -3,6 +3,7 @@ import { loadArticles } from "@/lib/storage";
 import { getDestination, saveArticlePosting } from "@/lib/destinations";
 import { postToDestination } from "@/lib/posters";
 import { sql } from "@/lib/db";
+import { withProjectContext } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -14,69 +15,69 @@ type Body = {
 };
 
 export async function POST(req: NextRequest) {
-  try {
-    const { articleId, destinationIds, draft = false } =
-      (await req.json()) as Body;
-    if (!articleId || !Array.isArray(destinationIds) || destinationIds.length === 0) {
-      return Response.json(
-        { error: "articleId と destinationIds が必要です" },
-        { status: 400 },
-      );
-    }
-    const articles = await loadArticles();
-    const article = articles.find((a) => a.id === articleId);
-    if (!article) {
-      return Response.json({ error: "記事が見つかりません" }, { status: 404 });
-    }
+  return withProjectContext(async (ctx) => {
+    try {
+      const { articleId, destinationIds, draft = false } =
+        (await req.json()) as Body;
+      if (!articleId || !Array.isArray(destinationIds) || destinationIds.length === 0) {
+        return Response.json(
+          { error: "articleId と destinationIds が必要です" },
+          { status: 400 },
+        );
+      }
+      const articles = await loadArticles(ctx.projectId);
+      const article = articles.find((a) => a.id === articleId);
+      if (!article) {
+        return Response.json({ error: "記事が見つかりません" }, { status: 404 });
+      }
 
-    // 各 destination に並列投稿
-    const results = await Promise.all(
-      destinationIds.map(async (destId) => {
-        const dest = await getDestination(destId);
-        if (!dest) {
+      // 各 destination に並列投稿
+      const results = await Promise.all(
+        destinationIds.map(async (destId) => {
+          const dest = await getDestination(ctx.projectId, destId);
+          if (!dest) {
+            return {
+              destinationId: destId,
+              ok: false,
+              error: "destination が見つかりません",
+            };
+          }
+          const result = await postToDestination(dest, {
+            title: article.bestTitle,
+            bodyMarkdown: article.bodyMarkdown,
+            tags: [],
+            draft,
+            imageUrl: article.imagePath,
+          });
+          await saveArticlePosting(ctx.projectId, ctx.userId, {
+            articleId,
+            destinationId: dest.id,
+            destinationLabel: dest.label,
+            platform: dest.platform,
+            status: result.ok ? "success" : "failed",
+            externalUrl: result.url,
+            error: result.error,
+          });
           return {
             destinationId: destId,
-            ok: false,
-            error: "destination が見つかりません",
+            destinationLabel: dest.label,
+            platform: dest.platform,
+            ...result,
           };
-        }
-        const result = await postToDestination(dest, {
-          title: article.bestTitle,
-          bodyMarkdown: article.bodyMarkdown,
-          tags: [],            // タグはプラットフォーム別に整理予定
-          draft,
-          imageUrl: article.imagePath,
-        });
-        // 投稿履歴を記録
-        await saveArticlePosting({
-          articleId,
-          destinationId: dest.id,
-          destinationLabel: dest.label,
-          platform: dest.platform,
-          status: result.ok ? "success" : "failed",
-          externalUrl: result.url,
-          error: result.error,
-        });
-        return {
-          destinationId: destId,
-          destinationLabel: dest.label,
-          platform: dest.platform,
-          ...result,
-        };
-      }),
-    );
+        }),
+      );
 
-    // 1件でも成功していれば articles.posted_at を更新（既存の投稿レコード機能との互換性）
-    if (results.some((r) => r.ok)) {
-      await sql`
-        update articles set posted_at = now()
-        where id = ${articleId} and posted_at is null
-      `;
+      if (results.some((r) => r.ok)) {
+        await sql`
+          update articles set posted_at = now()
+          where id = ${articleId} and project_id = ${ctx.projectId} and posted_at is null
+        `;
+      }
+
+      return Response.json({ results });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "unknown";
+      return Response.json({ error: message }, { status: 500 });
     }
-
-    return Response.json({ results });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "unknown";
-    return Response.json({ error: message }, { status: 500 });
-  }
+  });
 }

@@ -1,6 +1,7 @@
-import { createKeyword, loadKeywords, normalizeKw, saveKeywords, updateKeyword } from "@/lib/keywords";
+import { createKeyword, loadKeywords, normalizeKw, updateKeyword } from "@/lib/keywords";
 import { loadArticles } from "@/lib/storage";
-import { SUBCATEGORIES, type FeedIdea, type ThemeId } from "@/lib/types";
+import { type FeedIdea, type ThemeId } from "@/lib/types";
+import { withProjectContext } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -40,72 +41,73 @@ function detectSubcategory(themeId: ThemeId, text: string): string {
 }
 
 export async function POST() {
-  try {
-    const articles = await loadArticles();
-    const beforeState = await loadKeywords();
-    const beforeCount = beforeState.keywords.length;
+  return withProjectContext(async (ctx) => {
+    try {
+      const articles = await loadArticles(ctx.projectId);
+      const beforeState = await loadKeywords(ctx.projectId);
+      const beforeCount = beforeState.keywords.length;
 
-    let added = 0;
-    let attached = 0;
+      let added = 0;
+      let attached = 0;
 
-    for (const article of articles) {
-      const feedIdea = article.idea as FeedIdea;
-      const themeId: ThemeId = feedIdea.themeId ?? "custom";
-      const kwData = feedIdea.keywords;
-      if (!kwData) continue;
+      for (const article of articles) {
+        const feedIdea = article.idea as FeedIdea;
+        const themeId: ThemeId = feedIdea.themeId ?? "custom";
+        const kwData = feedIdea.keywords;
+        if (!kwData) continue;
 
-      const allKws: { kw: string; isPrimary: boolean }[] = [
-        { kw: kwData.primary, isPrimary: true },
-        ...(kwData.secondary ?? []).map((s) => ({ kw: s, isPrimary: false })),
-      ];
-      const articleText = `${article.bestTitle}\n${kwData.primary}\n${(kwData.secondary ?? []).join(" ")}`;
-      const subcategoryId = detectSubcategory(themeId, articleText);
+        const allKws: { kw: string; isPrimary: boolean }[] = [
+          { kw: kwData.primary, isPrimary: true },
+          ...(kwData.secondary ?? []).map((s) => ({ kw: s, isPrimary: false })),
+        ];
+        const articleText = `${article.bestTitle}\n${kwData.primary}\n${(kwData.secondary ?? []).join(" ")}`;
+        const subcategoryId = detectSubcategory(themeId, articleText);
 
-      for (const { kw, isPrimary } of allKws) {
-        if (!kw) continue;
-        const trimmed = kw.trim();
-        if (!trimmed) continue;
-        // 都度ディスクから最新を読む（重複検出のため）
-        const current = await loadKeywords();
-        const dup = current.keywords.find(
-          (k) => normalizeKw(k.kw) === normalizeKw(trimmed) && k.themeId === themeId,
-        );
-        if (dup) {
-          if (!dup.articleIds.includes(article.id)) {
-            await updateKeyword(dup.id, {
-              articleIds: [...dup.articleIds, article.id],
+        for (const { kw, isPrimary } of allKws) {
+          if (!kw) continue;
+          const trimmed = kw.trim();
+          if (!trimmed) continue;
+          const current = await loadKeywords(ctx.projectId);
+          const dup = current.keywords.find(
+            (k) => normalizeKw(k.kw) === normalizeKw(trimmed) && k.themeId === themeId,
+          );
+          if (dup) {
+            if (!dup.articleIds.includes(article.id)) {
+              await updateKeyword(ctx.projectId, dup.id, {
+                articleIds: [...dup.articleIds, article.id],
+                status: "covered",
+              });
+              attached++;
+            }
+          } else {
+            await createKeyword(ctx.projectId, ctx.userId, {
+              themeId,
+              subcategoryId,
+              kw: trimmed,
+              intent: "trouble",
+              vol: feedIdea.impression?.monthlySearchVolume ?? "medium",
+              comp: feedIdea.impression?.competitionLevel ?? "medium",
+              priority: isPrimary ? 80 : 60,
               status: "covered",
+              articleIds: [article.id],
+              memo: `自動投入（記事: ${article.bestTitle.slice(0, 30)}）`,
             });
-            attached++;
+            added++;
           }
-        } else {
-          await createKeyword({
-            themeId,
-            subcategoryId,
-            kw: trimmed,
-            intent: "trouble",
-            vol: feedIdea.impression?.monthlySearchVolume ?? "medium",
-            comp: feedIdea.impression?.competitionLevel ?? "medium",
-            priority: isPrimary ? 80 : 60,
-            status: "covered",
-            articleIds: [article.id],
-            memo: `自動投入（記事: ${article.bestTitle.slice(0, 30)}）`,
-          });
-          added++;
         }
       }
-    }
 
-    const afterState = await loadKeywords();
-    return Response.json({
-      processedArticles: articles.length,
-      added,
-      attached,
-      beforeCount,
-      afterCount: afterState.keywords.length,
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "unknown";
-    return Response.json({ error: msg }, { status: 500 });
-  }
+      const afterState = await loadKeywords(ctx.projectId);
+      return Response.json({
+        processedArticles: articles.length,
+        added,
+        attached,
+        beforeCount,
+        afterCount: afterState.keywords.length,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "unknown";
+      return Response.json({ error: msg }, { status: 500 });
+    }
+  });
 }

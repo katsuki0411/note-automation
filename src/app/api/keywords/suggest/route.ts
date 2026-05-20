@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { gemini, MODELS } from "@/lib/gemini";
 import { SUBCATEGORIES, THEMES, type ThemeId } from "@/lib/types";
 import { AUTHOR_CONCEPT } from "@/lib/prompts";
+import { withProjectContext } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -46,6 +47,7 @@ ${themeDesc}
 `.trim();
 
 export async function POST(req: NextRequest) {
+  return withProjectContext(async () => {
   try {
     const { themeId, subcategoryId } = (await req.json()) as {
       themeId: ThemeId;
@@ -81,4 +83,5 @@ export async function POST(req: NextRequest) {
     const msg = e instanceof Error ? e.message : "unknown";
     return Response.json({ error: msg }, { status: 500 });
   }
+  });
 }

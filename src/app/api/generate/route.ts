@@ -9,6 +9,7 @@ import {
   isArticleModel,
 } from "@/lib/articleGen";
 import type { FeedIdea, Keyword, ThemeId } from "@/lib/types";
+import { withProjectContext } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -28,11 +29,12 @@ function buildTags(themeId?: ThemeId): string[] {
 }
 
 async function pickRelatedArticles(
+  projectId: string,
   themeId: ThemeId | undefined,
   selfIdeaTitle: string,
   limit = 3,
 ): Promise<{ title: string; hook?: string }[]> {
-  const all = await loadArticles();
+  const all = await loadArticles(projectId);
   const sameTheme = all.filter((a) => {
     const aFeed = a.idea as FeedIdea;
     return aFeed?.themeId === themeId && a.bestTitle !== selfIdeaTitle;
@@ -46,10 +48,11 @@ async function pickRelatedArticles(
 }
 
 async function pickTargetKeyword(
+  projectId: string,
   themeId: ThemeId | undefined,
   explicitKwId?: string,
 ): Promise<Keyword | undefined> {
-  const state = await loadKeywords();
+  const state = await loadKeywords(projectId);
   if (explicitKwId) {
     return state.keywords.find((k) => k.id === explicitKwId);
   }
@@ -60,6 +63,7 @@ async function pickTargetKeyword(
 }
 
 export async function POST(req: NextRequest) {
+  return withProjectContext(async (ctx) => {
   try {
     const { idea, targetKeywordId, model } = (await req.json()) as {
       idea: Idea | FeedIdea;
@@ -73,9 +77,9 @@ export async function POST(req: NextRequest) {
 
     const feed = idea as FeedIdea;
     const fixedTags = buildTags(feed.themeId);
-    const relatedArticles = await pickRelatedArticles(feed.themeId, idea.title);
+    const relatedArticles = await pickRelatedArticles(ctx.projectId, feed.themeId, idea.title);
     const explicitKwId = targetKeywordId ?? feed.targetKeywordId;
-    const targetKw = await pickTargetKeyword(feed.themeId, explicitKwId);
+    const targetKw = await pickTargetKeyword(ctx.projectId, feed.themeId, explicitKwId);
     const cta = getCtaConfig();
 
     const userPrompt = ARTICLE_USER({
@@ -135,11 +139,11 @@ export async function POST(req: NextRequest) {
       imageAltText: (parsed.image_alt_text as string) ?? "",
     };
 
-    await saveArticle(article);
+    await saveArticle(ctx.projectId, ctx.userId, article);
 
     // 採用したKWに記事IDを紐付け（covered化）
     if (targetKw) {
-      await attachArticleToKeyword(targetKw.id, article.id);
+      await attachArticleToKeyword(ctx.projectId, targetKw.id, article.id);
     }
 
     return Response.json({ article, targetKeyword: targetKw });
@@ -147,4 +151,5 @@ export async function POST(req: NextRequest) {
     const message = e instanceof Error ? e.message : "unknown error";
     return Response.json({ error: message }, { status: 500 });
   }
+  });
 }

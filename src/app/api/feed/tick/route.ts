@@ -16,6 +16,7 @@ import {
   type SearchResult,
 } from "@/lib/searchProviders";
 import { THEMES, type FeedIdea, type FeedSourceMode, type ThemeId } from "@/lib/types";
+import { withProjectContext } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 240;
@@ -250,21 +251,29 @@ const THEME_SEARCH_KEYWORDS: Record<ThemeId, string[]> = {
   custom: [],
 };
 
-async function filterToHousewifePlatforms(results: SearchResult[]): Promise<SearchResult[]> {
-  const allowedDomains = await getAllowedPlatformDomains();
+async function filterToHousewifePlatforms(
+  projectId: string,
+  results: SearchResult[],
+): Promise<SearchResult[]> {
+  const allowedDomains = await getAllowedPlatformDomains(projectId);
   return results.filter((r) => allowedDomains.some((d) => r.domain.includes(d)));
 }
 
-async function attachPlatformLabel(results: SearchResult[]) {
+async function attachPlatformLabel(
+  projectId: string,
+  userId: string,
+  results: SearchResult[],
+) {
   return Promise.all(
     results.map(async (r) => ({
       ...r,
-      platformLabel: await platformLabelForDomainAsync(r.domain),
+      platformLabel: await platformLabelForDomainAsync(projectId, userId, r.domain),
     })),
   );
 }
 
 export async function POST(req: Request) {
+  return withProjectContext(async (ctx) => {
   try {
     let mode: FeedSourceMode = "scheduled";
     let customTheme: string | undefined;
@@ -283,7 +292,7 @@ export async function POST(req: Request) {
       // body無し = scheduled tick
     }
 
-    const before = await loadFeed();
+    const before = await loadFeed(ctx.projectId);
     let themeId: ThemeId;
     let themeLabel: string;
     let themeDesc: string;
@@ -300,7 +309,7 @@ export async function POST(req: Request) {
       searchKeywords = [customTheme];
       prompt = ""; // built later from search results
     } else if (mode === "derivative" && derivativeArticleId) {
-      const articles = await loadArticles();
+      const articles = await loadArticles(ctx.projectId);
       const article = articles.find((a) => a.id === derivativeArticleId);
       if (!article) {
         return Response.json({ error: "元記事が見つかりません" }, { status: 404 });
@@ -336,10 +345,10 @@ export async function POST(req: Request) {
     // モード分岐: 検索ベース vs 旧Search Grounding
     if (!derivativePromptOnly && (isProviderAvailable("brave") || isProviderAvailable("google"))) {
       // 実検索パイプライン
-      const queries = await buildSearchQueriesAsync(searchKeywords, { maxQueries: 6 });
+      const queries = await buildSearchQueriesAsync(ctx.projectId, searchKeywords, { maxQueries: 6 });
       const allResults = await multiSearch(queries, { perQueryCount: 5 });
-      const filtered = await filterToHousewifePlatforms(allResults);
-      const top = (await attachPlatformLabel(filtered)).slice(0, 20);
+      const filtered = await filterToHousewifePlatforms(ctx.projectId, allResults);
+      const top = (await attachPlatformLabel(ctx.projectId, ctx.userId, filtered)).slice(0, 20);
       searchResultCount = top.length;
 
       // URL→provider マップを構築（後でvoice.urlに紐づける）
@@ -377,7 +386,7 @@ export async function POST(req: Request) {
       defaultProvider: usedSearch ? undefined : "ai",
     });
 
-    const result = await appendIdeas(newIdeas);
+    const result = await appendIdeas(ctx.projectId, ctx.userId, newIdeas);
     return Response.json({
       tickAt: new Date().toISOString(),
       mode,
@@ -394,4 +403,5 @@ export async function POST(req: Request) {
     const msg = e instanceof Error ? e.message : "unknown";
     return Response.json({ error: msg }, { status: 500 });
   }
+  });
 }

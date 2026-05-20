@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { gemini, MODELS } from "@/lib/gemini";
 import { RESEARCH_PROMPT } from "@/lib/prompts";
+import { withProjectContext } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -46,16 +47,18 @@ async function callWithRetry(theme: string) {
 }
 
 export async function POST(req: NextRequest) {
-  try {
-    const { theme } = await req.json();
-    if (!theme || typeof theme !== "string") {
-      return Response.json({ error: "themeが必要です" }, { status: 400 });
+  return withProjectContext(async () => {
+    try {
+      const { theme } = await req.json();
+      if (!theme || typeof theme !== "string") {
+        return Response.json({ error: "themeが必要です" }, { status: 400 });
+      }
+      const text = await callWithRetry(theme);
+      const ideas = extractJson(text);
+      return Response.json({ ideas });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "unknown error";
+      return Response.json({ error: message }, { status: 500 });
     }
-    const text = await callWithRetry(theme);
-    const ideas = extractJson(text);
-    return Response.json({ ideas });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "unknown error";
-    return Response.json({ error: message }, { status: 500 });
-  }
+  });
 }
