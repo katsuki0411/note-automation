@@ -9,7 +9,7 @@ import Loading from "@/components/Loading";
 import { FilterBar, GroupTab, FilterPill } from "@/components/FilterBar";
 import { getCache, setCache } from "@/lib/clientCache";
 import { postToNote, type NotePostResult } from "@/lib/notePost";
-import { PLATFORM_LABELS, type Platform, type PostingDestinationRow } from "@/lib/posters";
+import { PLATFORM_LABELS, type Platform, type PostingDestinationRow } from "@/lib/posters/types";
 
 const CACHE_KEY = "library:articles";
 const ACTIVE_CACHE_KEY = "library:activeId";

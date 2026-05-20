@@ -1,17 +1,9 @@
-import { postToHatena, type HatenaConfig, type PostArticleInput, type PostArticleResult } from "./hatena";
+import "server-only";
+import { postToHatena, type HatenaConfig } from "./hatena";
+import type { PostArticleInput, PostArticleResult, PostingDestinationRow } from "./types";
 
-export type Platform = "hatena"; // 今後 'livedoor' | 'blogger' | 'wordpress' を追加
-
-export type PostingDestinationRow = {
-  id: string;
-  platform: Platform;
-  label: string;
-  config: Record<string, unknown>;
-  enabled: boolean;
-  created_at: string;
-};
-
-export type { PostArticleInput, PostArticleResult } from "./hatena";
+export type { Platform, PostingDestinationRow, PostArticleInput, PostArticleResult } from "./types";
+export { PLATFORM_LABELS } from "./types";
 
 /** プラットフォーム横断の投稿関数。destination.platform を見て適切なアダプタを呼ぶ */
 export async function postToDestination(
@@ -28,8 +20,3 @@ export async function postToDestination(
       };
   }
 }
-
-/** プラットフォーム別のラベル */
-export const PLATFORM_LABELS: Record<Platform, string> = {
-  hatena: "はてなブログ",
-};

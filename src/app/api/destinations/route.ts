@@ -3,7 +3,7 @@ import {
   loadDestinations,
   createDestination,
 } from "@/lib/destinations";
-import type { Platform } from "@/lib/posters";
+import type { Platform } from "@/lib/posters/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
