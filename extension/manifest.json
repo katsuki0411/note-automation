@@ -17,6 +17,7 @@
     {
       "matches": [
         "http://localhost:3000/*",
+        "http://localhost:3010/*",
         "https://note-automation-rho.vercel.app/*"
       ],
       "js": ["bridge.js"],
@@ -30,6 +31,7 @@
   "externally_connectable": {
     "matches": [
       "http://localhost:3000/*",
+      "http://localhost:3010/*",
       "https://note-automation-rho.vercel.app/*"
     ]
   }

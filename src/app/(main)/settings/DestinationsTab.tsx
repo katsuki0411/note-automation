@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { PLATFORM_LABELS, type Platform, type PostingDestinationRow } from "@/lib/posters/types";
+import { pingExtension } from "@/lib/notePost";
+
+type ExtensionStatus = "unknown" | "checking" | "installed" | "missing";
 
 type HatenaConfigForm = {
   hatenaId: string;
@@ -24,6 +28,13 @@ function maskKey(key: string | undefined): string {
   return `${key.slice(0, 2)}***${key.slice(-2)}`;
 }
 
+function isPromptConfigured(cfg: unknown): boolean {
+  if (!cfg || typeof cfg !== "object") return false;
+  return Object.values(cfg as Record<string, unknown>).some(
+    (v) => typeof v === "string" && v.trim().length > 0,
+  );
+}
+
 // 入力ぶれを吸収して AtomPub URL に使える純粋なホスト名にする
 // 例: "https://ally-desu.hatenablog.com/" → "ally-desu.hatenablog.com"
 function normalizeBlogDomain(input: string): string {
@@ -43,6 +54,16 @@ export default function DestinationsTab() {
   const [hatena, setHatena] = useState<HatenaConfigForm>(EMPTY_HATENA);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [extStatus, setExtStatus] = useState<ExtensionStatus>("unknown");
+  const [extVersion, setExtVersion] = useState<string | null>(null);
+
+  async function checkExtension() {
+    setExtStatus("checking");
+    setExtVersion(null);
+    const r = await pingExtension(1500);
+    setExtStatus(r.installed ? "installed" : "missing");
+    if (r.version) setExtVersion(r.version);
+  }
 
   async function refresh() {
     setLoading(true);
@@ -57,6 +78,8 @@ export default function DestinationsTab() {
 
   useEffect(() => {
     refresh();
+    // 初回マウント時に拡張の存在も自動で確認しておく
+    checkExtension();
   }, []);
 
   function resetForm() {
@@ -177,9 +200,54 @@ export default function DestinationsTab() {
                 <div className="text-[11px] font-mono text-[color:var(--fg-muted)] truncate">
                   {d.platform === "hatena"
                     ? `${(d.config as { hatenaId?: string }).hatenaId} / ${(d.config as { blogDomain?: string }).blogDomain} / key:${maskKey((d.config as { apiKey?: string }).apiKey)}`
-                    : "—"}
+                    : d.platform === "note"
+                      ? "Chrome 拡張経由で投稿 (接続情報なし)"
+                      : "—"}
                 </div>
+                {!isPromptConfigured(d.prompt_config) && (
+                  <div className="text-[10px] text-orange-600 mt-0.5">
+                    ⚠ プロンプトが入っていません — 記事生成不可
+                  </div>
+                )}
               </div>
+              {d.platform === "note" && (
+                <>
+                  <span
+                    className={`text-[11px] px-2 py-1 rounded shrink-0 ${
+                      extStatus === "installed"
+                        ? "bg-green-100 text-green-700"
+                        : extStatus === "missing"
+                          ? "bg-red-100 text-red-700"
+                          : extStatus === "checking"
+                            ? "bg-gray-100 text-gray-500"
+                            : "bg-gray-100 text-gray-500"
+                    }`}
+                    title={extVersion ? `拡張 v${extVersion}` : undefined}
+                  >
+                    {extStatus === "installed"
+                      ? `✅ 拡張${extVersion ? ` v${extVersion}` : ""}`
+                      : extStatus === "missing"
+                        ? "❌ 拡張未検出"
+                        : extStatus === "checking"
+                          ? "⏳ 確認中"
+                          : "❔ 未確認"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={checkExtension}
+                    disabled={extStatus === "checking"}
+                    className="text-[11px] px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 shrink-0 disabled:opacity-50"
+                  >
+                    再確認
+                  </button>
+                </>
+              )}
+              <Link
+                href={`/settings/destinations/${d.id}/prompt`}
+                className="text-[11px] px-2 py-1 rounded bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] hover:bg-[color:var(--accent)] hover:text-white shrink-0"
+              >
+                プロンプト
+              </Link>
               <button
                 type="button"
                 onClick={() => toggleEnabled(d)}
@@ -191,20 +259,24 @@ export default function DestinationsTab() {
               >
                 {d.enabled ? "有効" : "無効"}
               </button>
-              <button
-                type="button"
-                onClick={() => startEdit(d)}
-                className="text-[12px] text-[color:var(--accent-dark)] hover:underline shrink-0"
-              >
-                編集
-              </button>
-              <button
-                type="button"
-                onClick={() => deleteDest(d)}
-                className="text-[12px] text-red-500 hover:text-red-700 shrink-0"
-              >
-                削除
-              </button>
+              {d.platform !== "note" && (
+                <button
+                  type="button"
+                  onClick={() => startEdit(d)}
+                  className="text-[12px] text-[color:var(--accent-dark)] hover:underline shrink-0"
+                >
+                  接続
+                </button>
+              )}
+              {d.platform !== "note" && (
+                <button
+                  type="button"
+                  onClick={() => deleteDest(d)}
+                  className="text-[12px] text-red-500 hover:text-red-700 shrink-0"
+                >
+                  削除
+                </button>
+              )}
             </li>
           ))}
         </ul>
