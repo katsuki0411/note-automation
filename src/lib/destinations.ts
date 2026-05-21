@@ -6,7 +6,7 @@ export async function loadDestinations(
   projectId: string,
 ): Promise<PostingDestinationRow[]> {
   return await sql<PostingDestinationRow[]>`
-    select id, platform, label, config, enabled, created_at
+    select id, platform, label, config, enabled, created_at, prompt_config
     from posting_destinations
     where project_id = ${projectId}
     order by created_at asc
@@ -18,7 +18,7 @@ export async function getDestination(
   id: string,
 ): Promise<PostingDestinationRow | undefined> {
   const rows = await sql<PostingDestinationRow[]>`
-    select id, platform, label, config, enabled, created_at
+    select id, platform, label, config, enabled, created_at, prompt_config
     from posting_destinations
     where id = ${id} and project_id = ${projectId}
   `;
@@ -53,17 +53,25 @@ export async function createDestination(
 export async function updateDestination(
   projectId: string,
   id: string,
-  patch: { label?: string; config?: Record<string, unknown>; enabled?: boolean },
+  patch: {
+    label?: string;
+    config?: Record<string, unknown>;
+    enabled?: boolean;
+    promptConfig?: Record<string, unknown>;
+  },
 ): Promise<void> {
   const sets: string[] = [];
   const values: unknown[] = [];
   if (patch.label !== undefined) { sets.push("label"); values.push(patch.label); }
   if (patch.config !== undefined) { sets.push("config"); values.push(patch.config); }
   if (patch.enabled !== undefined) { sets.push("enabled"); values.push(patch.enabled); }
+  if (patch.promptConfig !== undefined) { sets.push("prompt_config"); values.push(patch.promptConfig); }
   if (sets.length === 0) return;
   const setObj: Record<string, unknown> = {};
   sets.forEach((k, i) => {
-    setObj[k] = k === "config" ? sql.json(values[i] as JSONValue) : values[i];
+    setObj[k] = (k === "config" || k === "prompt_config")
+      ? sql.json(values[i] as JSONValue)
+      : values[i];
   });
   await sql`
     update posting_destinations set ${sql(setObj)}

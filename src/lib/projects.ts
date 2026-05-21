@@ -110,6 +110,22 @@ export async function createProject(
       values (${project.id}, ${userId})
       on conflict (project_id) do nothing
     `;
+    // note destination を自動投入 (Phase 3C: 全 project に note を常設)
+    // note は Chrome 拡張経由なので config は空。prompt_config も空でスタートし、
+    // 設定画面でユーザーがプロンプトを書き込むまで記事生成は不可。
+    await tx`
+      insert into posting_destinations (
+        project_id, user_id, platform, label, config, enabled, prompt_config
+      ) values (
+        ${project.id},
+        ${userId},
+        'note',
+        'note (note.com)',
+        '{}'::jsonb,
+        true,
+        '{}'::jsonb
+      )
+    `;
     return inserted;
   });
   return projectRows[0];

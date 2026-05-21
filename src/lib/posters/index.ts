@@ -13,6 +13,13 @@ export async function postToDestination(
   switch (destination.platform) {
     case "hatena":
       return postToHatena(destination.config as unknown as HatenaConfig, input);
+    case "note":
+      // note は Chrome 拡張経由で投稿するため、サーバー側からは投稿しない。
+      // destination として登録しているのは prompt_config を持たせるため。
+      return {
+        ok: false,
+        error: "note は Chrome 拡張経由で投稿するため、サーバーAPIからは投稿できません",
+      };
     default:
       return {
         ok: false,
