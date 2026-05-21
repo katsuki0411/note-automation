@@ -14,6 +14,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
         label?: string;
         config?: Record<string, unknown>;
         enabled?: boolean;
+        promptConfig?: Record<string, unknown>;
       };
       await updateDestination(ctx.projectId, id, patch);
       return Response.json({ ok: true });

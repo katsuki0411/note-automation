@@ -63,8 +63,8 @@ export default function GenerationStatusBar() {
 
           {inProgress && (
             <>
-              <div className="text-[11px] text-white/70 mb-2 truncate" title={state.current?.title ?? ""}>
-                {state.current?.title ?? "次のジョブを準備中…"}
+              <div className="text-[11px] text-white/70 mb-2 truncate" title={state.current?.idea.title ?? ""}>
+                {state.current?.idea.title ?? "次のジョブを準備中…"}
               </div>
               <div className="h-1 rounded-full bg-white/10 overflow-hidden">
                 <div

@@ -1,8 +1,13 @@
 import { NextRequest } from "next/server";
-import { ARTICLE_SYSTEM, ARTICLE_USER } from "@/lib/prompts";
+import { ARTICLE_USER } from "@/lib/prompts";
 import { loadArticles, saveArticle, type Article, type Idea } from "@/lib/storage";
 import { BRAND, getCtaConfig, MID_ENGAGE_CTA, type ThemeTagKey } from "@/lib/brand";
 import { attachArticleToKeyword, loadKeywords } from "@/lib/keywords";
+import { getDestination } from "@/lib/destinations";
+import {
+  resolveSystemPrompt,
+  PROMPT_NOT_CONFIGURED_ERROR,
+} from "@/lib/promptResolver";
 import {
   DEFAULT_ARTICLE_MODEL,
   generateArticleJsonText,
@@ -10,6 +15,8 @@ import {
 } from "@/lib/articleGen";
 import type { FeedIdea, Keyword, ThemeId } from "@/lib/types";
 import { withProjectContext } from "@/lib/auth";
+import { sql } from "@/lib/db";
+import type { ProjectPersonaConfig } from "@/lib/projects";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -62,94 +69,178 @@ async function pickTargetKeyword(
   return candidates[0];
 }
 
+// カスタムプロンプト用のシンプルな user prompt。
+// idea / 関連記事 / 狙うキーワード を JSON 風に渡し、AI に system プロンプトに沿って
+// 出力させる。主婦テンプレ専用の CTA / BRAND placeholder は使わない。
+function buildCustomUserPrompt(args: {
+  idea: Idea | FeedIdea;
+  relatedArticles: { title: string; hook?: string }[];
+  fixedTags: string[];
+  targetKeyword?: { kw: string; intent: string; longTail?: string[] };
+}): string {
+  const { idea, relatedArticles, fixedTags, targetKeyword } = args;
+  const feed = idea as FeedIdea;
+  return `
+以下のネタで note 記事を生成してください。
+
+【ネタ】
+- タイトル候補: ${idea.title}
+- 共感フック: ${idea.hook ?? ""}
+- 角度: ${idea.angle ?? ""}
+${feed.toolConcept ? `- ツールコンセプト: ${feed.toolConcept}` : ""}
+${feed.voice ? `\n【参考となる読者の声】\n> ${feed.voice.quote} (出典: ${feed.voice.platform})\n${feed.voice.context ? `補足: ${feed.voice.context}` : ""}` : ""}
+
+${targetKeyword ? `【狙うキーワード】\n- 主KW: ${targetKeyword.kw}\n- intent: ${targetKeyword.intent}\n${targetKeyword.longTail?.length ? `- ロングテール: ${targetKeyword.longTail.join(" / ")}` : ""}` : ""}
+
+${relatedArticles.length > 0 ? `【同じ著者の関連既存記事 (内部リンクや「合わせて読みたい」の素材に)】\n${relatedArticles.map((a) => `- ${a.title}${a.hook ? ` (${a.hook})` : ""}`).join("\n")}` : ""}
+
+${fixedTags.length > 0 ? `【記事末尾に入れたいタグ候補】\n${fixedTags.map((t) => `#${t}`).join(" ")}` : ""}
+
+【出力フォーマット (JSON のみ)】
+{
+  "title_candidates": ["候補1", "候補2", "候補3"],
+  "best_title": "選んだベストタイトル",
+  "best_title_reason": "選んだ理由",
+  "body_markdown": "本文 (Markdown)",
+  "image_prompt_subject": "見出し画像の被写体・シーン (英語可)",
+  "image_alt_text": "alt 文字列"
+}
+`.trim();
+}
+
 export async function POST(req: NextRequest) {
   return withProjectContext(async (ctx) => {
-  try {
-    const { idea, targetKeywordId, model } = (await req.json()) as {
-      idea: Idea | FeedIdea;
-      targetKeywordId?: string;
-      model?: string;
-    };
-    if (!idea?.title) {
-      return Response.json({ error: "ideaが必要です" }, { status: 400 });
+    try {
+      const { idea, destinationId, targetKeywordId, model } = (await req.json()) as {
+        idea: Idea | FeedIdea;
+        destinationId: string;
+        targetKeywordId?: string;
+        model?: string;
+      };
+      if (!idea?.title) {
+        return Response.json({ error: "ideaが必要です" }, { status: 400 });
+      }
+      if (!destinationId) {
+        return Response.json(
+          { error: "destinationId が必要です (記事を作る対象の投稿先)" },
+          { status: 400 },
+        );
+      }
+
+      // destination と project の persona を取得
+      const destination = await getDestination(ctx.projectId, destinationId);
+      if (!destination) {
+        return Response.json({ error: "destination が見つかりません" }, { status: 404 });
+      }
+      const projectRow = await sql<{ persona_config: ProjectPersonaConfig }[]>`
+        select persona_config from projects where id = ${ctx.projectId} limit 1
+      `;
+      const persona = projectRow[0]?.persona_config ?? {};
+
+      // プロンプト解決: カスタム or housewife-default or null
+      const resolved = resolveSystemPrompt(destination, persona);
+      if (!resolved) {
+        return Response.json(
+          {
+            error: PROMPT_NOT_CONFIGURED_ERROR,
+            destinationLabel: destination.label,
+          },
+          { status: 400 },
+        );
+      }
+
+      const articleModel = isArticleModel(model) ? model : DEFAULT_ARTICLE_MODEL;
+
+      const feed = idea as FeedIdea;
+      const fixedTags = buildTags(feed.themeId);
+      const relatedArticles = await pickRelatedArticles(ctx.projectId, feed.themeId, idea.title);
+      const explicitKwId = targetKeywordId ?? feed.targetKeywordId;
+      const targetKw = await pickTargetKeyword(ctx.projectId, feed.themeId, explicitKwId);
+
+      // user prompt の組み立て: 主婦デフォルトはレガシー ARTICLE_USER (CTA placeholder 等を含む)、
+      // カスタムはシンプルな buildCustomUserPrompt を使う
+      let userPrompt: string;
+      if (resolved.source === "housewife-default") {
+        const cta = getCtaConfig();
+        userPrompt = ARTICLE_USER({
+          title: idea.title,
+          hook: idea.hook,
+          angle: idea.angle,
+          voice: feed.voice
+            ? {
+                quote: feed.voice.quote,
+                platform: feed.voice.platform,
+                context: feed.voice.context,
+              }
+            : undefined,
+          toolConcept: feed.toolConcept,
+          relatedArticles,
+          fixedTags,
+          targetKeyword: targetKw
+            ? { kw: targetKw.kw, intent: targetKw.intent, longTail: feed.keywords?.longTail }
+            : undefined,
+          ctaChannel: cta.channel,
+          ctaAction: cta.action,
+          ctaHowTo: cta.howToFull,
+          ctaButton: cta.buttonMarkdown,
+        });
+      } else {
+        userPrompt = buildCustomUserPrompt({
+          idea,
+          relatedArticles,
+          fixedTags,
+          targetKeyword: targetKw
+            ? { kw: targetKw.kw, intent: targetKw.intent, longTail: feed.keywords?.longTail }
+            : undefined,
+        });
+      }
+
+      const responseText = await generateArticleJsonText({
+        model: articleModel,
+        system: resolved.systemPrompt,
+        user: userPrompt,
+      });
+      const parsed = extractJson(responseText);
+
+      let body = (parsed.body_markdown as string) ?? "";
+      body = body.replace(/^\s*#\s+[^\n]+\n+/, "");
+      // 主婦デフォルト時のみ既存 placeholder を埋める
+      if (resolved.source === "housewife-default") {
+        const cta = getCtaConfig();
+        body = body.replaceAll("---FIXED_AUTHOR_BIO_PLACEHOLDER---", BRAND.authorBio);
+        body = body.replaceAll("---MID_ENGAGE_CTA_PLACEHOLDER---", MID_ENGAGE_CTA);
+        body = body.replaceAll("{{cta.channel}}", cta.channel);
+        body = body.replaceAll("{{cta.action}}", cta.action);
+        body = body.replaceAll("{{cta.howToFull}}", cta.howToFull);
+        body = body.replaceAll("{{cta.buttonMarkdown}}", cta.buttonMarkdown);
+      }
+
+      const article: Article = {
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+        idea,
+        titleCandidates: (parsed.title_candidates as string[]) ?? [],
+        bestTitle: (parsed.best_title as string) ?? idea.title,
+        bestTitleReason: (parsed.best_title_reason as string) ?? "",
+        bodyMarkdown: body,
+        imagePromptSubject: (parsed.image_prompt_subject as string) ?? "",
+        imageAltText: (parsed.image_alt_text as string) ?? "",
+      };
+
+      await saveArticle(ctx.projectId, ctx.userId, article);
+
+      if (targetKw) {
+        await attachArticleToKeyword(ctx.projectId, targetKw.id, article.id);
+      }
+
+      return Response.json({
+        article,
+        targetKeyword: targetKw,
+        promptSource: resolved.source,
+      });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "unknown error";
+      return Response.json({ error: message }, { status: 500 });
     }
-    const articleModel = isArticleModel(model) ? model : DEFAULT_ARTICLE_MODEL;
-
-    const feed = idea as FeedIdea;
-    const fixedTags = buildTags(feed.themeId);
-    const relatedArticles = await pickRelatedArticles(ctx.projectId, feed.themeId, idea.title);
-    const explicitKwId = targetKeywordId ?? feed.targetKeywordId;
-    const targetKw = await pickTargetKeyword(ctx.projectId, feed.themeId, explicitKwId);
-    const cta = getCtaConfig();
-
-    const userPrompt = ARTICLE_USER({
-      title: idea.title,
-      hook: idea.hook,
-      angle: idea.angle,
-      voice: feed.voice
-        ? {
-            quote: feed.voice.quote,
-            platform: feed.voice.platform,
-            context: feed.voice.context,
-          }
-        : undefined,
-      toolConcept: feed.toolConcept,
-      relatedArticles,
-      fixedTags,
-      targetKeyword: targetKw
-        ? {
-            kw: targetKw.kw,
-            intent: targetKw.intent,
-            longTail: feed.keywords?.longTail,
-          }
-        : undefined,
-      ctaChannel: cta.channel,
-      ctaAction: cta.action,
-      ctaHowTo: cta.howToFull,
-      ctaButton: cta.buttonMarkdown,
-    });
-
-    const responseText = await generateArticleJsonText({
-      model: articleModel,
-      system: ARTICLE_SYSTEM,
-      user: userPrompt,
-    });
-    const parsed = extractJson(responseText);
-
-    let body = (parsed.body_markdown as string) ?? "";
-    // note のタイトル欄に best_title をコピペするため、本文先頭の H1 ("# タイトル") は
-    // プロンプトで禁止しているが、AI が含めてしまった場合に備えて剥がす safety net。
-    body = body.replace(/^\s*#\s+[^\n]+\n+/, "");
-    body = body.replaceAll("---FIXED_AUTHOR_BIO_PLACEHOLDER---", BRAND.authorBio);
-    body = body.replaceAll("---MID_ENGAGE_CTA_PLACEHOLDER---", MID_ENGAGE_CTA);
-    body = body.replaceAll("{{cta.channel}}", cta.channel);
-    body = body.replaceAll("{{cta.action}}", cta.action);
-    body = body.replaceAll("{{cta.howToFull}}", cta.howToFull);
-    body = body.replaceAll("{{cta.buttonMarkdown}}", cta.buttonMarkdown);
-
-    const article: Article = {
-      id: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
-      idea,
-      titleCandidates: (parsed.title_candidates as string[]) ?? [],
-      bestTitle: (parsed.best_title as string) ?? idea.title,
-      bestTitleReason: (parsed.best_title_reason as string) ?? "",
-      bodyMarkdown: body,
-      imagePromptSubject: (parsed.image_prompt_subject as string) ?? "",
-      imageAltText: (parsed.image_alt_text as string) ?? "",
-    };
-
-    await saveArticle(ctx.projectId, ctx.userId, article);
-
-    // 採用したKWに記事IDを紐付け（covered化）
-    if (targetKw) {
-      await attachArticleToKeyword(ctx.projectId, targetKw.id, article.id);
-    }
-
-    return Response.json({ article, targetKeyword: targetKw });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "unknown error";
-    return Response.json({ error: message }, { status: 500 });
-  }
   });
 }
