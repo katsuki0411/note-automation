@@ -214,7 +214,7 @@ export default function ProductsClient() {
   return (
     <>
       <PageHeader
-        title="🛒 商品スカウト"
+        title="商品スカウト"
         description="商品名やお題を入力すると、関連キーワードを自動生成し、Brave で上位30件分析して個人ブログでも勝てそうかを判定します。"
       />
 

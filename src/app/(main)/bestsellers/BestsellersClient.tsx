@@ -93,7 +93,7 @@ export default function BestsellersClient() {
   return (
     <>
       <PageHeader
-        title="📊 ベストセラー"
+        title="ベストセラー"
         description="Amazon の主要カテゴリ別 TOP10 を取得して、商品スカウトの起点にします。"
       />
 
