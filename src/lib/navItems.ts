@@ -9,6 +9,7 @@ import {
   SeoIcon,
   SettingsIcon,
   ProductScoutIcon,
+  BestsellersIcon,
 } from "@/components/NavIcons";
 import type { ProjectKind } from "@/lib/projects-types";
 
@@ -30,6 +31,14 @@ const COMMON_ITEMS: NavItem[] = [
   { href: "/settings", label: "設定", desc: "Settings", icon: SettingsIcon },
 ];
 
+// アフィ系限定: ベストセラー監視 (Amazon の売れ筋 TOP10)
+const BESTSELLERS_ITEM: NavItem = {
+  href: "/bestsellers",
+  label: "ベストセラー",
+  desc: "Bestsellers",
+  icon: BestsellersIcon,
+};
+
 // アフィ系限定: 商品スカウト (Brave で関連KW競合判定)
 const PRODUCT_SCOUT_ITEM: NavItem = {
   href: "/products",
@@ -43,8 +52,8 @@ export function getNavItemsForKind(kind: ProjectKind): NavItem[] {
   switch (kind) {
     case "amazon_affiliate":
     case "a8_affiliate":
-      // 商品スカウトを「ネタ収集」の次に挿入
-      return [COMMON_ITEMS[0], PRODUCT_SCOUT_ITEM, ...COMMON_ITEMS.slice(1)];
+      // ベストセラー → 商品スカウト の順で「ネタ収集」の次に挿入
+      return [COMMON_ITEMS[0], BESTSELLERS_ITEM, PRODUCT_SCOUT_ITEM, ...COMMON_ITEMS.slice(1)];
     case "research_based":
     default:
       return COMMON_ITEMS;
@@ -57,7 +66,7 @@ export const NAV_ITEMS: NavItem[] = COMMON_ITEMS;
 /** pathname から該当する NavItem を返す（PageHeader のアイコン表示用） */
 export function findNavItemByPath(pathname: string): NavItem | undefined {
   // 全 kind の全項目を統合してから検索
-  const all = [...COMMON_ITEMS, PRODUCT_SCOUT_ITEM];
+  const all = [...COMMON_ITEMS, PRODUCT_SCOUT_ITEM, BESTSELLERS_ITEM];
   const exact = all.find((i) => i.href === pathname);
   if (exact) return exact;
   return all.find((i) => i.href !== "/" && pathname.startsWith(i.href));

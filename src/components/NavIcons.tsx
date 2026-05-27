@@ -89,6 +89,17 @@ export function ProductScoutIcon({ size = 20, className }: IconProps) {
   );
 }
 
+/** ベストセラー - トロフィー */
+export function BestsellersIcon({ size = 20, className }: IconProps) {
+  return (
+    <svg {...baseProps(size)} className={className} aria-hidden>
+      <path d="M8 21h8M12 17v4" />
+      <path d="M7 4h10v5a5 5 0 01-10 0V4z" />
+      <path d="M7 6H4a3 3 0 003 3M17 6h3a3 3 0 01-3 3" />
+    </svg>
+  );
+}
+
 /** 設定 - 歯車 */
 export function SettingsIcon({ size = 20, className }: IconProps) {
   return (
