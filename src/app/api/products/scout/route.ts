@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { withProjectContext } from "@/lib/auth";
 import { expandKeywords } from "@/lib/keywordExpander";
 import { analyzeKeywords, type CompetitionResult } from "@/lib/competitionAnalyzer";
+import { loadDestinations } from "@/lib/destinations";
+import { PLATFORM_LABELS, type Platform } from "@/lib/posters/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,9 +11,11 @@ export const maxDuration = 300;
 
 // POST /api/products/scout
 // body: { subject: string, useAI?: boolean (default true) }
-// → 関連KWを生成 → 各KWの Brave 競合判定 + Gemini 五軸評価 → opportunityScore 降順で返す
+// → 関連KWを生成 → 各KWの Brave 競合判定 + Gemini 五軸評価
+// → 各 destination の platform が上位30件にすでに存在するか判定
+// → opportunityScore 降順で返す
 export async function POST(req: NextRequest) {
-  return withProjectContext(async () => {
+  return withProjectContext(async (ctx) => {
     try {
       const { subject, useAI = true } = (await req.json().catch(() => ({}))) as {
         subject?: string;
@@ -20,6 +24,9 @@ export async function POST(req: NextRequest) {
       if (!subject?.trim()) {
         return Response.json({ error: "subject が必要です" }, { status: 400 });
       }
+
+      // 現プロジェクトの enabled な destination 一覧 (UI でバッジ表示に使う)
+      const destinations = (await loadDestinations(ctx.projectId)).filter((d) => d.enabled);
 
       // Step 1: 関連KW生成 (intent付き)
       const expanded = await expandKeywords(subject);
@@ -40,7 +47,21 @@ export async function POST(req: NextRequest) {
           opportunityScore: 50,
           rationale: "分析未実施",
           topUrls: [],
+          platformOccupancy: {},
         };
+        // 各 destination ごとに「その platform が上位30件に既に存在するか」を判定
+        const destinationStatus = destinations.map((d) => {
+          const platform = d.platform as Platform;
+          const hits = c.platformOccupancy[platform] ?? 0;
+          return {
+            destinationId: d.id,
+            platform,
+            label: d.label,
+            platformLabel: PLATFORM_LABELS[platform] ?? platform,
+            occupied: hits > 0, // true = 既に競合あり / false = 未投稿の隙間あり
+            hits, // 上位30件中の該当 platform の記事数
+          };
+        });
         return {
           kw: c.kw,
           intent: e.intent,
@@ -51,7 +72,9 @@ export async function POST(req: NextRequest) {
           buckets: c.buckets,
           totalScanned: c.totalScanned,
           topUrls: c.topUrls,
-          ai: c.ai, // Gemini 五軸評価 (取得失敗時は undefined)
+          platformOccupancy: c.platformOccupancy,
+          destinationStatus,
+          ai: c.ai,
         };
       });
 

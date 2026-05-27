@@ -22,6 +22,15 @@ type AIScores = {
   rationale: string;
 };
 
+type DestinationStatus = {
+  destinationId: string;
+  platform: string;
+  label: string;
+  platformLabel: string;
+  occupied: boolean; // true = 既に競合記事あり / false = 未投稿の隙間
+  hits: number;      // 上位30件中の該当 platform 記事数
+};
+
 type ScoutCandidate = {
   kw: string;
   intent: string;
@@ -38,6 +47,7 @@ type ScoutCandidate = {
   totalScanned: number;
   topUrls: string[];
   ai?: AIScores;
+  destinationStatus?: DestinationStatus[];
 };
 
 type ScoutResponse = {
@@ -150,13 +160,36 @@ export default function ProductsClient() {
   }
 
   // ネタ化 + 記事生成キュー投入 (1ボタンで連続実行)
+  // destinationStatus が来ていれば「占有あり = 競合あり」の destination は除外し、
+  // 占有なしの destination を優先選択 (note 優先 → なければ他)
   async function generateFromCandidate(c: ScoutCandidate) {
+    let targetDestId: string | undefined;
+    if (c.destinationStatus && c.destinationStatus.length > 0) {
+      const available = c.destinationStatus.filter((s) => !s.occupied);
+      if (available.length === 0) {
+        const occList = c.destinationStatus
+          .map((s) => `${s.platformLabel}(${s.hits}件)`)
+          .join(", ");
+        if (
+          !confirm(
+            `登録投稿先すべてに既に競合記事があります (${occList})。それでも記事生成しますか?`,
+          )
+        ) {
+          return;
+        }
+        // 強行: default を使う
+      } else {
+        // note を優先、それ以外なら最初の available
+        const preferred =
+          available.find((s) => s.platform === "note") ?? available[0];
+        targetDestId = preferred.destinationId;
+      }
+    }
     setGenerating((s) => new Set([...s, c.kw]));
     try {
       const idea = await ideizeCandidate(c);
       if (!idea) throw new Error("ideaの生成に失敗しました");
-      // 生成キューに投入 (default destination=note へ)
-      enqueue([idea]);
+      enqueue([idea], targetDestId);
       setIdeized((s) => new Set([...s, c.kw]));
     } catch (e) {
       alert(e instanceof Error ? e.message : "記事生成キュー投入失敗");
@@ -291,6 +324,30 @@ export default function ProductsClient() {
                                 💡 {c.ai.rationale}
                               </div>
                             )}
+                          </div>
+                        )}
+                        {c.destinationStatus && c.destinationStatus.length > 0 && (
+                          <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[10px] text-[color:var(--fg-muted)] mr-1">投稿先:</span>
+                            {c.destinationStatus.map((s) => (
+                              <span
+                                key={s.destinationId}
+                                className={`text-[10px] px-1.5 py-0.5 rounded ${
+                                  s.occupied
+                                    ? "bg-red-50 text-red-700"
+                                    : "bg-green-50 text-green-700"
+                                }`}
+                                title={
+                                  s.occupied
+                                    ? `${s.platformLabel} 上位30件に ${s.hits} 件存在 → 投稿しても勝ちにくい`
+                                    : `${s.platformLabel} 上位30件に該当記事なし → 投稿チャンス`
+                                }
+                              >
+                                {s.occupied
+                                  ? `⚠ ${s.platformLabel} 競合${s.hits}件`
+                                  : `✓ ${s.platformLabel} 隙間あり`}
+                              </span>
+                            ))}
                           </div>
                         )}
                         {isOpen && c.topUrls.length > 0 && (

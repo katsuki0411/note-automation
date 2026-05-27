@@ -6,6 +6,8 @@
 //     ハルシネーションの可能性あり。両方並べて表示し、ユーザーが見比べる設計。
 
 import { gemini, MODELS } from "./gemini";
+import { detectPlatformOccupancy } from "./platformDomain";
+import type { Platform } from "./posters/types";
 
 const BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search";
 const SCAN_DEPTH = 30;
@@ -152,6 +154,10 @@ export type CompetitionResult = {
   // 簡易説明 (UI 表示用)
   rationale: string;
   topUrls: string[]; // 上位5件の URL (UI 確認用)
+  // === 各プラットフォームでの占有状況 (カニバライゼーション検出) ===
+  // 例: { note: 3, hatena: 1 } = 上位30件に note記事3本 / はてな1本
+  // 該当 platform にはすでに競合記事あり → 投稿しても勝ちにくい
+  platformOccupancy: Partial<Record<Platform, number>>;
   // === Gemini AI 五軸評価 (任意・取得失敗時は undefined) ===
   ai?: AIScores;
 };
@@ -306,6 +312,9 @@ export async function analyzeKeyword(
   // Gemini 五軸評価 (オプション)
   const ai = opts.useAI !== false ? await evaluateWithAI(kw, opts.intent, all) : undefined;
 
+  // プラットフォーム別の占有状況 (note/はてな/livedoor 等にすでに記事があるか)
+  const platformOccupancy = detectPlatformOccupancy(all.map((r) => r.url));
+
   return {
     kw,
     totalScanned: all.length,
@@ -314,6 +323,7 @@ export async function analyzeKeyword(
     opportunityScore,
     rationale,
     topUrls: all.slice(0, 5).map((r) => r.url),
+    platformOccupancy,
     ai,
   };
 }
@@ -345,6 +355,7 @@ export async function analyzeKeywords(
             opportunityScore: 50,
             rationale: `分析失敗: ${e instanceof Error ? e.message : "unknown"}`,
             topUrls: [],
+            platformOccupancy: {},
           };
         }
       }
