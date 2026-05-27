@@ -1,8 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
+import { useGeneration } from "@/components/GenerationProvider";
+import type { FeedIdea } from "@/lib/types";
 
 type ScoutCandidate = {
   kw: string;
@@ -43,12 +46,21 @@ const INTENT_LABEL: Record<string, string> = {
 };
 
 export default function ProductsClient() {
+  const searchParams = useSearchParams();
+  const { enqueue } = useGeneration();
   const [subject, setSubject] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ScoutResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [ideized, setIdeized] = useState<Set<string>>(new Set());
+  const [generating, setGenerating] = useState<Set<string>>(new Set());
+
+  // ベストセラー画面 → 「この商品でスカウト」遷移時に q クエリで subject 初期化
+  useEffect(() => {
+    const q = searchParams?.get("q");
+    if (q) setSubject(q);
+  }, [searchParams]);
 
   async function scout() {
     setBusy(true);
@@ -72,26 +84,53 @@ export default function ProductsClient() {
     }
   }
 
+  // 1候補を ideas (フィード) に追加する。生成された FeedIdea を返す
+  async function ideizeCandidate(c: ScoutCandidate): Promise<FeedIdea | null> {
+    const res = await fetch("/api/products/ideize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kw: c.kw,
+        intent: c.intent,
+        reason: c.reason,
+        seoDifficulty: c.seoDifficulty,
+        opportunityScore: c.opportunityScore,
+        rationale: c.rationale,
+        subject: result?.subject,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? "ネタ化失敗");
+    return (data.idea as FeedIdea) ?? null;
+  }
+
+  // ネタ化のみ (フィードに残すだけ)
   async function ideize(c: ScoutCandidate) {
     try {
-      const res = await fetch("/api/products/ideize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          kw: c.kw,
-          intent: c.intent,
-          reason: c.reason,
-          seoDifficulty: c.seoDifficulty,
-          opportunityScore: c.opportunityScore,
-          rationale: c.rationale,
-          subject: result?.subject,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "ネタ化失敗");
+      await ideizeCandidate(c);
       setIdeized((s) => new Set([...s, c.kw]));
     } catch (e) {
       alert(e instanceof Error ? e.message : "ネタ化失敗");
+    }
+  }
+
+  // ネタ化 + 記事生成キュー投入 (1ボタンで連続実行)
+  async function generateFromCandidate(c: ScoutCandidate) {
+    setGenerating((s) => new Set([...s, c.kw]));
+    try {
+      const idea = await ideizeCandidate(c);
+      if (!idea) throw new Error("ideaの生成に失敗しました");
+      // 生成キューに投入 (default destination=note へ)
+      enqueue([idea]);
+      setIdeized((s) => new Set([...s, c.kw]));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "記事生成キュー投入失敗");
+    } finally {
+      setGenerating((s) => {
+        const n = new Set(s);
+        n.delete(c.kw);
+        return n;
+      });
     }
   }
 
@@ -224,13 +263,22 @@ export default function ProductsClient() {
                           type="button"
                           onClick={() => ideize(c)}
                           disabled={isIdeized}
-                          className={`text-[10px] px-2 py-1 rounded ${
+                          className={`text-[10px] px-2 py-1 rounded whitespace-nowrap ${
                             isIdeized
                               ? "bg-green-100 text-green-700 cursor-default"
-                              : "bg-[color:var(--accent)] hover:opacity-80 text-white"
+                              : "bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] hover:bg-[color:var(--accent)] hover:text-white"
                           }`}
                         >
                           {isIdeized ? "✓ ネタ化済" : "ネタ化"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => generateFromCandidate(c)}
+                          disabled={generating.has(c.kw)}
+                          className="text-[10px] px-2 py-1 rounded whitespace-nowrap bg-[color:var(--accent)] hover:opacity-80 text-white disabled:opacity-50 disabled:cursor-wait"
+                          title="ネタ化と同時に記事生成キューに投入"
+                        >
+                          {generating.has(c.kw) ? "投入中…" : "✍ 記事生成"}
                         </button>
                       </div>
                     </div>

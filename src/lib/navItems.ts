@@ -48,12 +48,13 @@ const PRODUCT_SCOUT_ITEM: NavItem = {
 };
 
 // kind 別のナビ項目を返す
+// amazon/a8 では「ネタ収集 ＆ 生成」(/) を除外し、代わりに「ベストセラー」「商品スカウト」を先頭に
 export function getNavItemsForKind(kind: ProjectKind): NavItem[] {
   switch (kind) {
     case "amazon_affiliate":
     case "a8_affiliate":
-      // ベストセラー → 商品スカウト の順で「ネタ収集」の次に挿入
-      return [COMMON_ITEMS[0], BESTSELLERS_ITEM, PRODUCT_SCOUT_ITEM, ...COMMON_ITEMS.slice(1)];
+      // / (ネタ収集) は不要。ベストセラー → 商品スカウト → 既存 (library/posted/seo/settings)
+      return [BESTSELLERS_ITEM, PRODUCT_SCOUT_ITEM, ...COMMON_ITEMS.slice(1)];
     case "research_based":
     default:
       return COMMON_ITEMS;
