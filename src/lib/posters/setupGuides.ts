@@ -30,13 +30,13 @@ export const PLATFORM_GUIDES: Partial<Record<Platform, SetupGuide>> = {
       {
         title: "はてなID を確認",
         body: "ログイン中のはてなアカウントの ID。ブログ管理画面の URL の `blog.hatena.ne.jp/<ここ>/...` 部分。",
-        codeSnippet: "例: ally-desu",
+        codeSnippet: "例: yourid",
         hint: "プロフィール画面 URL `hatena.ne.jp/<ここ>` でも確認可",
       },
       {
         title: "ブログURL を確認",
         body: "投稿対象ブログのドメイン。`xxxxx.hatenablog.com` 形式。",
-        codeSnippet: "例: ally-desu.hatenablog.com",
+        codeSnippet: "例: yourblog.hatenablog.com",
         hint: "https:// や末尾スラッシュは自動で除去されるので、コピペそのままで OK",
       },
       {

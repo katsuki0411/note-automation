@@ -4,8 +4,8 @@ import crypto from "node:crypto";
 // ドキュメント: https://developer.hatena.ne.jp/ja/documents/blog/apis/atom
 
 export type HatenaConfig = {
-  hatenaId: string;       // 例 "t3zztwzmay"
-  blogDomain: string;     // 例 "t3zztwzmay.hatenablog.com"
+  hatenaId: string;       // 例 "yourid"
+  blogDomain: string;     // 例 "yourblog.hatenablog.com"
   apiKey: string;         // 詳細設定 → AtomPub の API キー
 };
 
