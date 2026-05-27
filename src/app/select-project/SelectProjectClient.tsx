@@ -2,7 +2,12 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { ProjectMembership, ProjectPersonaKind } from "@/lib/projects";
+import {
+  PROJECT_KIND_LABEL,
+  PROJECT_KIND_DESCRIPTION,
+  type ProjectKind,
+  type ProjectMembership,
+} from "@/lib/projects-types";
 import { selectProject } from "./actions";
 
 type Props = {
@@ -10,27 +15,30 @@ type Props = {
   projects: ProjectMembership[];
 };
 
-const KIND_LABEL: Record<ProjectPersonaKind, string> = {
-  housewife: "主婦ペルソナ",
-  affiliate: "アフィリエイト",
-  blog: "雑記ブログ",
-  other: "その他",
+const KIND_ICON: Record<ProjectKind, string> = {
+  research_based: "📰",
+  amazon_affiliate: "🛒",
+  a8_affiliate: "💰",
 };
 
-const KIND_HINT: Record<ProjectPersonaKind, string> = {
-  housewife: "LINEで送るだけ・主婦専用・AIを直接使わせない (受注ファネル)",
-  affiliate: "ジャンル自由・PV / アフィ収益化・CTA控えめ",
-  blog: "雑記 / 個人ブランディング向け・トーンは自由",
-  other: "後で persona_config から細かく設定",
+const KIND_HINT_INFOSRC: Record<ProjectKind, string> = {
+  research_based:
+    "知恵袋 / ガルちゃん / ママスタなどの悩み相談から元ネタを抽出",
+  amazon_affiliate: "Amazon の商品検索 / 売れ筋を元ネタとして使用",
+  a8_affiliate: "A8.net の案件 / 広告主を元ネタとして使用",
 };
+
+type AddState =
+  | { phase: "hidden" }
+  | { phase: "pick-kind" }
+  | { phase: "details"; kind: ProjectKind };
 
 export default function SelectProjectClient({ userEmail, projects }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [adding, setAdding] = useState(false);
+  const [add, setAdd] = useState<AddState>({ phase: "hidden" });
   const [slug, setSlug] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [kind, setKind] = useState<ProjectPersonaKind>("housewife");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -45,7 +53,24 @@ export default function SelectProjectClient({ userEmail, projects }: Props) {
     });
   }
 
+  function startAdd() {
+    setSlug("");
+    setDisplayName("");
+    setError(null);
+    setAdd({ phase: "pick-kind" });
+  }
+
+  function cancelAdd() {
+    setAdd({ phase: "hidden" });
+    setError(null);
+  }
+
+  function pickKind(kind: ProjectKind) {
+    setAdd({ phase: "details", kind });
+  }
+
   async function createAndPick() {
+    if (add.phase !== "details") return;
     setError(null);
     if (!slug.trim() || !displayName.trim()) {
       setError("slug と表示名は必須です");
@@ -59,12 +84,11 @@ export default function SelectProjectClient({ userEmail, projects }: Props) {
         body: JSON.stringify({
           slug: slug.trim(),
           displayName: displayName.trim(),
-          personaConfig: { kind },
+          kind: add.kind,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "失敗");
-      // 作成成功 → そのまま選択して "/" へ
       await selectProject(slug.trim());
       router.refresh();
     } catch (e) {
@@ -91,7 +115,7 @@ export default function SelectProjectClient({ userEmail, projects }: Props) {
         {projects.length > 0 ? (
           <div className="space-y-2 mb-8">
             {projects.map((p) => {
-              const kind = (p.persona_config?.kind ?? "other") as ProjectPersonaKind;
+              const kind = (p.kind ?? "research_based") as ProjectKind;
               return (
                 <button
                   key={p.id}
@@ -108,7 +132,7 @@ export default function SelectProjectClient({ userEmail, projects }: Props) {
                       {p.role}
                     </span>
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-gray-50 text-gray-500">
-                      {KIND_LABEL[kind] ?? kind}
+                      {KIND_ICON[kind] ?? ""} {PROJECT_KIND_LABEL[kind] ?? kind}
                     </span>
                   </div>
                   <div className="mt-2 text-[15px] font-semibold text-[color:var(--fg-primary)]">
@@ -129,22 +153,112 @@ export default function SelectProjectClient({ userEmail, projects }: Props) {
           </div>
         )}
 
-        {!adding ? (
-          <button type="button" onClick={() => setAdding(true)} className="btn-accent">
+        {add.phase === "hidden" && (
+          <button type="button" onClick={startAdd} className="btn-accent">
             + 新しいプロジェクトを作成
           </button>
-        ) : (
-          <div className="space-y-3 p-5 rounded-lg border border-dashed border-[var(--border-card)]">
-            <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)]">
-              NEW PROJECT
+        )}
+
+        {error && add.phase === "hidden" && (
+          <p className="text-[11px] text-red-600 mt-3">{error}</p>
+        )}
+      </div>
+
+      {/* ===== ダイアログ: タイプ選択 ===== */}
+      {add.phase === "pick-kind" && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+          onClick={cancelAdd}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-[16px] font-bold text-[color:var(--fg-primary)]">
+                プロジェクトタイプを選ぶ
+              </h2>
+              <button
+                type="button"
+                onClick={cancelAdd}
+                className="text-[11px] text-[color:var(--fg-muted)] hover:text-[color:var(--fg-primary)]"
+              >
+                ✕ 閉じる
+              </button>
+            </div>
+            <p className="text-[12px] text-[color:var(--fg-secondary)] mb-4">
+              タイプによって、ネタ収集の方法・専用 UI / API が変わります。後から変更可能。
+            </p>
+            <div className="space-y-2">
+              {(Object.keys(PROJECT_KIND_LABEL) as ProjectKind[]).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => pickKind(k)}
+                  className="w-full text-left p-4 rounded-lg border border-[var(--border-subtle)] hover:border-[color:var(--accent)] hover:bg-[color:var(--accent-soft)] transition-colors"
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[16px]">{KIND_ICON[k]}</span>
+                    <span className="text-[14px] font-semibold text-[color:var(--fg-primary)]">
+                      {PROJECT_KIND_LABEL[k]}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-[color:var(--fg-secondary)] leading-snug">
+                    {PROJECT_KIND_DESCRIPTION[k]}
+                  </p>
+                  <p className="text-[10px] text-[color:var(--fg-muted)] mt-1">
+                    元ネタ源: {KIND_HINT_INFOSRC[k]}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== ダイアログ: 詳細入力 ===== */}
+      {add.phase === "details" && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+          onClick={cancelAdd}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-[16px] font-bold text-[color:var(--fg-primary)]">
+                新規プロジェクト: 基本情報
+              </h2>
+              <button
+                type="button"
+                onClick={cancelAdd}
+                className="text-[11px] text-[color:var(--fg-muted)] hover:text-[color:var(--fg-primary)]"
+              >
+                ✕ 閉じる
+              </button>
+            </div>
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-[color:var(--accent-soft)]">
+              <span className="text-[16px]">{KIND_ICON[add.kind]}</span>
+              <span className="text-[13px] font-semibold">
+                {PROJECT_KIND_LABEL[add.kind]}
+              </span>
+              <button
+                type="button"
+                onClick={() => setAdd({ phase: "pick-kind" })}
+                className="ml-auto text-[10px] text-[color:var(--accent-dark)] hover:underline"
+              >
+                ← タイプを変更
+              </button>
             </div>
             <label className="block">
               <span className="text-[11px] text-[color:var(--fg-secondary)]">slug (URL識別子)</span>
               <input
                 value={slug}
                 onChange={(e) => setSlug(e.target.value)}
-                placeholder="例: aff, blog, work"
+                placeholder="例: aff / blog / work"
                 className="input-base mt-1 font-mono"
+                autoFocus
               />
               <span className="block text-[10px] text-[color:var(--fg-muted)] mt-1">
                 2-32 文字の英小文字 / 数字 / ハイフン / アンダースコア。後から変更不可
@@ -159,31 +273,11 @@ export default function SelectProjectClient({ userEmail, projects }: Props) {
                 className="input-base mt-1"
               />
             </label>
-            <label className="block">
-              <span className="text-[11px] text-[color:var(--fg-secondary)]">ペルソナ種別</span>
-              <select
-                value={kind}
-                onChange={(e) => setKind(e.target.value as ProjectPersonaKind)}
-                className="input-base mt-1"
-              >
-                {(Object.keys(KIND_LABEL) as ProjectPersonaKind[]).map((k) => (
-                  <option key={k} value={k}>
-                    {KIND_LABEL[k]}
-                  </option>
-                ))}
-              </select>
-              <span className="block text-[10px] text-[color:var(--fg-muted)] mt-1">
-                {KIND_HINT[kind]}
-              </span>
-            </label>
             {error && <p className="text-[11px] text-red-600">{error}</p>}
-            <div className="flex justify-end gap-2">
+            <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => {
-                  setAdding(false);
-                  setError(null);
-                }}
+                onClick={cancelAdd}
                 className="btn-ghost"
               >
                 キャンセル
@@ -198,10 +292,8 @@ export default function SelectProjectClient({ userEmail, projects }: Props) {
               </button>
             </div>
           </div>
-        )}
-
-        {error && !adding && <p className="text-[11px] text-red-600 mt-3">{error}</p>}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

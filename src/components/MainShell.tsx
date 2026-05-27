@@ -6,7 +6,7 @@ import Sidebar from "@/components/Sidebar";
 import { GenerationProvider } from "@/components/GenerationProvider";
 import GenerationStatusBar from "@/components/GenerationStatusBar";
 import { NoteLogoFull } from "@/components/NoteLogo";
-import type { ProjectMembership } from "@/lib/projects";
+import type { ProjectMembership } from "@/lib/projects-types";
 
 export default function MainShell({
   children,

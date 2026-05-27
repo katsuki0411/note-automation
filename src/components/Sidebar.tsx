@@ -7,7 +7,13 @@ import { NoteLogoFull } from "./NoteLogo";
 import { logout } from "@/app/login/actions";
 import { selectProject } from "@/app/select-project/actions";
 import { NAV_ITEMS } from "@/lib/navItems";
-import type { ProjectMembership } from "@/lib/projects";
+import { PROJECT_KIND_LABEL, type ProjectKind, type ProjectMembership } from "@/lib/projects-types";
+
+const KIND_ICON: Record<ProjectKind, string> = {
+  research_based: "📰",
+  amazon_affiliate: "🛒",
+  a8_affiliate: "💰",
+};
 
 export default function Sidebar({
   isMobileOpen = false,
@@ -77,6 +83,12 @@ export default function Sidebar({
             className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-[var(--border-subtle)] bg-white hover:bg-gray-50 transition-colors disabled:opacity-50"
           >
             <span className="flex items-center gap-2 min-w-0">
+              <span
+                className="text-[14px] shrink-0"
+                title={PROJECT_KIND_LABEL[currentProject.kind] ?? currentProject.kind}
+              >
+                {KIND_ICON[currentProject.kind] ?? "📁"}
+              </span>
               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] shrink-0">
                 {currentProject.slug}
               </span>
@@ -112,6 +124,12 @@ export default function Sidebar({
                     p.slug === currentProject.slug ? "bg-[color:var(--accent-soft)]" : ""
                   }`}
                 >
+                  <span
+                    className="text-[12px] shrink-0"
+                    title={PROJECT_KIND_LABEL[p.kind] ?? p.kind}
+                  >
+                    {KIND_ICON[p.kind] ?? "📁"}
+                  </span>
                   <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 shrink-0">
                     {p.slug}
                   </span>
