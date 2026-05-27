@@ -77,6 +77,18 @@ export function SeoIcon({ size = 20, className }: IconProps) {
   );
 }
 
+/** 商品スカウト - カート + 双眼鏡的なイメージ */
+export function ProductScoutIcon({ size = 20, className }: IconProps) {
+  return (
+    <svg {...baseProps(size)} className={className} aria-hidden>
+      <circle cx="9" cy="20" r="1.5" />
+      <circle cx="17" cy="20" r="1.5" />
+      <path d="M3 4h2l2.7 11.2a2 2 0 002 1.5h8.6a2 2 0 002-1.5L22 7H6" />
+      <path d="M11 11h2M12 9v4" />
+    </svg>
+  );
+}
+
 /** 設定 - 歯車 */
 export function SettingsIcon({ size = 20, className }: IconProps) {
   return (

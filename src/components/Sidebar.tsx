@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { NoteLogoFull } from "./NoteLogo";
 import { logout } from "@/app/login/actions";
 import { selectProject } from "@/app/select-project/actions";
-import { NAV_ITEMS } from "@/lib/navItems";
+import { getNavItemsForKind } from "@/lib/navItems";
 import { PROJECT_KIND_LABEL, type ProjectKind, type ProjectMembership } from "@/lib/projects-types";
 
 const KIND_ICON: Record<ProjectKind, string> = {
@@ -148,7 +148,7 @@ export default function Sidebar({
         </div>
 
         <nav className="px-3 flex-1 space-y-0.5">
-          {NAV_ITEMS.map((item) => {
+          {getNavItemsForKind(currentProject.kind).map((item) => {
             const active =
               item.href === "/"
                 ? pathname === "/"
