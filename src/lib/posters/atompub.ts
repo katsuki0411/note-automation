@@ -157,6 +157,35 @@ ${categoryLines}
 </entry>`;
 }
 
+// AtomPub サーバーへの疎通確認 (collection feed を GET)。
+// 認証が通れば 200 + Atom XML が返るはず。
+export async function testAtomPubConnection(
+  config: AtomPubConfig,
+): Promise<{ ok: boolean; error?: string }> {
+  const authHeaders: Record<string, string> = {};
+  if (config.auth.kind === "wsse") {
+    authHeaders["X-WSSE"] = generateWSSE(config.auth.username, config.auth.password);
+    authHeaders["Authorization"] = 'WSSE profile="UsernameToken"';
+  } else {
+    authHeaders["Authorization"] = generateBasic(config.auth.username, config.auth.password);
+  }
+  try {
+    const res = await fetch(config.endpoint, {
+      method: "GET",
+      headers: { Accept: "application/atom+xml,application/xml", ...authHeaders },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (res.ok) return { ok: true };
+    const errText = await res.text().catch(() => "");
+    return {
+      ok: false,
+      error: `HTTP ${res.status} ${errText.slice(0, 200)}`,
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 export async function postAtomPubEntry(
   config: AtomPubConfig,
   input: PostArticleInput,

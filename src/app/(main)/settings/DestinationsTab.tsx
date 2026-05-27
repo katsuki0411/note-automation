@@ -9,7 +9,12 @@ import {
   type Platform,
   type PostingDestinationRow,
 } from "@/lib/posters/types";
+import { PLATFORM_GUIDES } from "@/lib/posters/setupGuides";
 import { pingExtension } from "@/lib/notePost";
+import SetupGuideModal from "./SetupGuideModal";
+
+type TestStatus = "idle" | "running" | "ok" | "ng";
+type TestResult = { status: TestStatus; error?: string; note?: string };
 
 type ExtensionStatus = "unknown" | "checking" | "installed" | "missing";
 
@@ -62,6 +67,31 @@ export default function DestinationsTab() {
   const [error, setError] = useState<string | null>(null);
   const [extStatus, setExtStatus] = useState<ExtensionStatus>("unknown");
   const [extVersion, setExtVersion] = useState<string | null>(null);
+  // 各 destination の接続テスト結果
+  const [tests, setTests] = useState<Record<string, TestResult>>({});
+  // 取得手順ガイドモーダル (platform を渡せば開く)
+  const [guideOpen, setGuideOpen] = useState<Platform | null>(null);
+
+  async function runTest(d: PostingDestinationRow) {
+    setTests((s) => ({ ...s, [d.id]: { status: "running" } }));
+    try {
+      const res = await fetch(`/api/destinations/${d.id}/test`, { method: "POST" });
+      const data = (await res.json()) as { ok: boolean; error?: string; note?: string };
+      setTests((s) => ({
+        ...s,
+        [d.id]: {
+          status: data.ok ? "ok" : "ng",
+          error: data.error,
+          note: data.note,
+        },
+      }));
+    } catch (e) {
+      setTests((s) => ({
+        ...s,
+        [d.id]: { status: "ng", error: e instanceof Error ? e.message : "失敗" },
+      }));
+    }
+  }
 
   async function checkExtension() {
     setExtStatus("checking");
@@ -305,13 +335,52 @@ export default function DestinationsTab() {
                   {d.enabled ? "有効" : "無効"}
                 </button>
                 {d.platform !== "note" && (
-                  <button
-                    type="button"
-                    onClick={() => startEdit(d)}
-                    className="text-[12px] text-[color:var(--accent-dark)] hover:underline shrink-0"
-                  >
-                    接続
-                  </button>
+                  <>
+                    {(() => {
+                      const t = tests[d.id];
+                      const statusBadge =
+                        t?.status === "running"
+                          ? "⏳ 確認中"
+                          : t?.status === "ok"
+                            ? "✅ 接続OK"
+                            : t?.status === "ng"
+                              ? "❌ 失敗"
+                              : null;
+                      const badgeCls =
+                        t?.status === "ok"
+                          ? "bg-green-100 text-green-700"
+                          : t?.status === "ng"
+                            ? "bg-red-100 text-red-700"
+                            : "bg-gray-100 text-gray-600";
+                      return (
+                        <>
+                          {statusBadge && (
+                            <span
+                              className={`text-[11px] px-2 py-1 rounded shrink-0 ${badgeCls}`}
+                              title={t?.error ?? t?.note ?? ""}
+                            >
+                              {statusBadge}
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => runTest(d)}
+                            disabled={t?.status === "running"}
+                            className="text-[11px] px-2 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 shrink-0 disabled:opacity-50"
+                          >
+                            🔌 接続確認
+                          </button>
+                        </>
+                      );
+                    })()}
+                    <button
+                      type="button"
+                      onClick={() => startEdit(d)}
+                      className="text-[12px] text-[color:var(--accent-dark)] hover:underline shrink-0"
+                    >
+                      接続情報
+                    </button>
+                  </>
                 )}
                 {d.platform !== "note" && (
                   <button
@@ -338,8 +407,19 @@ export default function DestinationsTab() {
         </button>
       ) : (
         <div className="space-y-3 p-4 rounded-lg border border-dashed border-[var(--border-card)]">
-          <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)]">
-            {isEditMode ? "EDIT DESTINATION" : "NEW DESTINATION"}
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)]">
+              {isEditMode ? "EDIT DESTINATION" : "NEW DESTINATION"}
+            </div>
+            {PLATFORM_GUIDES[platform] && (
+              <button
+                type="button"
+                onClick={() => setGuideOpen(platform)}
+                className="text-[11px] px-2 py-1 rounded bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] hover:bg-[color:var(--accent)] hover:text-white"
+              >
+                📖 接続情報の取り方
+              </button>
+            )}
           </div>
           <label className="block">
             <span className="text-[11px] text-[color:var(--fg-secondary)]">プラットフォーム</span>
@@ -426,6 +506,9 @@ export default function DestinationsTab() {
             </button>
           </div>
         </div>
+      )}
+      {guideOpen && (
+        <SetupGuideModal platform={guideOpen} onClose={() => setGuideOpen(null)} />
       )}
     </div>
   );
