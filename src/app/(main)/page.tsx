@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { FeedIdea, FeedState, ThemeId } from "@/lib/types";
 import { THEMES } from "@/lib/types";
 import type { HotKeyword } from "@/lib/hotKeywords";
@@ -8,6 +9,7 @@ import PageHeader from "@/components/PageHeader";
 import Loading from "@/components/Loading";
 import { FilterBar, GroupTab, FilterPill } from "@/components/FilterBar";
 import { useGeneration } from "@/components/GenerationProvider";
+import { useProject } from "@/components/ProjectContext";
 import { getCache, setCache } from "@/lib/clientCache";
 
 const CACHE_KEY = "research:feed";
@@ -45,7 +47,22 @@ type HotStats = {
 };
 // filter: "all" | "fresh" | "high-score" | "theme:<id>" | "source:<platform>" | "keyword:<kw>"
 
+// amazon_affiliate / a8_affiliate プロジェクトでは「ネタ収集 & 生成」画面は使わないため、
+// / 直アクセス時に kind 別の初期画面 (/bestsellers) に飛ばす wrapper。
+// 内部の ResearchPageInner はそのままの巨大コンポーネント。
 export default function ResearchPage() {
+  const router = useRouter();
+  const project = useProject();
+  const needsRedirect =
+    project.kind === "amazon_affiliate" || project.kind === "a8_affiliate";
+  useEffect(() => {
+    if (needsRedirect) router.replace("/bestsellers");
+  }, [needsRedirect, router]);
+  if (needsRedirect) return null;
+  return <ResearchPageInner />;
+}
+
+function ResearchPageInner() {
   const { enqueue, state: genState } = useGeneration();
   const cachedFeed = getCache<FeedState>(CACHE_KEY);
   const [state, setState] = useState<FeedState>(cachedFeed ?? { ideas: [], tickCount: 0 });
