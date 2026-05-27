@@ -14,9 +14,9 @@ export function NoteLogoMark({ size = 32, className = "" }: Props) {
       aria-label="MultiPostAI logo"
     >
       <rect width="64" height="64" rx="14" fill="#1a1a1a" />
-      {/* M を中心に配置 (MultiPost の頭文字) */}
+      {/* M を中心に配置 (MultiPost の頭文字)。横幅28を viewBox(64) の中央 18〜46 に */}
       <path
-        d="M14 46 V18 h6 l8 14 l8 -14 h6 V46 h-6 V28 l-6 10 h-4 l-6 -10 V46 z"
+        d="M18 46 V18 h6 l8 14 l8 -14 h6 V46 h-6 V28 l-6 10 h-4 l-6 -10 V46 z"
         fill="#41c9b4"
       />
     </svg>
