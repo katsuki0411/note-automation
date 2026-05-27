@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "note自動化システム",
-  description: "主婦層向けnote記事をAIで量産",
+  title: "MultiPostAI",
+  description: "SEO/LLMOで勝てるKWを発掘し、複数ブログ媒体へAIが自動投稿するツール",
 };
 
 export default function RootLayout({

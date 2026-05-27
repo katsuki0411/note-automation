@@ -278,7 +278,7 @@ export default function DestinationsTab() {
                       再確認
                     </button>
                     <a
-                      href="/note-automation-poster-extension.zip"
+                      href="/multipostai-poster-extension.zip"
                       download
                       className="text-[11px] px-2 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 shrink-0"
                       title="インストール: 1) zip展開 2) chrome://extensions/ で「デベロッパーモード」ON 3) 「パッケージ化されていない拡張機能を読み込む」で展開フォルダを選択"

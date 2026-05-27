@@ -1,3 +1,6 @@
+// 旧名は "note automation"。MultiPostAI にリブランド (2026-05-27)。
+// コンポーネント名 NoteLogo* は import 互換性のため維持。
+
 type Props = { size?: number; className?: string };
 
 export function NoteLogoMark({ size = 32, className = "" }: Props) {
@@ -8,11 +11,12 @@ export function NoteLogoMark({ size = 32, className = "" }: Props) {
       viewBox="0 0 64 64"
       className={className}
       role="img"
-      aria-label="note logo"
+      aria-label="MultiPostAI logo"
     >
       <rect width="64" height="64" rx="14" fill="#1a1a1a" />
+      {/* M を中心に配置 (MultiPost の頭文字) */}
       <path
-        d="M19 18 v28 h7 v-15 c0-3.5 2-5.5 5-5.5 c3 0 5 2 5 5.5 v15 h7 v-17 c0-7-4-11-10-11 c-3 0-5.5 1.2-7 3 v-3 z"
+        d="M14 46 V18 h6 l8 14 l8 -14 h6 V46 h-6 V28 l-6 10 h-4 l-6 -10 V46 z"
         fill="#41c9b4"
       />
     </svg>
@@ -24,7 +28,7 @@ export function NoteLogoFull({ className = "" }: { className?: string }) {
     <span className={`flex items-center gap-2.5 ${className}`}>
       <NoteLogoMark size={30} />
       <span className="note-logo-text text-[18px] text-[color:var(--fg-primary)]">
-        note <span className="text-[color:var(--accent-dark)]">automation</span>
+        MultiPost<span className="text-[color:var(--accent-dark)]">AI</span>
       </span>
     </span>
   );

@@ -102,7 +102,7 @@ export default function SelectProjectClient({ userEmail, projects }: Props) {
       <div className="max-w-3xl mx-auto px-6 py-12">
         <div className="mb-8">
           <div className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-1">
-            note automation
+            MultiPostAI
           </div>
           <h1 className="text-2xl font-bold text-[color:var(--fg-primary)]">
             プロジェクトを選択
