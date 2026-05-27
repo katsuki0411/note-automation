@@ -16,7 +16,7 @@ import {
 import type { FeedIdea, Keyword, ThemeId } from "@/lib/types";
 import { withProjectContext } from "@/lib/auth";
 import { sql } from "@/lib/db";
-import type { ProjectPersonaConfig } from "@/lib/projects";
+import type { ProjectKind, ProjectPersonaConfig } from "@/lib/projects";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -132,13 +132,16 @@ export async function POST(req: NextRequest) {
       if (!destination) {
         return Response.json({ error: "destination が見つかりません" }, { status: 404 });
       }
-      const projectRow = await sql<{ persona_config: ProjectPersonaConfig }[]>`
-        select persona_config from projects where id = ${ctx.projectId} limit 1
-      `;
-      const persona = projectRow[0]?.persona_config ?? {};
+      const projectRow = await sql<
+        { kind: ProjectKind; persona_config: ProjectPersonaConfig }[]
+      >`select kind, persona_config from projects where id = ${ctx.projectId} limit 1`;
+      const projectMeta = {
+        kind: projectRow[0]?.kind ?? "research_based",
+        personaConfig: projectRow[0]?.persona_config ?? {},
+      };
 
       // プロンプト解決: カスタム or housewife-default or null
-      const resolved = resolveSystemPrompt(destination, persona);
+      const resolved = resolveSystemPrompt(destination, projectMeta);
       if (!resolved) {
         return Response.json(
           {

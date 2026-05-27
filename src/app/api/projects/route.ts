@@ -3,6 +3,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   createProject,
   listProjectsForUser,
+  isValidKind,
+  type ProjectKind,
   type ProjectPersonaConfig,
 } from "@/lib/projects";
 
@@ -34,17 +36,22 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as {
       slug?: string;
       displayName?: string;
+      kind?: string;
       personaConfig?: ProjectPersonaConfig;
     };
-    if (!body?.slug || !body?.displayName) {
+    if (!body?.slug || !body?.displayName || !body?.kind) {
       return Response.json(
-        { error: "slug と displayName は必須です" },
+        { error: "slug / displayName / kind は必須です" },
         { status: 400 },
       );
+    }
+    if (!isValidKind(body.kind)) {
+      return Response.json({ error: `kind が不正です: ${body.kind}` }, { status: 400 });
     }
     const project = await createProject(user.id, {
       slug: body.slug,
       displayName: body.displayName,
+      kind: body.kind as ProjectKind,
       personaConfig: body.personaConfig,
     });
     return Response.json({ project });
