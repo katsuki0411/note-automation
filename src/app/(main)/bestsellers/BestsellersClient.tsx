@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
-import { FilterBar, GroupTab } from "@/components/FilterBar";
 
 type BestsellerItem = {
   id: string;
@@ -86,7 +85,6 @@ export default function BestsellersClient() {
   }
 
   function scoutFromTitle(title: string) {
-    // /products に遷移 (subject クエリで渡す。Brave 復活後に動く)
     router.push(`/products?q=${encodeURIComponent(title)}`);
   }
 
@@ -97,26 +95,7 @@ export default function BestsellersClient() {
       <PageHeader
         title="📊 ベストセラー"
         description="Amazon の主要カテゴリ別 TOP10 を取得して、商品スカウトの起点にします。"
-      >
-        <FilterBar>
-          <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px overflow-x-auto">
-            {categories.map((c) => (
-              <GroupTab
-                key={c.id}
-                active={activeId === c.id}
-                onClick={() => setActiveId(c.id)}
-              >
-                {c.label}
-                {c.items.length > 0 && (
-                  <span className="ml-1 text-[9px] text-[color:var(--fg-muted)]">
-                    {c.items.length}
-                  </span>
-                )}
-              </GroupTab>
-            ))}
-          </div>
-        </FilterBar>
-      </PageHeader>
+      />
 
       <div className="max-w-4xl space-y-5">
         <div className="flex items-center gap-3 flex-wrap">
@@ -128,18 +107,33 @@ export default function BestsellersClient() {
           >
             {refreshingCat === "all" ? "全カテゴリ取得中…" : "🔄 全カテゴリ取得"}
           </button>
-          {active && (
-            <button
-              type="button"
-              onClick={() => refresh(active.id)}
-              disabled={refreshingCat !== null}
-              className="btn-ghost"
+
+          <div className="flex items-center gap-2">
+            <select
+              value={activeId ?? ""}
+              onChange={(e) => setActiveId(e.target.value || null)}
+              disabled={refreshingCat !== null || categories.length === 0}
+              className="input-base text-[12px] py-1.5"
             >
-              {refreshingCat === active.id
-                ? `${active.label} 取得中…`
-                : `🔄 ${active.label} だけ取得`}
-            </button>
-          )}
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                  {c.items.length > 0 ? ` (${c.items.length})` : ""}
+                </option>
+              ))}
+            </select>
+            {active && (
+              <button
+                type="button"
+                onClick={() => refresh(active.id)}
+                disabled={refreshingCat !== null}
+                className="btn-ghost text-[12px] whitespace-nowrap"
+              >
+                {refreshingCat === active.id ? "取得中…" : "🔄 このカテゴリだけ取得"}
+              </button>
+            )}
+          </div>
+
           {message && (
             <span
               className={`text-[11px] ${message.kind === "success" ? "text-[color:var(--accent-dark)]" : "text-red-600"}`}
@@ -160,10 +154,10 @@ export default function BestsellersClient() {
         ) : !active || active.items.length === 0 ? (
           <div className="p-6 rounded-lg border border-dashed border-[var(--border-card)] text-center">
             <p className="text-[13px] text-[color:var(--fg-secondary)]">
-              このカテゴリにはまだベストセラーがありません
+              {active?.label ?? "このカテゴリ"} にはまだベストセラーがありません
             </p>
             <p className="text-[11px] text-[color:var(--fg-muted)] mt-1">
-              上の「{active?.label || "カテゴリ"} だけ取得」ボタンから取得してください
+              上の「🔄 このカテゴリだけ取得」ボタンから取得してください
             </p>
           </div>
         ) : (
