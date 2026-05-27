@@ -6,6 +6,7 @@ import Sidebar from "@/components/Sidebar";
 import { GenerationProvider } from "@/components/GenerationProvider";
 import GenerationStatusBar from "@/components/GenerationStatusBar";
 import { NoteLogoFull } from "@/components/NoteLogo";
+import { ProjectProvider } from "@/components/ProjectContext";
 import type { ProjectMembership } from "@/lib/projects-types";
 
 export default function MainShell({
@@ -25,6 +26,7 @@ export default function MainShell({
   }, [pathname]);
 
   return (
+    <ProjectProvider value={currentProject}>
     <GenerationProvider>
       {/* モバイル用ヘッダーバー */}
       <header className="md:hidden sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-white border-b border-[var(--border-subtle)]">
@@ -61,5 +63,6 @@ export default function MainShell({
 
       <GenerationStatusBar />
     </GenerationProvider>
+    </ProjectProvider>
   );
 }

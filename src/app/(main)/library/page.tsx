@@ -10,9 +10,30 @@ import { FilterBar, GroupTab, FilterPill } from "@/components/FilterBar";
 import { getCache, setCache } from "@/lib/clientCache";
 import { postToNote, type NotePostResult } from "@/lib/notePost";
 import { PLATFORM_LABELS, type Platform, type PostingDestinationRow } from "@/lib/posters/types";
+import { useProject } from "@/components/ProjectContext";
 
 const CACHE_KEY = "library:articles";
 const ACTIVE_CACHE_KEY = "library:activeId";
+
+// project.kind に応じて空状態の文言とリンク先を切替
+function EmptyLibraryCta() {
+  const project = useProject();
+  let href = "/";
+  let label = "① ネタ収集から始める";
+  if (project.kind === "amazon_affiliate" || project.kind === "a8_affiliate") {
+    href = "/bestsellers";
+    label = "① ベストセラーから探す";
+  }
+  return (
+    <div className="card p-12 text-center">
+      <div className="text-5xl mb-4 opacity-30">∅</div>
+      <p className="text-[color:var(--fg-secondary)] mb-5">まだ記事がありません。</p>
+      <Link href={href} className="btn-primary inline-block">
+        {label}
+      </Link>
+    </div>
+  );
+}
 
 type GroupBy = "theme" | "source" | "keyword";
 
@@ -402,13 +423,7 @@ export default function LibraryPage() {
           <Loading size="lg" message="ライブラリを読み込み中…" fill={false} />
         </div>
       ) : articles.length === 0 ? (
-        <div className="card p-12 text-center">
-          <div className="text-5xl mb-4 opacity-30">∅</div>
-          <p className="text-[color:var(--fg-secondary)] mb-5">まだ記事がありません。</p>
-          <Link href="/" className="btn-primary inline-block">
-            ① ネタ収集から始める
-          </Link>
-        </div>
+        <EmptyLibraryCta />
       ) : (
         <>
           <div className="grid md:grid-cols-[320px_1fr] gap-6">

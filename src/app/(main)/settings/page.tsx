@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import { FilterBar, GroupTab } from "@/components/FilterBar";
-import SourcesTab from "./SourcesTab";
 import DestinationsTab from "./DestinationsTab";
 import {
   ARTICLE_MODEL_OPTIONS,
@@ -16,10 +15,10 @@ import {
   type ArticleUrl,
 } from "@/lib/clientSettings";
 
-type Tab = "sources" | "urls" | "model" | "destinations";
+type Tab = "destinations" | "urls" | "model";
 
 export default function SettingsPage() {
-  const [tab, setTab] = useState<Tab>("sources");
+  const [tab, setTab] = useState<Tab>("destinations");
 
   const [model, setModel] = useState<ArticleModel>(DEFAULT_ARTICLE_MODEL);
   const [savedModel, setSavedModel] = useState<ArticleModel>(DEFAULT_ARTICLE_MODEL);
@@ -91,18 +90,15 @@ export default function SettingsPage() {
     <>
       <PageHeader
         title="設定"
-        description="情報源・自分の記事URL・記事生成モデルを管理します。"
+        description="投稿先・自分の記事URL・記事生成モデルを管理します。"
       >
         <FilterBar>
           <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
-            <GroupTab active={tab === "sources"} onClick={() => setTab("sources")}>
-              情報源
+            <GroupTab active={tab === "destinations"} onClick={() => setTab("destinations")}>
+              投稿先
             </GroupTab>
             <GroupTab active={tab === "urls"} onClick={() => setTab("urls")}>
               自分の記事URL
-            </GroupTab>
-            <GroupTab active={tab === "destinations"} onClick={() => setTab("destinations")}>
-              投稿先
             </GroupTab>
             <GroupTab active={tab === "model"} onClick={() => setTab("model")}>
               記事生成モデル
@@ -110,8 +106,6 @@ export default function SettingsPage() {
           </div>
         </FilterBar>
       </PageHeader>
-
-      {tab === "sources" && <SourcesTab />}
 
       {tab === "destinations" && <DestinationsTab />}
 
