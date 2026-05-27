@@ -1,5 +1,11 @@
-// 指定 KW で Brave 上位30件を取得し、上位ドメインの分布から SEO 難易度を判定する。
-// seoRank.ts と Brave Search 呼び出しは同じだが、用途が違うため別関数として持つ。
+// 指定 KW で Brave 上位30件を取得し、(1) 固定ドメイン分類 と (2) Gemini AI 五軸評価
+// の両方で SEO/LLMO 競合度を判定する。
+//
+// (1) 固定分類は早くて安定だが新興メディアを取りこぼす。
+// (2) Gemini 評価は動的でかつ intent との整合性 / LLMO 適性 まで判定するが、
+//     ハルシネーションの可能性あり。両方並べて表示し、ユーザーが見比べる設計。
+
+import { gemini, MODELS } from "./gemini";
 
 const BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search";
 const SCAN_DEPTH = 30;
@@ -115,22 +121,125 @@ export type CompetitionBucket = {
   other: number;
 };
 
+// Gemini AI による五軸評価。各 0-100 で「高いほど個人ブログに有利」
+export type AIScores = {
+  // 上位サイトの権威性が "低い" ほど高得点 (大手メディア/Wikipedia等が多いと低)
+  authority: number;
+  // SERP が intent を満たせて "いない" ほど高得点 = チャンス
+  // (例: 比較intent なのに上位が商品ページばかり = 高)
+  intentGap: number;
+  // SERP に個人ブログの解説記事が "入る余地" がどれだけあるか
+  blogRoom: number;
+  // AI 検索 (ChatGPT/Perplexity/Gemini AI Overview) で引用元になりやすいか
+  llmoAffinity: number;
+  // 動画(YouTube)/SNS が "少ない" ほど高得点 (文字記事に有利)
+  mediaMix: number;
+  // 加重平均 (overall) = intentGap*0.30 + blogRoom*0.25 + authority*0.20 + llmoAffinity*0.15 + mediaMix*0.10
+  overall: number;
+  // Gemini が出した日本語の判断理由 (UI に表示)
+  rationale: string;
+};
+
 export type CompetitionResult = {
   kw: string;
   totalScanned: number;
   buckets: CompetitionBucket;
-  // 個人ブログでも上位入りできそうか
-  // ◎ = 易 / △ = 中 / ✕ = 難
+  // === 固定ドメイン分類ベースの評価 (高速・確定的) ===
+  // 個人ブログでも上位入りできそうか  ◎ = 易 / △ = 中 / ✕ = 難
   seoDifficulty: "easy" | "medium" | "hard";
   // 個人ブロガーの参入余地スコア (0-100)
   opportunityScore: number;
   // 簡易説明 (UI 表示用)
   rationale: string;
   topUrls: string[]; // 上位5件の URL (UI 確認用)
+  // === Gemini AI 五軸評価 (任意・取得失敗時は undefined) ===
+  ai?: AIScores;
 };
 
-// 単一 KW を分析
-export async function analyzeKeyword(kw: string): Promise<CompetitionResult> {
+// Gemini に Brave 上位30件 + intent を渡して五軸評価を取得
+// 失敗時は undefined を返す (ハルシネーション/JSON 不正等)
+async function evaluateWithAI(
+  kw: string,
+  intent: string | undefined,
+  topResults: { url: string; title: string }[],
+): Promise<AIScores | undefined> {
+  if (topResults.length === 0) return undefined;
+  const prompt = `
+あなたは SEO/LLMO の専門家です。以下のキーワードと Brave 上位30件の SERP データから、5つの観点で評価してください。
+
+# 入力
+- キーワード: ${kw}
+- 検索意図 (intent): ${intent ?? "unknown"}
+- 上位30件 (タイトル + URL):
+${topResults.map((r, i) => `${i + 1}. ${r.title} | ${r.url}`).join("\n")}
+
+# 評価軸 (各 0-100、高いほど個人ブログに有利)
+1. authority: 上位サイトのドメイン権威性が "低い" ほど高得点 (Wikipedia/政府/大手新聞/大手比較メディアが多い = 低、知らないドメイン = 高)
+2. intentGap: SERP が intent "${intent ?? "unknown"}" を "満たせていない" ほど高得点 (例: 比較intent なのに上位が商品ページ・SNSばかり = 高 = 隙間チャンス)
+3. blogRoom: SERP に個人ブログの解説記事が "入る余地" がどれだけあるか (大手メディア独占 = 低、商品ページ多め = 高)
+4. llmoAffinity: AI 検索 (ChatGPT/Perplexity/Gemini AI Overview) で "引用源になりやすい" KW か (情報網羅性・専門解説ニーズが強い = 高)
+5. mediaMix: 動画(YouTube)・SNS が "少ない" ほど高得点 (文字記事に有利。動画ばかりだとテキスト記事の天井低い)
+
+# 出力フォーマット (JSON 1個のみ、前後の説明文禁止)
+{
+  "authority": 70,
+  "intentGap": 50,
+  "blogRoom": 65,
+  "llmoAffinity": 60,
+  "mediaMix": 80,
+  "rationale": "上位はAmazonと楽天が多く、比較メディアは少ない。intent=comparison のニーズは商品ページでは満たせず、解説記事の余地がある。LLMO は中程度。"
+}
+`.trim();
+
+  try {
+    const ai = gemini();
+    const res = await ai.models.generateContent({
+      model: MODELS.research,
+      contents: prompt,
+      config: { temperature: 0.3, maxOutputTokens: 2000 },
+    });
+    const text = res.text ?? "";
+    const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start === -1 || end === -1) return undefined;
+    const parsed = JSON.parse(cleaned.slice(start, end + 1)) as Record<string, unknown>;
+    const clamp = (v: unknown, fallback = 50) => {
+      const n = typeof v === "number" ? v : Number(v);
+      if (!isFinite(n)) return fallback;
+      return Math.max(0, Math.min(100, Math.round(n)));
+    };
+    const authority = clamp(parsed.authority);
+    const intentGap = clamp(parsed.intentGap);
+    const blogRoom = clamp(parsed.blogRoom);
+    const llmoAffinity = clamp(parsed.llmoAffinity);
+    const mediaMix = clamp(parsed.mediaMix);
+    const overall = Math.round(
+      intentGap * 0.30 +
+        blogRoom * 0.25 +
+        authority * 0.20 +
+        llmoAffinity * 0.15 +
+        mediaMix * 0.10,
+    );
+    return {
+      authority,
+      intentGap,
+      blogRoom,
+      llmoAffinity,
+      mediaMix,
+      overall,
+      rationale: String(parsed.rationale ?? ""),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+// 単一 KW を分析 (intent 任意で渡せる。渡されれば Gemini 五軸評価も実行)
+export async function analyzeKeyword(
+  kw: string,
+  opts: { intent?: string; useAI?: boolean } = {},
+): Promise<CompetitionResult> {
   const totalPages = Math.ceil(SCAN_DEPTH / PAGE_SIZE);
   const all: { url: string; title: string }[] = [];
   for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
@@ -194,6 +303,9 @@ export async function analyzeKeyword(kw: string): Promise<CompetitionResult> {
     ),
   );
 
+  // Gemini 五軸評価 (オプション)
+  const ai = opts.useAI !== false ? await evaluateWithAI(kw, opts.intent, all) : undefined;
+
   return {
     kw,
     totalScanned: all.length,
@@ -202,13 +314,14 @@ export async function analyzeKeyword(kw: string): Promise<CompetitionResult> {
     opportunityScore,
     rationale,
     topUrls: all.slice(0, 5).map((r) => r.url),
+    ai,
   };
 }
 
-// 並列度制限しながら複数 KW を一括分析
+// 並列度制限しながら複数 KW を一括分析。kws と intents を index で対応させる
 export async function analyzeKeywords(
-  kws: string[],
-  opts: { concurrency?: number } = {},
+  kws: { kw: string; intent?: string }[],
+  opts: { concurrency?: number; useAI?: boolean } = {},
 ): Promise<CompetitionResult[]> {
   const concurrency = opts.concurrency ?? 3; // Brave のレート制限を考慮
   const out: CompetitionResult[] = new Array(kws.length);
@@ -219,12 +332,13 @@ export async function analyzeKeywords(
       while (true) {
         const i = cursor++;
         if (i >= kws.length) return;
+        const { kw, intent } = kws[i];
         try {
-          out[i] = await analyzeKeyword(kws[i]);
+          out[i] = await analyzeKeyword(kw, { intent, useAI: opts.useAI });
         } catch (e) {
           // 失敗した KW は medium で記録 (調査続行)
           out[i] = {
-            kw: kws[i],
+            kw,
             totalScanned: 0,
             buckets: { big_ec: 0, big_media: 0, individual_blog: 0, other: 0 },
             seoDifficulty: "medium",
