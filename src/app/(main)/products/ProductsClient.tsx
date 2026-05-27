@@ -5,7 +5,12 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
 import { useGeneration } from "@/components/GenerationProvider";
+import { getCache, setCache } from "@/lib/clientCache";
 import type { FeedIdea } from "@/lib/types";
+
+const CACHE_SUBJECT = "products:subject";
+const CACHE_RESULT = "products:result";
+const CACHE_IDEIZED = "products:ideized";
 
 type ScoutCandidate = {
   kw: string;
@@ -48,19 +53,38 @@ const INTENT_LABEL: Record<string, string> = {
 export default function ProductsClient() {
   const searchParams = useSearchParams();
   const { enqueue } = useGeneration();
-  const [subject, setSubject] = useState("");
+  // 初期値を clientCache から復元 (ページ間遷移してもスカウト結果が消えないように)
+  const [subject, setSubject] = useState<string>(() => getCache<string>(CACHE_SUBJECT) ?? "");
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<ScoutResponse | null>(null);
+  const [result, setResult] = useState<ScoutResponse | null>(
+    () => getCache<ScoutResponse>(CACHE_RESULT) ?? null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
-  const [ideized, setIdeized] = useState<Set<string>>(new Set());
+  const [ideized, setIdeized] = useState<Set<string>>(
+    () => new Set(getCache<string[]>(CACHE_IDEIZED) ?? []),
+  );
   const [generating, setGenerating] = useState<Set<string>>(new Set());
 
-  // ベストセラー画面 → 「この商品でスカウト」遷移時に q クエリで subject 初期化
+  // ベストセラー画面 → 「この商品でスカウト」遷移時に q クエリで subject 上書き
   useEffect(() => {
     const q = searchParams?.get("q");
-    if (q) setSubject(q);
+    if (q) {
+      setSubject(q);
+      setCache(CACHE_SUBJECT, q);
+    }
   }, [searchParams]);
+
+  // subject / result / ideized を都度キャッシュに書き戻す
+  useEffect(() => {
+    setCache(CACHE_SUBJECT, subject);
+  }, [subject]);
+  useEffect(() => {
+    if (result) setCache(CACHE_RESULT, result);
+  }, [result]);
+  useEffect(() => {
+    setCache(CACHE_IDEIZED, Array.from(ideized));
+  }, [ideized]);
 
   async function scout() {
     setBusy(true);
