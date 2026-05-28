@@ -90,10 +90,10 @@ export const PLATFORM_GUIDES: Partial<Record<Platform, SetupGuide>> = {
 
   fc2: {
     intro:
-      "FC2 ブログは AtomPub API に対応。Basic 認証 (ログインID + パスワード) で利用します。",
+      "⚠ FC2 は AtomPub を提供していない (XML-RPC のみ) ため、現状の実装では自動投稿できません。XML-RPC 切替を別タスクで対応予定。接続情報の保存は可能 (将来再利用)。",
     caveats: [
+      "現状の AtomPub アダプタでは投稿に失敗します。設定値は将来の XML-RPC 実装で再利用されます。",
       "パスワードを保存するため、専用アカウント or 2段階認証OFFの単一アカウントを用意するのが安全。",
-      "FC2 は無料プランで自動投稿可。ただし広告掲載のみが目的のブログは削除対象。",
     ],
     steps: [
       {
