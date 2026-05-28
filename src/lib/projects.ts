@@ -90,7 +90,7 @@ export async function createProject(
         ${input.slug},
         ${displayName},
         ${input.kind},
-        ${tx.json((input.personaConfig ?? {}) as Record<string, unknown>)}
+        ${tx.json((input.personaConfig ?? {}) as Parameters<typeof tx.json>[0])}
       )
       returning id, slug, display_name, kind, persona_config, created_at, updated_at
     `;
@@ -148,7 +148,7 @@ export async function updateProject(
       display_name = coalesce(${patch.displayName ?? null}, display_name),
       kind = coalesce(${patch.kind ?? null}, kind),
       persona_config = coalesce(
-        ${patch.personaConfig ? sql.json(patch.personaConfig as Record<string, unknown>) : null},
+        ${patch.personaConfig ? sql.json(patch.personaConfig as Parameters<typeof sql.json>[0]) : null},
         persona_config
       ),
       updated_at = ${now}

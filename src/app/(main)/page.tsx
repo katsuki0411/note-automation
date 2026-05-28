@@ -432,8 +432,8 @@ function ResearchPageInner() {
 
   const inFlightIds = useMemo(() => {
     const ids = new Set<string>();
-    if (genState.current) ids.add(genState.current.id);
-    for (const q of genState.queue) ids.add(q.id);
+    if (genState.current) ids.add(genState.current.idea.id);
+    for (const q of genState.queue) ids.add(q.idea.id);
     return ids;
   }, [genState.current, genState.queue]);
 
