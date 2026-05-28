@@ -32,19 +32,12 @@ export async function testDestinationConnection(
         auth: { kind: "wsse", username: livedoorId, password: apiKey },
       });
     }
-    case "fc2": {
-      const cfg = d.config as { blogId?: string; username?: string; password?: string };
-      const blogId = cfg.blogId?.trim();
-      const username = cfg.username?.trim();
-      const password = cfg.password?.trim();
-      if (!blogId || !username || !password) {
-        return { ok: false, error: "blogId / username / password のいずれかが未設定" };
-      }
-      return testAtomPubConnection({
-        endpoint: `http://blog.fc2.com/atompub/${encodeURIComponent(blogId)}/entry`,
-        auth: { kind: "basic", username, password },
-      });
-    }
+    case "fc2":
+      // FC2 は AtomPub 提供がなく XML-RPC API のみ。現状の実装では接続不可。
+      return {
+        ok: false,
+        note: "FC2 は AtomPub 非対応のため、現状の実装では接続できません。XML-RPC への切替は別タスクで対応予定。",
+      };
     case "seesaa": {
       const cfg = d.config as { blogId?: string; email?: string; password?: string };
       const blogId = cfg.blogId?.trim();

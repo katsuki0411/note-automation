@@ -175,7 +175,7 @@ export const PLATFORM_CONFIG_SCHEMA: Record<Platform, PlatformConfigSchema> = {
         label: "ブログID",
         type: "text",
         placeholder: "例: yourblog",
-        hint: "FC2ブログのサブドメイン部分 (xxx.blog.fc2.com の xxx)",
+        hint: "FC2ブログのサブドメイン部分 (xxx.blog.fc2.com の xxx)。情報は保存できますが現状投稿不可",
       },
       {
         key: "username",
@@ -188,9 +188,11 @@ export const PLATFORM_CONFIG_SCHEMA: Record<Platform, PlatformConfigSchema> = {
         label: "パスワード",
         type: "password",
         placeholder: "FC2 ログインパスワード",
-        hint: "AtomPub は Basic 認証 (ID + パスワード)",
+        hint: "現状の AtomPub 実装は FC2 で動作しません。XML-RPC 切替検討中",
       },
     ],
+    // FC2 は AtomPub 提供がなく XML-RPC API のみ。投稿は別途実装が必要 → 準備中マーク
+    notImplementedYet: true,
   },
   seesaa: {
     fields: [

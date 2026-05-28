@@ -35,7 +35,11 @@ export async function postToDestination(
     case "livedoor":
       return postToLivedoor(destination.config as unknown as LivedoorConfig, input);
     case "fc2":
-      return postToFc2(destination.config as unknown as Fc2Config, input);
+      // FC2 は AtomPub 非対応 (XML-RPC のみ)。XML-RPC 実装は別タスクで対応予定
+      return {
+        ok: false,
+        error: "FC2 への自動投稿は現状未対応です (FC2 が AtomPub を提供していないため、XML-RPC 実装が必要)",
+      };
     case "seesaa":
       return postToSeesaa(destination.config as unknown as SeesaaConfig, input);
     case "blogger":
