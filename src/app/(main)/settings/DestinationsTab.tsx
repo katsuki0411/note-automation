@@ -278,6 +278,17 @@ export default function DestinationsTab() {
                       ⚠ Amazon / A8 等の外部ASPアフィリンクは Ameba 規約違反 (記事削除・凍結リスク)。Ameba Pick 経由のみ可
                     </div>
                   )}
+                  {tests[d.id]?.status === "ng" && (tests[d.id]?.error || tests[d.id]?.note) && (
+                    <div className="mt-1.5 p-2 rounded bg-red-50 border border-red-100 text-[10px] text-red-700 leading-snug break-all">
+                      <div className="font-semibold mb-0.5">接続テスト失敗の詳細:</div>
+                      {tests[d.id]?.error ?? tests[d.id]?.note}
+                    </div>
+                  )}
+                  {tests[d.id]?.status === "ok" && (
+                    <div className="mt-1 text-[10px] text-green-700">
+                      ✓ AtomPub サービス文書を取得できました (認証OK)
+                    </div>
+                  )}
                 </div>
                 {d.platform === "note" && (
                   <>
