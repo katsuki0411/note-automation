@@ -206,6 +206,11 @@ export default function DestinationsTab() {
     setSubmitting(true);
     try {
       const isEdit = typeof editingId === "string";
+      // Blogger 編集モードは label のみ更新 (config を送ると OAuth トークンが空で上書きされてしまう)
+      const patchBody =
+        platform === "blogger"
+          ? { label: label.trim() }
+          : { label: label.trim(), config: cleanConfig };
       const res = await fetch(
         isEdit ? `/api/destinations/${editingId}` : "/api/destinations",
         {
@@ -213,7 +218,7 @@ export default function DestinationsTab() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(
             isEdit
-              ? { label: label.trim(), config: cleanConfig }
+              ? patchBody
               : { platform, label: label.trim(), config: cleanConfig },
           ),
         },
@@ -440,12 +445,21 @@ export default function DestinationsTab() {
                       );
                     })()}
                     {d.platform === "blogger" ? (
-                      <a
-                        href={`/api/destinations/blogger/oauth/start?destinationId=${d.id}&returnTo=/settings`}
-                        className="text-[12px] text-[color:var(--accent-dark)] hover:underline shrink-0"
-                      >
-                        🔗 再連携
-                      </a>
+                      <>
+                        <a
+                          href={`/api/destinations/blogger/oauth/start?destinationId=${d.id}&returnTo=/settings`}
+                          className="text-[12px] text-[color:var(--accent-dark)] hover:underline shrink-0"
+                        >
+                          🔗 再連携
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => startEdit(d)}
+                          className="text-[12px] text-[color:var(--accent-dark)] hover:underline shrink-0"
+                        >
+                          ✎ ラベル
+                        </button>
+                      </>
                     ) : (
                       <button
                         type="button"
@@ -541,10 +555,17 @@ export default function DestinationsTab() {
             />
           </label>
           {currentSchema?.oauthOnly ? (
-            <div className="text-[12px] text-blue-900 bg-blue-50 border border-blue-100 p-3 rounded leading-relaxed">
-              <div className="font-semibold mb-1">🔗 Google OAuth で連携</div>
-              ラベルを入力したら下の「Google で連携」ボタンを押してください。Google のログイン画面に飛び、Blogger の権限を許可すると自動でこのアプリに戻ります。事前の API キー取得などは不要です。
-            </div>
+            isEditMode ? (
+              <div className="text-[12px] text-blue-900 bg-blue-50 border border-blue-100 p-3 rounded leading-relaxed">
+                <div className="font-semibold mb-1">🔗 連携済みのBloggerブログ</div>
+                ここではラベルだけ変更できます。連携情報そのもの (別のブログに切替・トークン再発行) を更新したい場合は、一覧画面に戻って「🔗 再連携」を押してください。
+              </div>
+            ) : (
+              <div className="text-[12px] text-blue-900 bg-blue-50 border border-blue-100 p-3 rounded leading-relaxed">
+                <div className="font-semibold mb-1">🔗 Google OAuth で連携</div>
+                ラベルを入力したら下の「Google で連携」ボタンを押してください。Google のログイン画面に飛び、Blogger の権限を許可すると自動でこのアプリに戻ります。事前の API キー取得などは不要です。
+              </div>
+            )
           ) : (
             currentSchema?.fields.map((f) => (
               <label key={f.key} className="block">
