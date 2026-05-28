@@ -42,13 +42,17 @@ export async function POST(req: NextRequest) {
               error: "destination が見つかりません",
             };
           }
-          const result = await postToDestination(dest, {
-            title: article.bestTitle,
-            bodyMarkdown: article.bodyMarkdown,
-            tags: [],
-            draft,
-            imageUrl: article.imagePath,
-          });
+          const result = await postToDestination(
+            dest,
+            {
+              title: article.bestTitle,
+              bodyMarkdown: article.bodyMarkdown,
+              tags: [],
+              draft,
+              imageUrl: article.imagePath,
+            },
+            { projectId: ctx.projectId },
+          );
           await saveArticlePosting(ctx.projectId, ctx.userId, {
             articleId,
             destinationId: dest.id,

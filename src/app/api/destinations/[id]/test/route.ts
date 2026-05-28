@@ -13,7 +13,9 @@ export async function POST(_req: NextRequest, { params }: RouteParams) {
     const { id } = await params;
     const dest = await getDestination(ctx.projectId, id);
     if (!dest) return Response.json({ error: "not found" }, { status: 404 });
-    const result = await testDestinationConnection(dest);
+    const result = await testDestinationConnection(dest, {
+      projectId: ctx.projectId,
+    });
     return Response.json(result);
   });
 }

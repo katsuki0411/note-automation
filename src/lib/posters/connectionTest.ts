@@ -1,10 +1,13 @@
 import { testAtomPubConnection } from "./atompub";
+import { testBloggerConnection, type BloggerConfig } from "./blogger";
 import type { PostingDestinationRow } from "./types";
 
 // destination の platform に応じた接続テスト。
-// 認証付き AtomPub GET / または非対応 platform の説明テキストを返す。
+// 認証付き AtomPub GET / Blogger API call / または非対応 platform の説明テキストを返す。
+// ctx は OAuth 系 (blogger) の token refresh 時に DB 更新するため必要。
 export async function testDestinationConnection(
   d: PostingDestinationRow,
+  ctx?: { projectId: string },
 ): Promise<{ ok: boolean; error?: string; note?: string }> {
   switch (d.platform) {
     case "hatena": {
@@ -56,7 +59,18 @@ export async function testDestinationConnection(
         ok: false,
         note: "note は Chrome 拡張経由のため、サーバーAPIでの接続テストは不可。設定一覧の「再確認」ボタンで拡張のインストール状態を確認してください。",
       };
-    case "blogger":
+    case "blogger": {
+      if (!ctx) {
+        return {
+          ok: false,
+          error: "Blogger 接続テストには projectId コンテキストが必要 (内部エラー)",
+        };
+      }
+      return testBloggerConnection(d.config as unknown as BloggerConfig, {
+        projectId: ctx.projectId,
+        destinationId: d.id,
+      });
+    }
     case "ameba":
       return {
         ok: false,

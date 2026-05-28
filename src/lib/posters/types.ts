@@ -111,6 +111,9 @@ export type PlatformConfigSchema = {
   }[];
   // 投稿実装が現状未対応な場合 true (UI 上「枠組みのみ」表示)
   notImplementedYet?: boolean;
+  // OAuth フロー専用 (フォーム入力ではなく「連携」ボタンで埋める)。
+  // 現状 blogger のみ true。UI 側で fields の代わりに OAuth 開始ボタンを描画。
+  oauthOnly?: boolean;
 };
 
 export const PLATFORM_CONFIG_SCHEMA: Record<Platform, PlatformConfigSchema> = {
@@ -218,17 +221,11 @@ export const PLATFORM_CONFIG_SCHEMA: Record<Platform, PlatformConfigSchema> = {
     ],
   },
   blogger: {
-    fields: [
-      {
-        key: "blogId",
-        label: "Blog ID",
-        type: "text",
-        placeholder: "Blogger の Blog ID (数字)",
-        hint: "Blogger 管理画面 URL の blogID パラメータ",
-      },
-      // OAuth2 のトークンは別フロー (将来実装) で取得する
-    ],
-    notImplementedYet: true,
+    // OAuth フロー専用: フォーム入力なし。ラベルだけ入力 → 「Google で連携」ボタンを押すと
+    // /api/destinations/blogger/oauth/start にリダイレクトし、戻りで OAuth トークンと
+    // blog 情報が config に保存される。
+    fields: [],
+    oauthOnly: true,
   },
   ameba: {
     fields: [],

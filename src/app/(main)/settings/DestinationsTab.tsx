@@ -44,6 +44,16 @@ function normalizeBlogDomain(input: string): string {
 
 function summarizeConfig(d: PostingDestinationRow): string {
   if (d.platform === "note") return "Chrome 拡張経由で投稿 (接続情報なし)";
+  if (d.platform === "blogger") {
+    const cfg = d.config as {
+      blogId?: string;
+      blogName?: string;
+      blogUrl?: string;
+      refreshToken?: string;
+    };
+    if (!cfg.refreshToken) return "⚠ 未連携 — 「再連携」ボタンから Google 連携してください";
+    return `${cfg.blogName ?? cfg.blogId ?? "?"}${cfg.blogUrl ? ` (${cfg.blogUrl})` : ""}`;
+  }
   const schema = PLATFORM_CONFIG_SCHEMA[d.platform];
   if (!schema || schema.fields.length === 0) return "—";
   const cfg = d.config as Record<string, string>;
@@ -71,6 +81,8 @@ export default function DestinationsTab() {
   const [tests, setTests] = useState<Record<string, TestResult>>({});
   // 取得手順ガイドモーダル (platform を渡せば開く)
   const [guideOpen, setGuideOpen] = useState<Platform | null>(null);
+  // Blogger OAuth コールバックからのフラッシュメッセージ
+  const [flash, setFlash] = useState<{ type: "ok" | "ng"; msg: string } | null>(null);
 
   async function runTest(d: PostingDestinationRow) {
     setTests((s) => ({ ...s, [d.id]: { status: "running" } }));
@@ -115,6 +127,20 @@ export default function DestinationsTab() {
   useEffect(() => {
     refresh();
     checkExtension();
+    // Blogger OAuth コールバックのフラッシュメッセージを拾う
+    if (typeof window !== "undefined") {
+      const u = new URLSearchParams(window.location.search);
+      const ok = u.get("blogger_ok");
+      const err = u.get("blogger_error");
+      if (ok) setFlash({ type: "ok", msg: `Bloggerブログ「${ok}」を連携しました 🎉` });
+      else if (err) setFlash({ type: "ng", msg: `Blogger 連携失敗: ${err}` });
+      if (ok || err) {
+        u.delete("blogger_ok");
+        u.delete("blogger_error");
+        const next = window.location.pathname + (u.toString() ? `?${u}` : "");
+        window.history.replaceState({}, "", next);
+      }
+    }
   }, []);
 
   function resetForm() {
@@ -151,6 +177,16 @@ export default function DestinationsTab() {
     setError(null);
     if (!label.trim()) {
       setError("ラベルを入力してください");
+      return;
+    }
+    // Blogger は通常フォーム保存ではなく OAuth フローへ遷移
+    // (新規追加時のみ。既存編集はラベル変更のみなので通常 PATCH ルート)
+    if (platform === "blogger" && typeof editingId !== "string") {
+      const params = new URLSearchParams({
+        label: label.trim(),
+        returnTo: "/settings",
+      });
+      window.location.href = `/api/destinations/blogger/oauth/start?${params.toString()}`;
       return;
     }
     const schema = PLATFORM_CONFIG_SCHEMA[platform];
@@ -226,6 +262,25 @@ export default function DestinationsTab() {
         </p>
       </div>
 
+      {flash && (
+        <div
+          className={`p-3 rounded border text-[12px] flex items-center justify-between gap-3 ${
+            flash.type === "ok"
+              ? "bg-green-50 border-green-200 text-green-800"
+              : "bg-red-50 border-red-200 text-red-800"
+          }`}
+        >
+          <span className="leading-relaxed">{flash.msg}</span>
+          <button
+            type="button"
+            onClick={() => setFlash(null)}
+            className="text-[11px] opacity-60 hover:opacity-100 shrink-0"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {loading ? (
         <div className="text-[12px] text-[color:var(--fg-muted)]">読み込み中…</div>
       ) : destinations.length > 0 ? (
@@ -286,7 +341,7 @@ export default function DestinationsTab() {
                   )}
                   {tests[d.id]?.status === "ok" && (
                     <div className="mt-1 text-[10px] text-green-700">
-                      ✓ AtomPub サービス文書を取得できました (認証OK)
+                      ✓ {tests[d.id]?.note ?? "AtomPub サービス文書を取得できました (認証OK)"}
                     </div>
                   )}
                 </div>
@@ -384,13 +439,22 @@ export default function DestinationsTab() {
                         </>
                       );
                     })()}
-                    <button
-                      type="button"
-                      onClick={() => startEdit(d)}
-                      className="text-[12px] text-[color:var(--accent-dark)] hover:underline shrink-0"
-                    >
-                      接続情報
-                    </button>
+                    {d.platform === "blogger" ? (
+                      <a
+                        href={`/api/destinations/blogger/oauth/start?destinationId=${d.id}&returnTo=/settings`}
+                        className="text-[12px] text-[color:var(--accent-dark)] hover:underline shrink-0"
+                      >
+                        🔗 再連携
+                      </a>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => startEdit(d)}
+                        className="text-[12px] text-[color:var(--accent-dark)] hover:underline shrink-0"
+                      >
+                        接続情報
+                      </button>
+                    )}
                   </>
                 )}
                 {d.platform !== "note" && (
@@ -476,27 +540,34 @@ export default function DestinationsTab() {
               className="input-base mt-1"
             />
           </label>
-          {currentSchema?.fields.map((f) => (
-            <label key={f.key} className="block">
-              <span className="text-[11px] text-[color:var(--fg-secondary)]">{f.label}</span>
-              <input
-                type={f.type === "password" ? "password" : "text"}
-                value={configValues[f.key] ?? ""}
-                onChange={(e) => changeConfigField(f.key, e.target.value)}
-                placeholder={
-                  isEditMode && f.type === "password"
-                    ? "変更しない場合も再入力が必要です"
-                    : f.placeholder
-                }
-                className="input-base mt-1 font-mono"
-              />
-              {f.hint && (
-                <span className="block text-[10px] text-[color:var(--fg-muted)] mt-1">
-                  {f.hint}
-                </span>
-              )}
-            </label>
-          ))}
+          {currentSchema?.oauthOnly ? (
+            <div className="text-[12px] text-blue-900 bg-blue-50 border border-blue-100 p-3 rounded leading-relaxed">
+              <div className="font-semibold mb-1">🔗 Google OAuth で連携</div>
+              ラベルを入力したら下の「Google で連携」ボタンを押してください。Google のログイン画面に飛び、Blogger の権限を許可すると自動でこのアプリに戻ります。事前の API キー取得などは不要です。
+            </div>
+          ) : (
+            currentSchema?.fields.map((f) => (
+              <label key={f.key} className="block">
+                <span className="text-[11px] text-[color:var(--fg-secondary)]">{f.label}</span>
+                <input
+                  type={f.type === "password" ? "password" : "text"}
+                  value={configValues[f.key] ?? ""}
+                  onChange={(e) => changeConfigField(f.key, e.target.value)}
+                  placeholder={
+                    isEditMode && f.type === "password"
+                      ? "変更しない場合も再入力が必要です"
+                      : f.placeholder
+                  }
+                  className="input-base mt-1 font-mono"
+                />
+                {f.hint && (
+                  <span className="block text-[10px] text-[color:var(--fg-muted)] mt-1">
+                    {f.hint}
+                  </span>
+                )}
+              </label>
+            ))
+          )}
           {currentSchema?.notImplementedYet && (
             <div className="text-[11px] text-orange-700 bg-orange-50 p-2 rounded">
               ⚠ {PLATFORM_LABELS[platform]} は接続情報の保存はできますが、サーバーからの自動投稿はまだ実装されていません (Phase 4 で順次対応予定)。プロンプト編集と prompt_config の保存だけ先に行えます。
@@ -513,7 +584,11 @@ export default function DestinationsTab() {
               disabled={submitting}
               className="btn-accent disabled:opacity-30 disabled:cursor-not-allowed"
             >
-              {submitting ? "保存中…" : "保存"}
+              {currentSchema?.oauthOnly && !isEditMode
+                ? "🔗 Google で連携"
+                : submitting
+                  ? "保存中…"
+                  : "保存"}
             </button>
           </div>
         </div>

@@ -3,6 +3,7 @@ import { postToHatena, type HatenaConfig } from "./hatena";
 import { postToLivedoor, type LivedoorConfig } from "./livedoor";
 import { postToFc2, type Fc2Config } from "./fc2";
 import { postToSeesaa, type SeesaaConfig } from "./seesaa";
+import { postToBlogger, type BloggerConfig } from "./blogger";
 import type { PostArticleInput, PostArticleResult, PostingDestinationRow } from "./types";
 
 export type {
@@ -19,10 +20,14 @@ export {
   PLATFORM_CONFIG_SCHEMA,
 } from "./types";
 
-/** プラットフォーム横断の投稿関数。destination.platform を見て適切なアダプタを呼ぶ */
+/**
+ * プラットフォーム横断の投稿関数。destination.platform を見て適切なアダプタを呼ぶ。
+ * ctx は token refresh 時に DB 更新が必要なアダプタ (現状 blogger) のために使う。
+ */
 export async function postToDestination(
   destination: PostingDestinationRow,
   input: PostArticleInput,
+  ctx?: { projectId: string },
 ): Promise<PostArticleResult> {
   switch (destination.platform) {
     case "hatena":
@@ -42,12 +47,19 @@ export async function postToDestination(
       };
     case "seesaa":
       return postToSeesaa(destination.config as unknown as SeesaaConfig, input);
-    case "blogger":
-      // Phase 4-3 で実装予定 (Google OAuth2)
-      return {
-        ok: false,
-        error: "Blogger 投稿はまだ実装されていません (OAuth2 対応中)",
-      };
+    case "blogger": {
+      if (!ctx) {
+        return {
+          ok: false,
+          error: "Blogger 投稿には projectId コンテキストが必要です (内部エラー)",
+        };
+      }
+      return postToBlogger(
+        destination.config as unknown as BloggerConfig,
+        input,
+        { projectId: ctx.projectId, destinationId: destination.id },
+      );
+    }
     case "ameba":
       // Phase 4-4 で実装予定 (Chrome 拡張経由)
       return {

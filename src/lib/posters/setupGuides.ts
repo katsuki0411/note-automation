@@ -148,6 +148,37 @@ export const PLATFORM_GUIDES: Partial<Record<Platform, SetupGuide>> = {
     ],
   },
 
+  blogger: {
+    intro:
+      "Blogger は Google アカウントでワンクリック連携できます。事前準備は不要で、「Google で連携」ボタンを押すだけ。",
+    caveats: [
+      "Google アカウントにブログが1つもない場合は、先に https://www.blogger.com/ でブログを作成しておくこと。",
+      "複数ブログを持っている場合は、現状「Googleアカウントの先頭のブログ」が自動採用されます (切替UIは後日)。",
+      "アクセス権を完全に外したい場合: https://myaccount.google.com/permissions から「MultiPostAI」のアクセスを取り消し可。",
+    ],
+    steps: [
+      {
+        title: "「+ 投稿先を追加」を押す",
+        body: "プラットフォームで「Blogger」を選び、ラベル (このブログを呼ぶ名前) を入力。",
+      },
+      {
+        title: "「Google で連携」を押す",
+        body: "Google のログイン画面に飛ぶので、投稿に使いたいアカウントでログインし、Blogger の権限を許可。",
+        hint: "「このアプリは Google で確認されていません」が出ても OK。「詳細」→「(プロジェクト名) に移動」を押せば進めます (テストユーザーに登録済みのため)",
+      },
+      {
+        title: "戻ってきたら完了",
+        body: "アプリに戻り、登録されたBloggerブログ名が表示されます。「接続確認」で疎通テストできます。",
+      },
+    ],
+    officialDocs: [
+      {
+        label: "Blogger API v3 公式ドキュメント",
+        url: "https://developers.google.com/blogger/docs/3.0/using",
+      },
+    ],
+  },
+
   note: {
     intro:
       "note は公式 API がないため、専用 Chrome 拡張機能 (MultiPostAI Poster) 経由で投稿します。",
