@@ -236,8 +236,10 @@ export default function IntegrationsTab() {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error ?? "保存失敗");
       }
+      // 楽観的 UI 更新: サーバー値を再 fetch せず、ローカル state を即時反映 (DBはSydneyで往復遅いため)
       setSavedFlash(def.kind);
-      await load();
+      setUpdatedMap((s) => ({ ...s, [def.kind]: new Date().toISOString() }));
+      setValues((s) => ({ ...s, [def.kind]: cleaned }));
     } catch (e) {
       alert(e instanceof Error ? e.message : "保存失敗");
     } finally {
@@ -245,10 +247,8 @@ export default function IntegrationsTab() {
     }
   }
 
-  if (loading) {
-    return <div className="text-[12px] text-[color:var(--fg-muted)]">読み込み中…</div>;
-  }
-
+  // loading 中もフォームを先に描画し、値だけ後から埋まる形にする
+  // (DB がシドニーで初回 fetch に 200〜400ms かかるため、白画面回避)
   return (
     <div className="max-w-3xl space-y-4">
       <div>
@@ -260,6 +260,9 @@ export default function IntegrationsTab() {
           <span className="text-[color:var(--accent-dark)] font-semibold mx-1">ユーザー単位</span>
           はログインユーザー全体で共有されます。
         </p>
+        {loading && (
+          <p className="text-[11px] text-[color:var(--fg-muted)] mt-1">⏳ 設定読込中…</p>
+        )}
       </div>
 
       <ul className="space-y-3">
