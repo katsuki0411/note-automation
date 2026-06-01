@@ -85,10 +85,7 @@ export default function ResearchClient() {
 
   return (
     <>
-      <PageHeader
-        title="商品リサーチ"
-        description="アフィリエイト収益化につながりそうな Amazon 商品を発掘。ベストセラー以外にも、売れ筋ランキング・新着・セール・高評価・キーワード検索の6軸でハント。"
-      />
+      <PageHeader title="商品リサーチ" />
 
       <div className="max-w-5xl space-y-5">
         {/* タブバー */}
