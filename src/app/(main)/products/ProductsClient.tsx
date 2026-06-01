@@ -282,7 +282,7 @@ export default function ProductsClient() {
     <>
       <PageHeader
         title="商品スカウト"
-        description="商品名やお題を入力すると、関連キーワードを自動生成し、Brave で上位30件分析して個人ブログでも勝てそうかを判定します。"
+        description="商品名やお題を入力すると、関連キーワードを自動生成し、Brave で上位10件分析して個人ブログでも勝てそうかを判定します。"
       />
 
       <div className="max-w-3xl space-y-5">
@@ -312,7 +312,7 @@ export default function ProductsClient() {
             </button>
           </div>
           <p className="text-[11px] text-[color:var(--fg-muted)]">
-            ⚠ 1回あたり Gemini × 1 / Brave Search × 8〜12 呼ばれます (Brave 無料枠 2,000req/月)
+            ⚠ 1回あたり Gemini × 1 / Brave Search × 6〜8 呼ばれます (Brave 無料枠 2,000req/月)
           </p>
         </div>
 
@@ -372,7 +372,7 @@ export default function ProductsClient() {
 
         {busy && (
           <div className="p-4 rounded-lg border border-[var(--border-subtle)] bg-gray-50 text-center text-[13px] text-[color:var(--fg-secondary)]">
-            ⏳ 関連KW生成 → Brave 検索で各KWの上位30件を分析中…<br />
+            ⏳ 関連KW生成 → Brave 検索で各KWの上位10件を分析中…<br />
             <span className="text-[11px] text-[color:var(--fg-muted)]">
               1〜2分かかる場合があります
             </span>
@@ -456,8 +456,8 @@ export default function ProductsClient() {
                                 }`}
                                 title={
                                   s.occupied
-                                    ? `${s.platformLabel} 上位30件に ${s.hits} 件存在 → 投稿しても勝ちにくい`
-                                    : `${s.platformLabel} 上位30件に該当記事なし → 投稿チャンス`
+                                    ? `${s.platformLabel} 上位10件に ${s.hits} 件存在 → 投稿しても勝ちにくい`
+                                    : `${s.platformLabel} 上位10件に該当記事なし → 投稿チャンス`
                                 }
                               >
                                 {s.occupied

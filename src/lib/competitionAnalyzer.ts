@@ -1,16 +1,20 @@
-// 指定 KW で Brave 上位30件を取得し、(1) 固定ドメイン分類 と (2) Gemini AI 五軸評価
+// 指定 KW で Brave 上位N件を取得し、(1) 固定ドメイン分類 と (2) Gemini AI 五軸評価
 // の両方で SEO/LLMO 競合度を判定する。
 //
 // (1) 固定分類は早くて安定だが新興メディアを取りこぼす。
 // (2) Gemini 評価は動的でかつ intent との整合性 / LLMO 適性 まで判定するが、
 //     ハルシネーションの可能性あり。両方並べて表示し、ユーザーが見比べる設計。
+//
+// SCAN_DEPTH=10 なら count=10 を1リクエストで取得し、Brave 無料枠 (2,000req/月) で
+// 月 250 回程度のスカウト (1 KW = 1 req × 6〜8 KW/回) が可能。
 
 import { gemini, MODELS } from "./gemini";
 import { detectPlatformOccupancy } from "./platformDomain";
 import type { Platform } from "./posters/types";
 
 const BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search";
-const SCAN_DEPTH = 30;
+const SCAN_DEPTH = 10;
+// Brave API の1ページ上限 (max 20)。SCAN_DEPTH を増やしてもこのサイズを超えるとページ送り
 const PAGE_SIZE = 20;
 
 type BraveItem = { url?: string; title?: string };
@@ -24,7 +28,8 @@ async function fetchSearchPage(
   if (!apiKey) throw new Error("BRAVE_SEARCH_API_KEY が未設定です");
   const url = new URL(BRAVE_ENDPOINT);
   url.searchParams.set("q", query);
-  url.searchParams.set("count", String(PAGE_SIZE));
+  // SCAN_DEPTH=10 のとき count=10 で1リクエスト完結 (リクエスト数削減のため)
+  url.searchParams.set("count", String(Math.min(PAGE_SIZE, SCAN_DEPTH)));
   url.searchParams.set("offset", String(pageOffset));
   url.searchParams.set("country", "JP");
   url.searchParams.set("search_lang", "jp");
@@ -162,7 +167,7 @@ export type CompetitionResult = {
   ai?: AIScores;
 };
 
-// Gemini に Brave 上位30件 + intent を渡して五軸評価を取得
+// Gemini に Brave 上位N件 + intent を渡して五軸評価を取得
 // 失敗時は undefined を返す (ハルシネーション/JSON 不正等)
 async function evaluateWithAI(
   kw: string,
@@ -170,13 +175,14 @@ async function evaluateWithAI(
   topResults: { url: string; title: string }[],
 ): Promise<AIScores | undefined> {
   if (topResults.length === 0) return undefined;
+  const topN = topResults.length;
   const prompt = `
-あなたは SEO/LLMO の専門家です。以下のキーワードと Brave 上位30件の SERP データから、5つの観点で評価してください。
+あなたは SEO/LLMO の専門家です。以下のキーワードと Brave 上位${topN}件の SERP データから、5つの観点で評価してください。
 
 # 入力
 - キーワード: ${kw}
 - 検索意図 (intent): ${intent ?? "unknown"}
-- 上位30件 (タイトル + URL):
+- 上位${topN}件 (タイトル + URL):
 ${topResults.map((r, i) => `${i + 1}. ${r.title} | ${r.url}`).join("\n")}
 
 # 評価軸 (各 0-100、高いほど個人ブログに有利)
