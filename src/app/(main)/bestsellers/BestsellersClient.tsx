@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import ProductScoreBreakdown from "@/components/ProductScoreBreakdown";
+import { calculateProductScore } from "@/lib/productScoring";
+import { generateMockProductMeta } from "@/lib/mockProductMeta";
 
 type BestsellerItem = {
   id: string;
@@ -33,6 +36,8 @@ export default function BestsellersClient() {
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(
     null,
   );
+  // PA-API 取得前は Mock メタで仮スコアを表示 (env で本番接続切替予定)
+  const [useMockMeta, setUseMockMeta] = useState(true);
 
   async function fetchAll() {
     setLoading(true);
@@ -137,6 +142,18 @@ export default function BestsellersClient() {
               {message.text}
             </span>
           )}
+
+          <label className="ml-auto inline-flex items-center gap-1.5 text-[11px] text-[color:var(--fg-secondary)] cursor-pointer">
+            <input
+              type="checkbox"
+              checked={useMockMeta}
+              onChange={(e) => setUseMockMeta(e.target.checked)}
+              className="accent-[color:var(--accent)]"
+            />
+            <span title="PA-API 未取得時に、ASIN シードの仮値で価格/レビュー/評価を出してスコアを試算します">
+              📊 Mock データでスコア表示
+            </span>
+          </label>
         </div>
 
         <div className="text-[11px] text-[color:var(--fg-muted)] leading-snug p-3 rounded-lg bg-yellow-50 border border-yellow-200">
@@ -181,7 +198,21 @@ export default function BestsellersClient() {
                   <div className="text-[10px] font-mono text-[color:var(--fg-muted)] mt-1">
                     ASIN: {it.asin} · {it.source_used}
                   </div>
-                  <div className="flex items-center gap-2 mt-1.5">
+                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                    {useMockMeta &&
+                      (() => {
+                        const meta = generateMockProductMeta(it.asin, it.category);
+                        const breakdown = calculateProductScore({
+                          price: meta.price,
+                          feesRate: meta.feesRate,
+                          reviewCount: meta.reviewCount,
+                          rating: meta.rating,
+                          // SEO 競合度は未スカウト (null) → 中央値50で計算
+                          seoCompetition: null,
+                          alreadyPosted: false,
+                        });
+                        return <ProductScoreBreakdown breakdown={breakdown} />;
+                      })()}
                     <a
                       href={it.url}
                       target="_blank"
