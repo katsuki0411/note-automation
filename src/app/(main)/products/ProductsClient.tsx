@@ -54,6 +54,14 @@ type ScoutResponse = {
   subject: string;
   candidateCount: number;
   candidates: ScoutCandidate[];
+  historyId?: string;
+};
+
+type HistoryItem = {
+  id: string;
+  subject: string;
+  candidate_count: number;
+  created_at: string;
 };
 
 const DIFF_BADGE: Record<ScoutCandidate["seoDifficulty"], { text: string; cls: string }> = {
@@ -86,6 +94,9 @@ export default function ProductsClient() {
     () => new Set(getCache<string[]>(CACHE_IDEIZED) ?? []),
   );
   const [generating, setGenerating] = useState<Set<string>>(new Set());
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [loadingHistoryId, setLoadingHistoryId] = useState<string | null>(null);
 
   // ベストセラー画面 → 「この商品でスカウト」遷移時に q クエリで subject 上書き
   useEffect(() => {
@@ -95,6 +106,61 @@ export default function ProductsClient() {
       setCache(CACHE_SUBJECT, q);
     }
   }, [searchParams]);
+
+  async function refreshHistory() {
+    setHistoryLoading(true);
+    try {
+      const res = await fetch("/api/products/scout/history?limit=20");
+      if (res.ok) {
+        const data = await res.json();
+        setHistory(data.history ?? []);
+      }
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  // 初回マウントで履歴ロード
+  useEffect(() => {
+    refreshHistory();
+  }, []);
+
+  async function loadHistory(id: string) {
+    setLoadingHistoryId(id);
+    try {
+      const res = await fetch(`/api/products/scout/history/${id}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "履歴取得失敗");
+      const restored: ScoutResponse = {
+        subject: data.subject,
+        candidateCount: data.candidateCount,
+        candidates: data.candidates,
+        historyId: data.id,
+      };
+      setSubject(data.subject);
+      setResult(restored);
+      setExpanded(new Set());
+      setIdeized(new Set());
+      setError(null);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "履歴取得失敗");
+    } finally {
+      setLoadingHistoryId(null);
+    }
+  }
+
+  async function deleteHistory(id: string, subjectLabel: string) {
+    if (!confirm(`「${subjectLabel}」のスカウト履歴を削除しますか?`)) return;
+    try {
+      const res = await fetch(`/api/products/scout/history/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("削除失敗");
+      // 表示中の結果と同じものを消したらクリア
+      if (result?.historyId === id) setResult(null);
+      await refreshHistory();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "削除失敗");
+    }
+  }
 
   // subject / result / ideized を都度キャッシュに書き戻す
   useEffect(() => {
@@ -122,6 +188,7 @@ export default function ProductsClient() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "スカウト失敗");
       setResult(data);
+      refreshHistory();
     } catch (e) {
       setError(e instanceof Error ? e.message : "失敗");
     } finally {
@@ -251,6 +318,56 @@ export default function ProductsClient() {
 
         {error && (
           <div className="p-3 rounded-lg bg-red-50 text-red-700 text-[12px]">{error}</div>
+        )}
+
+        {/* 過去のスカウト履歴 */}
+        {!historyLoading && history.length > 0 && (
+          <details
+            className="rounded-lg border border-[var(--border-subtle)] bg-gray-50/60"
+            open={!result}
+          >
+            <summary className="cursor-pointer select-none px-3 py-2 text-[12px] font-semibold text-[color:var(--fg-secondary)] hover:bg-gray-100 rounded-lg">
+              📚 過去のスカウト履歴 ({history.length}件)
+            </summary>
+            <ul className="px-3 pb-3 pt-1 space-y-1.5">
+              {history.map((h) => {
+                const isCurrent = result?.historyId === h.id;
+                const isLoading = loadingHistoryId === h.id;
+                return (
+                  <li
+                    key={h.id}
+                    className={`flex items-center gap-2 p-2 rounded text-[12px] ${
+                      isCurrent ? "bg-[color:var(--accent-soft)]" : "bg-white hover:bg-gray-50"
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => loadHistory(h.id)}
+                      disabled={isLoading || isCurrent}
+                      className="flex-1 min-w-0 text-left disabled:opacity-50 disabled:cursor-default"
+                      title={isCurrent ? "現在表示中" : "クリックで再表示"}
+                    >
+                      <div className="font-semibold text-[color:var(--fg-primary)] truncate">
+                        {isLoading ? "⏳ " : isCurrent ? "👁 " : ""}
+                        {h.subject}
+                      </div>
+                      <div className="text-[10px] text-[color:var(--fg-muted)]">
+                        {h.candidate_count}件 / {new Date(h.created_at).toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" })}
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteHistory(h.id, h.subject)}
+                      className="text-[10px] text-red-500 hover:text-red-700 shrink-0"
+                      title="この履歴を削除"
+                    >
+                      🗑
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </details>
         )}
 
         {busy && (

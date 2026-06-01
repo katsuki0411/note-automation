@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
+import type { JSONValue } from "postgres";
 import { withProjectContext } from "@/lib/auth";
+import { sql } from "@/lib/db";
 import { expandKeywords } from "@/lib/keywordExpander";
 import { analyzeKeywords, type CompetitionResult } from "@/lib/competitionAnalyzer";
 import { loadDestinations } from "@/lib/destinations";
@@ -85,10 +87,30 @@ export async function POST(req: NextRequest) {
         return sb - sa;
       });
 
+      // 履歴に保存 (失敗しても結果返却は止めない)
+      let historyId: string | undefined;
+      try {
+        const rows = await sql<{ id: string }[]>`
+          insert into product_scout_history (project_id, user_id, subject, candidate_count, candidates)
+          values (
+            ${ctx.projectId},
+            ${ctx.userId},
+            ${subject},
+            ${merged.length},
+            ${sql.json(merged as unknown as JSONValue)}
+          )
+          returning id
+        `;
+        historyId = rows[0]?.id;
+      } catch (e) {
+        console.warn("[scout] history insert failed:", e);
+      }
+
       return Response.json({
         subject,
         candidateCount: merged.length,
         candidates: merged,
+        historyId,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "unknown";
