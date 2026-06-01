@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import PageHeader from "@/components/PageHeader";
 
 type BestsellerItem = {
   id: string;
@@ -90,13 +89,10 @@ export default function BestsellersClient() {
 
   const active = categories.find((c) => c.id === activeId);
 
+  // PageHeader はタブ親 (ResearchClient) 側で「商品リサーチ」として表示済みなので
+  // ここでは見出しなしでコンテンツのみ描画する (2026-06-01 商品リサーチ統合)
   return (
     <>
-      <PageHeader
-        title="ベストセラー"
-        description="Amazon の主要カテゴリ別 TOP10 を取得して、商品スカウトの起点にします。"
-      />
-
       <div className="max-w-4xl space-y-5">
         <div className="flex items-center gap-3 flex-wrap">
           <button
