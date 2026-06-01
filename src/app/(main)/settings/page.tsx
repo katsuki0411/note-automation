@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import { FilterBar, GroupTab } from "@/components/FilterBar";
 import DestinationsTab from "./DestinationsTab";
+import IntegrationsTab from "./IntegrationsTab";
 import {
   ARTICLE_MODEL_OPTIONS,
   DEFAULT_ARTICLE_MODEL,
@@ -15,7 +16,7 @@ import {
   type ArticleUrl,
 } from "@/lib/clientSettings";
 
-type Tab = "destinations" | "urls" | "model";
+type Tab = "destinations" | "urls" | "model" | "integrations";
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>("destinations");
@@ -103,11 +104,15 @@ export default function SettingsPage() {
             <GroupTab active={tab === "model"} onClick={() => setTab("model")}>
               記事生成モデル
             </GroupTab>
+            <GroupTab active={tab === "integrations"} onClick={() => setTab("integrations")}>
+              API連携
+            </GroupTab>
           </div>
         </FilterBar>
       </PageHeader>
 
       {tab === "destinations" && <DestinationsTab />}
+      {tab === "integrations" && <IntegrationsTab />}
 
       {tab === "urls" && (
         <div className="max-w-2xl space-y-4">
