@@ -6,6 +6,17 @@ const nextConfig: NextConfig = {
   // 空の turbopack: {} を置いて「webpack 設定と Turbopack を併用」エラーを silence する。
   turbopack: {},
 
+  // 旧URLからのリダイレクト (2026-06-01: /bestsellers → /research に統合)
+  async redirects() {
+    return [
+      {
+        source: "/bestsellers",
+        destination: "/research",
+        permanent: true,
+      },
+    ];
+  },
+
   // iCloud Drive 配下 (`com~apple~CloudDocs`) で .next/dev/cache/webpack/*.pack.gz が
   // iCloud 同期に巻き込まれて ENOENT を頻発させる問題への対策:
   // dev のみ webpack のキャッシュをディスク → メモリに切り替えてファイル書き込み自体を発生させない。

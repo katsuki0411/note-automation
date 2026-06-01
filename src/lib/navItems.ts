@@ -31,11 +31,11 @@ const COMMON_ITEMS: NavItem[] = [
   { href: "/settings", label: "設定", desc: "Settings", icon: SettingsIcon },
 ];
 
-// アフィ系限定: ベストセラー監視 (Amazon の売れ筋 TOP10)
+// アフィ系限定: 商品リサーチ (ベストセラー / 売れ筋 / 新着 / セール / 高評価 / 検索 の6タブ)
 const BESTSELLERS_ITEM: NavItem = {
-  href: "/bestsellers",
-  label: "ベストセラー",
-  desc: "Bestsellers",
+  href: "/research",
+  label: "商品リサーチ",
+  desc: "Product Research",
   icon: BestsellersIcon,
 };
 
