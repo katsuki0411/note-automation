@@ -201,7 +201,9 @@ export async function deleteTarget(projectId: string, id: string): Promise<boole
 // ===== Brave Search API による順位スキャン =====
 
 const BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search";
-const SCAN_DEPTH = 30;
+// 上位10件まで追跡 (10位以内に入っているかが Visible Click-Rate のしきい値のため十分)。
+// 30→10 縮小で 1ターゲットあたり最大2req → 1req になり、Brave 無料枠の消費を半減。
+const SCAN_DEPTH = 10;
 const PAGE_SIZE = 20;
 
 type BraveItem = { url?: string };
@@ -213,7 +215,8 @@ async function fetchSearchPage(query: string, pageOffset: number): Promise<strin
 
   const url = new URL(BRAVE_ENDPOINT);
   url.searchParams.set("q", query);
-  url.searchParams.set("count", String(PAGE_SIZE));
+  // count は SCAN_DEPTH と PAGE_SIZE の小さい方 (SCAN_DEPTH=10 なら1リクエスト完結)
+  url.searchParams.set("count", String(Math.min(PAGE_SIZE, SCAN_DEPTH)));
   url.searchParams.set("offset", String(pageOffset));
   url.searchParams.set("country", "JP");
   url.searchParams.set("search_lang", "jp");

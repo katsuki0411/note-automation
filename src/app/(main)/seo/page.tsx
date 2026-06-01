@@ -192,7 +192,7 @@ export default function SeoPage() {
     <>
       <PageHeader
         title="SEO順位チェック"
-        description={`Brave Searchで上位30位までスキャン・毎日10時自動更新。追跡中${enabledCount}/${targets.length}件`}
+        description={`Brave Searchで上位10位までスキャン・毎日10時自動更新。追跡中${enabledCount}/${targets.length}件`}
         right={
           <>
             <button
@@ -329,8 +329,8 @@ export default function SeoPage() {
                       rankSort === "none"
                         ? "クリックで昇順ソート"
                         : rankSort === "asc"
-                          ? "現在: 昇順 (1位→30位)。クリックで降順へ"
-                          : "現在: 降順 (30位→1位)。クリックで解除"
+                          ? "現在: 昇順 (1位→10位)。クリックで降順へ"
+                          : "現在: 降順 (10位→1位)。クリックで解除"
                     }
                   >
                     順位
