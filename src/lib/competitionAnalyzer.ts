@@ -192,7 +192,14 @@ ${topResults.map((r, i) => `${i + 1}. ${r.title} | ${r.url}`).join("\n")}
 4. llmoAffinity: AI 検索 (ChatGPT/Perplexity/Gemini AI Overview) で "引用源になりやすい" KW か (情報網羅性・専門解説ニーズが強い = 高)
 5. mediaMix: 動画(YouTube)・SNS が "少ない" ほど高得点 (文字記事に有利。動画ばかりだとテキスト記事の天井低い)
 
-# 出力フォーマット (JSON 1個のみ、前後の説明文禁止)
+# 出力ルール (絶対遵守)
+- JSON 1個のみ。前後の説明文は禁止。
+- **rationale は必須・絶対省略禁止。空文字 "" や null も禁止。**
+- **rationale は2〜3文 (80文字以上、200文字以内) で具体的に記述すること。**
+- rationale の内容: (a) 上位の傾向 (どんなサイトが多いか)、(b) intent との適合度、(c) 個人ブログが入る隙間の有無 — の3点に必ず触れる。
+- 抽象的な「中程度です」だけの一文は禁止。具体的なドメイン名・サイト種別を出す。
+
+# 出力フォーマット (JSON のみ)
 {
   "authority": 70,
   "intentGap": 50,
