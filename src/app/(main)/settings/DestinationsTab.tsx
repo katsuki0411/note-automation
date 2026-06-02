@@ -43,7 +43,11 @@ function normalizeBlogDomain(input: string): string {
 }
 
 function summarizeConfig(d: PostingDestinationRow): string {
-  if (d.platform === "note") return "Chrome 拡張経由で投稿 (接続情報なし)";
+  if (d.platform === "note") {
+    const cfg = d.config as { myUrlPrefix?: string };
+    if (cfg.myUrlPrefix) return `Chrome 拡張経由 · 自分のURL: ${cfg.myUrlPrefix}`;
+    return "Chrome 拡張経由で投稿 (接続情報なし)";
+  }
   if (d.platform === "blogger") {
     const cfg = d.config as {
       blogId?: string;
@@ -391,6 +395,14 @@ export default function DestinationsTab() {
                     >
                       📦 拡張DL
                     </a>
+                    <button
+                      type="button"
+                      onClick={() => startEdit(d)}
+                      className="text-[12px] text-[color:var(--accent-dark)] hover:underline shrink-0"
+                      title="ラベル変更 / 自分の記事URL を編集"
+                    >
+                      ✎ ラベル/URL
+                    </button>
                   </>
                 )}
                 <Link
