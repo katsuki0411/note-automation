@@ -5,8 +5,15 @@ import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
 import Loading from "@/components/Loading";
 import type { SeoRanking, SeoTargetWithLatest } from "@/lib/seoRank";
-import { readArticleUrls, type ArticleUrl } from "@/lib/clientSettings";
+import { PLATFORM_LABELS, type PostingDestinationRow } from "@/lib/posters/types";
 import { getCache, setCache } from "@/lib/clientCache";
+
+// 「自分の記事URL」候補: 各 destination の config.myUrlPrefix から拾う
+type ArticleUrlOption = {
+  id: string;
+  label: string;
+  urlPrefix: string;
+};
 
 const CACHE_KEY = "seo:targets";
 const EXPANDED_CACHE_KEY = "seo:expandedId";
@@ -46,7 +53,7 @@ export default function SeoPage() {
   const [newKw, setNewKw] = useState("");
   const [newUrl, setNewUrl] = useState("");
   const [newMemo, setNewMemo] = useState("");
-  const [articleUrls, setArticleUrls] = useState<ArticleUrl[]>([]);
+  const [articleUrls, setArticleUrls] = useState<ArticleUrlOption[]>([]);
 
   const cachedRankSort = getCache<RankSort>(RANK_SORT_CACHE_KEY);
   const [rankSort, setRankSortState] = useState<RankSort>(cachedRankSort ?? "none");
@@ -87,8 +94,33 @@ export default function SeoPage() {
     refresh();
   }, [refresh]);
 
+  // 自分の記事URL候補は各 destination の config.myUrlPrefix から取得
+  // (旧来は localStorage に保存していたが、投稿先設定に統合した)
   useEffect(() => {
-    setArticleUrls(readArticleUrls());
+    if (!showAdd) return;
+    (async () => {
+      try {
+        const res = await fetch("/api/destinations", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = (await res.json()) as { destinations?: PostingDestinationRow[] };
+        const list = (data.destinations ?? [])
+          .map((d) => {
+            const cfg = d.config as { myUrlPrefix?: string };
+            const url = cfg?.myUrlPrefix?.trim();
+            if (!url) return null;
+            const platformLabel = PLATFORM_LABELS[d.platform] ?? d.platform;
+            return {
+              id: d.id,
+              label: `${d.label} (${platformLabel})`,
+              urlPrefix: url,
+            } as ArticleUrlOption;
+          })
+          .filter((x): x is ArticleUrlOption => x !== null);
+        setArticleUrls(list);
+      } catch {
+        // ignore
+      }
+    })();
   }, [showAdd]);
 
   async function addTarget() {
@@ -256,7 +288,7 @@ export default function SeoPage() {
                   <p className="text-[10px] text-[color:var(--fg-muted)] mt-1">
                     このURLで始まる検索結果を「自分のページ」と判定します。
                     <Link href="/settings" className="text-[color:var(--accent-dark)] underline ml-1">
-                      設定で編集
+                      設定→投稿先 で編集
                     </Link>
                   </p>
                 </>
@@ -264,7 +296,7 @@ export default function SeoPage() {
                 <div className="px-3 py-2 rounded-lg border border-dashed border-[var(--border-card)] text-[12px] text-[color:var(--fg-muted)]">
                   記事URLが未登録です。
                   <Link href="/settings" className="text-[color:var(--accent-dark)] underline ml-1">
-                    設定ページで登録
+                    設定→投稿先 で各サイトの「自分の記事URL」を登録
                   </Link>
                   してください。
                 </div>

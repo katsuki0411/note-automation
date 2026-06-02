@@ -10,13 +10,12 @@ import {
   DEFAULT_ARTICLE_MODEL,
   readArticleModel,
   writeArticleModel,
-  readArticleUrls,
-  writeArticleUrls,
   type ArticleModel,
-  type ArticleUrl,
 } from "@/lib/clientSettings";
 
-type Tab = "destinations" | "urls" | "model" | "integrations";
+// 「自分の記事URL」タブは 2026-06-02 廃止。各 destination の編集フォーム内
+// 「自分の記事URL (任意)」欄に統合した (DestinationsTab 参照)。
+type Tab = "destinations" | "model" | "integrations";
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>("destinations");
@@ -26,16 +25,10 @@ export default function SettingsPage() {
   const [mounted, setMounted] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
 
-  const [articleUrls, setArticleUrls] = useState<ArticleUrl[]>([]);
-  const [newUrlLabel, setNewUrlLabel] = useState("");
-  const [newUrlPrefix, setNewUrlPrefix] = useState("");
-  const [urlError, setUrlError] = useState<string | null>(null);
-
   useEffect(() => {
     const stored = readArticleModel();
     setModel(stored);
     setSavedModel(stored);
-    setArticleUrls(readArticleUrls());
     setMounted(true);
   }, []);
 
@@ -52,54 +45,16 @@ export default function SettingsPage() {
 
   const hasUnsaved = mounted && model !== savedModel;
 
-  const persistUrls = (next: ArticleUrl[]) => {
-    setArticleUrls(next);
-    writeArticleUrls(next);
-  };
-
-  const addArticleUrl = () => {
-    const label = newUrlLabel.trim();
-    const prefix = newUrlPrefix.trim();
-    setUrlError(null);
-    if (!label || !prefix) {
-      setUrlError("ラベルとURLの両方を入力してください");
-      return;
-    }
-    if (!/^https?:\/\//i.test(prefix)) {
-      setUrlError("URLは http:// または https:// で始めてください");
-      return;
-    }
-    if (articleUrls.some((u) => u.urlPrefix === prefix)) {
-      setUrlError("同じURLが既に登録されています");
-      return;
-    }
-    const next: ArticleUrl[] = [
-      ...articleUrls,
-      { id: crypto.randomUUID(), label, urlPrefix: prefix },
-    ];
-    persistUrls(next);
-    setNewUrlLabel("");
-    setNewUrlPrefix("");
-  };
-
-  const removeArticleUrl = (id: string) => {
-    if (!confirm("このURLを削除しますか？")) return;
-    persistUrls(articleUrls.filter((u) => u.id !== id));
-  };
-
   return (
     <>
       <PageHeader
         title="設定"
-        description="投稿先・自分の記事URL・記事生成モデルを管理します。"
+        description="投稿先・記事生成モデル・API連携を管理します。"
       >
         <FilterBar>
           <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
             <GroupTab active={tab === "destinations"} onClick={() => setTab("destinations")}>
               投稿先
-            </GroupTab>
-            <GroupTab active={tab === "urls"} onClick={() => setTab("urls")}>
-              自分の記事URL
             </GroupTab>
             <GroupTab active={tab === "model"} onClick={() => setTab("model")}>
               記事生成モデル
@@ -113,76 +68,6 @@ export default function SettingsPage() {
 
       {tab === "destinations" && <DestinationsTab />}
       {tab === "integrations" && <IntegrationsTab />}
-
-      {tab === "urls" && (
-        <div className="max-w-2xl space-y-4">
-          <div>
-            <h2 className="section-title mb-1">自分の記事URL</h2>
-            <p className="text-[13px] text-[color:var(--fg-secondary)] leading-relaxed">
-              SEO順位チェックで「自分の記事」と判定するためのURLを登録します。
-              登録したURLは <span className="font-mono">/seo</span> の追加フォームでプルダウンから選べます。
-            </p>
-          </div>
-
-          {mounted && articleUrls.length > 0 && (
-            <ul className="space-y-2">
-              {articleUrls.map((u) => (
-                <li
-                  key={u.id}
-                  className="flex items-center gap-3 p-3 rounded-lg border border-[var(--border-subtle)]"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[13px] font-semibold text-[color:var(--fg-primary)] truncate">
-                      {u.label}
-                    </div>
-                    <div className="text-[11px] font-mono text-[color:var(--fg-muted)] truncate">
-                      {u.urlPrefix}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => removeArticleUrl(u.id)}
-                    className="text-[12px] text-red-500 hover:text-red-700 shrink-0"
-                  >
-                    削除
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <div className="space-y-2 p-4 rounded-lg border border-dashed border-[var(--border-card)]">
-            <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)]">
-              NEW URL
-            </div>
-            <div className="grid md:grid-cols-2 gap-2">
-              <input
-                value={newUrlLabel}
-                onChange={(e) => setNewUrlLabel(e.target.value)}
-                placeholder="ラベル（例: メインアカウント）"
-                className="input-base"
-              />
-              <input
-                value={newUrlPrefix}
-                onChange={(e) => setNewUrlPrefix(e.target.value)}
-                placeholder="https://note.com/your_username/"
-                className="input-base font-mono"
-              />
-            </div>
-            {urlError && <p className="text-[11px] text-red-600">{urlError}</p>}
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={addArticleUrl}
-                disabled={!newUrlLabel.trim() || !newUrlPrefix.trim()}
-                className="btn-accent disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                + 追加
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {tab === "model" && (
         <div className="max-w-2xl space-y-4">

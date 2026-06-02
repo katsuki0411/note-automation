@@ -203,6 +203,11 @@ export default function DestinationsTab() {
       }
       cleanConfig[f.key] = v;
     }
+    // 共通フィールド: 自分の記事URL (任意)。SEO 順位チェックの「自分の記事」判定に使う。
+    const myUrlPrefixRaw = (configValues.myUrlPrefix ?? "").trim();
+    if (myUrlPrefixRaw) {
+      cleanConfig.myUrlPrefix = myUrlPrefixRaw;
+    }
     setSubmitting(true);
     try {
       const isEdit = typeof editingId === "string";
@@ -594,6 +599,23 @@ export default function DestinationsTab() {
               ⚠ {PLATFORM_LABELS[platform]} は接続情報の保存はできますが、サーバーからの自動投稿はまだ実装されていません (Phase 4 で順次対応予定)。プロンプト編集と prompt_config の保存だけ先に行えます。
             </div>
           )}
+
+          {/* 共通フィールド: 自分の記事URL (任意) — SEO順位の「自分の記事」判定に使う */}
+          <label className="block">
+            <span className="text-[11px] text-[color:var(--fg-secondary)]">
+              自分の記事URL (任意)
+            </span>
+            <input
+              type="url"
+              value={configValues.myUrlPrefix ?? ""}
+              onChange={(e) => changeConfigField("myUrlPrefix", e.target.value)}
+              placeholder="例: https://katsugram.hatenadiary.com/"
+              className="input-base mt-1 font-mono"
+            />
+            <span className="block text-[10px] text-[color:var(--fg-muted)] mt-1">
+              SEO順位チェックで「自分の記事」と判定するための前方一致URL。設定すると /seo ページのプルダウンに自動で表示されます。
+            </span>
+          </label>
           {error && <p className="text-[11px] text-red-600">{error}</p>}
           <div className="flex justify-end gap-2">
             <button type="button" onClick={resetForm} className="btn-ghost">
