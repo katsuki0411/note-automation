@@ -397,11 +397,14 @@ export default function ProductsClient() {
           <div className="p-3 rounded-lg bg-red-50 text-red-700 text-[12px]">{error}</div>
         )}
 
-        {/* スカウト履歴タブ: 左 (一覧+フィルタ) / 右 (KW詳細) の2カラム */}
+        {/* スカウト履歴タブ: 左 (一覧+フィルタ) / 右 (KW詳細) の2カラム
+            grid 親に固定高さを与えて、子の overflow-y-auto が機能するように。
+            これで「ページ全体スクロール」ではなく「カラム内スクロール」になり、
+            内部 sticky ヘッダがちゃんと固定される */}
         {tab === "history" && (
-          <div className="grid grid-cols-1 md:grid-cols-[300px_1fr] gap-4">
-            {/* 左: 履歴一覧 + ジャンルフィルタ */}
-            <div className="space-y-3 md:sticky md:top-4 md:self-start md:max-h-[calc(100vh-120px)] md:overflow-y-auto">
+          <div className="grid grid-cols-1 md:grid-cols-[300px_1fr] gap-4 md:h-[calc(100vh-180px)]">
+            {/* 左: 履歴一覧 + ジャンルフィルタ (内部スクロール) */}
+            <div className="space-y-3 md:overflow-y-auto md:pr-1">
               {historyLoading ? (
                 <div className="text-[12px] text-[color:var(--fg-muted)]">読み込み中…</div>
               ) : history.length === 0 ? (
@@ -422,7 +425,7 @@ export default function ProductsClient() {
                     ).sort();
                     const uncategorized = history.filter((h) => !h.category).length;
                     return (
-                      <div className="sticky top-0 z-10 bg-white border-b border-[var(--border-subtle)] pb-2 mb-2 space-y-1.5 min-h-[60px]">
+                      <div className="sticky top-0 z-10 bg-white border-b border-[var(--border-subtle)] py-2 mb-2 space-y-1.5 min-h-[72px] flex flex-col justify-center">
                         {cats.length > 0 ? (
                           <label className="block">
                             <span className="text-[10px] text-[color:var(--fg-muted)]">
@@ -527,7 +530,7 @@ export default function ProductsClient() {
             </div>
 
             {/* 右: 選択中履歴の KW 詳細 (左カラムと独立してスクロール) */}
-            <div className="min-w-0 md:max-h-[calc(100vh-120px)] md:overflow-y-auto md:pr-2">
+            <div className="min-w-0 md:overflow-y-auto md:pr-2">
               {!result ? (
                 <div className="p-6 rounded-lg border border-dashed border-[var(--border-card)] text-center">
                   <p className="text-[13px] text-[color:var(--fg-secondary)]">
@@ -537,7 +540,7 @@ export default function ProductsClient() {
               ) : (
                 <div className="space-y-3">
                   {/* タイトル (右カラムのスクロール時に固定。左の絞り込みヘッダと高さ合わせ) */}
-                  <div className="sticky top-0 z-10 bg-white border-b border-[var(--border-subtle)] pb-2 mb-2 text-[13px] min-h-[60px] flex items-center">
+                  <div className="sticky top-0 z-10 bg-white border-b border-[var(--border-subtle)] py-2 mb-2 text-[13px] min-h-[72px] flex items-center">
                     <div>
                       <div className="text-[10px] text-[color:var(--fg-muted)]">
                         スカウト結果 {result.candidateCount} 件 (機会スコア降順)
