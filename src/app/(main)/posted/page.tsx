@@ -45,10 +45,7 @@ export default function PostedPage() {
 
   return (
     <>
-      <PageHeader
-        title="投稿レコード"
-        description="note へ投稿（公開ボタン押下）まで完了した記事の履歴。"
-      />
+      <PageHeader title="投稿レコード" />
 
       {!initialLoaded ? (
         <div className="card p-10">

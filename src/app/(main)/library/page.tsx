@@ -359,10 +359,7 @@ export default function LibraryPage() {
 
   return (
     <>
-      <PageHeader
-        title="ライブラリ"
-        description="生成された記事一覧。Markdownをコピーしてnoteに貼り付け → 予約投稿。"
-      >
+      <PageHeader title="ライブラリ">
         {initialLoaded && articles.length > 0 && (
           <FilterBar>
             <div className="flex items-center justify-between gap-4 flex-wrap">
