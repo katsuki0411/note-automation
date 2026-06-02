@@ -415,7 +415,7 @@ export default function ProductsClient() {
                 </div>
               ) : (
                 <>
-                  {/* ジャンルフィルタ + 未分類バックフィル */}
+                  {/* ジャンルフィルタ (プルダウン) + 未分類バックフィル */}
                   {(() => {
                     const cats = Array.from(
                       new Set(history.map((h) => h.category).filter((c): c is string => !!c)),
@@ -424,36 +424,26 @@ export default function ProductsClient() {
                     return (
                       <div className="space-y-1.5">
                         {cats.length > 0 && (
-                          <div className="flex flex-wrap gap-1">
-                            <button
-                              type="button"
-                              onClick={() => setHistoryCategoryFilter("")}
-                              className={`text-[10px] px-2 py-1 rounded-full ${
-                                historyCategoryFilter === ""
-                                  ? "bg-[color:var(--accent)] text-white"
-                                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                              }`}
+                          <label className="block">
+                            <span className="text-[10px] text-[color:var(--fg-muted)]">
+                              ジャンルで絞り込み
+                            </span>
+                            <select
+                              value={historyCategoryFilter}
+                              onChange={(e) => setHistoryCategoryFilter(e.target.value)}
+                              className="input-base mt-0.5 text-[11px] py-1.5"
                             >
-                              すべて ({history.length})
-                            </button>
-                            {cats.map((c) => {
-                              const count = history.filter((h) => h.category === c).length;
-                              return (
-                                <button
-                                  key={c}
-                                  type="button"
-                                  onClick={() => setHistoryCategoryFilter(c)}
-                                  className={`text-[10px] px-2 py-1 rounded-full ${
-                                    historyCategoryFilter === c
-                                      ? "bg-[color:var(--accent)] text-white"
-                                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                                  }`}
-                                >
-                                  {c} ({count})
-                                </button>
-                              );
-                            })}
-                          </div>
+                              <option value="">すべて ({history.length})</option>
+                              {cats.map((c) => {
+                                const count = history.filter((h) => h.category === c).length;
+                                return (
+                                  <option key={c} value={c}>
+                                    {c} ({count})
+                                  </option>
+                                );
+                              })}
+                            </select>
+                          </label>
                         )}
                         {/* バックフィル: 未分類が残ってる時だけ表示 */}
                         {uncategorized > 0 && (
