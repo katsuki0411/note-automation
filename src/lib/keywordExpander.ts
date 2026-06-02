@@ -13,7 +13,8 @@ const EXPAND_PROMPT = (subject: string) => `
 あなたはアフィリエイトSEOのキーワードリサーチャーです。
 
 # ミッション
-以下のお題 (商品名 / カテゴリ / フリーKW のいずれか) から、実際に Google や ChatGPT で検索されそうな関連キーワードを **8〜12個** 抽出してください。
+以下のお題 (商品名 / カテゴリ / フリーKW のいずれか) から、実際に Google や ChatGPT で検索されそうな関連キーワードを **25〜30個** 抽出してください。
+後段の二段分析 (Brave→Ahrefs) で上澄みを絞るための「広めの母数」を作るのが狙いです。
 
 # お題
 ${subject}
@@ -23,6 +24,9 @@ ${subject}
 - アフィリエイトで成果が出やすい intent (比較 / 購入意欲 / 解決) を意識
 - 「○○ おすすめ」「○○ 比較」「○○ 違い」「○○ 寝るとき」「○○ デメリット」「○○ 安い」など多様な切り口
 - 商品名そのものより、**ユーザーが事前に検索する周辺KW** を重視
+- 30件出すために無理にこじつけず、本当に検索されそうなフレーズだけにする (質 > 数)。
+  本当に思いつかない場合は 20件程度で止めてOK。
+- 同じ意味の言い換えを重複させない (「○○ いつから」「○○ 何歳から」は片方でOK)
 - intent は以下から選ぶ:
   - info     : 情報収集
   - how-to   : やり方
@@ -83,7 +87,8 @@ export async function expandKeywords(subject: string): Promise<ExpandedKeyword[]
     contents: EXPAND_PROMPT(trimmed),
     config: {
       temperature: 0.85,
-      maxOutputTokens: 4000,
+      // 25-30件分のフィールドが入るのでトークンを増やす (1件 ~100 tokens で安全側)
+      maxOutputTokens: 6000,
     },
   });
   const text = response.text ?? "";
@@ -100,5 +105,5 @@ export async function expandKeywords(subject: string): Promise<ExpandedKeyword[]
       intent: clampIntent(r.intent),
       reason: r.reason ?? "",
     }))
-    .slice(0, 12);
+    .slice(0, 30);
 }

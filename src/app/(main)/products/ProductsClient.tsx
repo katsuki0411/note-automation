@@ -344,7 +344,7 @@ export default function ProductsClient() {
             </button>
           </div>
           <p className="text-[11px] text-[color:var(--fg-muted)]">
-            ⚠ 1回あたり Gemini × 1 / Brave Search × 6〜8 呼ばれます (Brave 無料枠 2,000req/月)
+            ⚠ 1回あたり Gemini × 1 / Brave Search × 25〜30 呼ばれます (Brave 無料枠 2,000req/月、月60回前後スカウト可)
           </p>
         </div>
 
