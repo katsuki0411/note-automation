@@ -51,10 +51,15 @@ export async function POST(req: NextRequest) {
           topUrls: [],
           platformOccupancy: {},
         };
-        // 各 destination ごとに「その platform が上位30件に既に存在するか」を判定
+        // 各 destination ごとに「その platform が上位30件に既に存在するか」+「プロンプト設定済か」を判定
         const destinationStatus = destinations.map((d) => {
           const platform = d.platform as Platform;
           const hits = c.platformOccupancy[platform] ?? 0;
+          // prompt_config に何か文字列値が入っていれば設定済とみなす
+          const pc = d.prompt_config as Record<string, unknown> | null | undefined;
+          const promptReady = !!pc && Object.values(pc).some(
+            (v) => typeof v === "string" && v.trim().length > 0,
+          );
           return {
             destinationId: d.id,
             platform,
@@ -62,6 +67,7 @@ export async function POST(req: NextRequest) {
             platformLabel: PLATFORM_LABELS[platform] ?? platform,
             occupied: hits > 0, // true = 既に競合あり / false = 未投稿の隙間あり
             hits, // 上位30件中の該当 platform の記事数
+            promptReady, // true = 記事生成可 / false = プロンプト未設定で生成不可
           };
         });
         return {

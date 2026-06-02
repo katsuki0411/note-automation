@@ -27,8 +27,9 @@ type DestinationStatus = {
   platform: string;
   label: string;
   platformLabel: string;
-  occupied: boolean; // true = 既に競合記事あり / false = 未投稿の隙間
-  hits: number;      // 上位30件中の該当 platform 記事数
+  occupied: boolean;     // true = 既に競合記事あり / false = 未投稿の隙間
+  hits: number;          // 上位10件中の該当 platform 記事数
+  promptReady?: boolean; // true = プロンプト設定済で記事生成可 / false = プロンプト未設定
 };
 
 type ScoutCandidate = {
@@ -227,31 +228,62 @@ export default function ProductsClient() {
   }
 
   // ネタ化 + 記事生成キュー投入 (1ボタンで連続実行)
-  // destinationStatus が来ていれば「占有あり = 競合あり」の destination は除外し、
-  // 占有なしの destination を優先選択 (note 優先 → なければ他)
+  // destinationStatus を見て:
+  //   1. プロンプト未設定の destination は除外 (記事生成不可)
+  //   2. 占有あり (= 競合あり) も避ける、なければ占有あり強行
+  //   3. note 優先、なければ最初の候補
+  // 結果を「note: OK / はてな: プロンプトなし → スキップ」のような形でユーザーに見せる
   async function generateFromCandidate(c: ScoutCandidate) {
     let targetDestId: string | undefined;
+
     if (c.destinationStatus && c.destinationStatus.length > 0) {
-      const available = c.destinationStatus.filter((s) => !s.occupied);
-      if (available.length === 0) {
-        const occList = c.destinationStatus
-          .map((s) => `${s.platformLabel}(${s.hits}件)`)
-          .join(", ");
+      // プロンプト設定済 + 未占有の destination が「OK 候補」
+      const promptReadyList = c.destinationStatus.filter((s) => s.promptReady);
+      const okCandidates = promptReadyList.filter((s) => !s.occupied);
+
+      // ユーザー向けに各 destination の状態を集計表示
+      const summary = c.destinationStatus
+        .map((s) => {
+          if (!s.promptReady) return `❌ ${s.platformLabel}: プロンプトなし → スキップ`;
+          if (s.occupied) return `⚠ ${s.platformLabel}: 競合${s.hits}件 (上位10位)`;
+          return `✅ ${s.platformLabel}: OK (記事生成候補)`;
+        })
+        .join("\n");
+
+      if (promptReadyList.length === 0) {
+        alert(
+          `❌ 全ての投稿先でプロンプト未設定のため記事生成できません。\n\n${summary}\n\n設定 → 投稿先 → 各行の「プロンプト」ボタンから先にプロンプトを設定してください。`,
+        );
+        return;
+      }
+
+      if (okCandidates.length === 0) {
+        // プロンプトはあるが全て競合あり → 確認の上で強行
+        const preferred =
+          promptReadyList.find((s) => s.platform === "note") ?? promptReadyList[0];
         if (
           !confirm(
-            `登録投稿先すべてに既に競合記事があります (${occList})。それでも記事生成しますか?`,
+            `${summary}\n\nプロンプト設定済の投稿先は全て競合ありです。それでも「${preferred.platformLabel}」で記事生成しますか?`,
           )
         ) {
           return;
         }
-        // 強行: default を使う
-      } else {
-        // note を優先、それ以外なら最初の available
-        const preferred =
-          available.find((s) => s.platform === "note") ?? available[0];
         targetDestId = preferred.destinationId;
+      } else {
+        // note 優先、なければ最初の OK 候補
+        const preferred =
+          okCandidates.find((s) => s.platform === "note") ?? okCandidates[0];
+        targetDestId = preferred.destinationId;
+
+        // プロンプトなしでスキップされる destination があれば軽くお知らせ
+        if (promptReadyList.length < c.destinationStatus.length) {
+          // alert を出すと毎回確認させて煩いので、生成は進めつつ、コンソール記録 + フラッシュ表示
+          // (アラート出したい場合は下の confirm に変える)
+          console.info(`[generate] selected ${preferred.platformLabel}\n${summary}`);
+        }
       }
     }
+
     setGenerating((s) => new Set([...s, c.kw]));
     try {
       const idea = await ideizeCandidate(c);
@@ -446,25 +478,35 @@ export default function ProductsClient() {
                         {c.destinationStatus && c.destinationStatus.length > 0 && (
                           <div className="mt-2 flex items-center gap-1.5 flex-wrap">
                             <span className="text-[10px] text-[color:var(--fg-muted)] mr-1">投稿先:</span>
-                            {c.destinationStatus.map((s) => (
-                              <span
-                                key={s.destinationId}
-                                className={`text-[10px] px-1.5 py-0.5 rounded ${
-                                  s.occupied
-                                    ? "bg-red-50 text-red-700"
-                                    : "bg-green-50 text-green-700"
-                                }`}
-                                title={
-                                  s.occupied
-                                    ? `${s.platformLabel} 上位10件に ${s.hits} 件存在 → 投稿しても勝ちにくい`
-                                    : `${s.platformLabel} 上位10件に該当記事なし → 投稿チャンス`
-                                }
-                              >
-                                {s.occupied
-                                  ? `⚠ ${s.platformLabel} 競合${s.hits}件`
-                                  : `✓ ${s.platformLabel} 隙間あり`}
-                              </span>
-                            ))}
+                            {c.destinationStatus.map((s) => {
+                              const promptReady = s.promptReady !== false; // undefined は古い API レスポンス互換で OK 扱い
+                              // 表示色とラベルは「プロンプト無 > 競合あり > OK」の順で重要度判定
+                              let cls: string;
+                              let label: string;
+                              let title: string;
+                              if (!promptReady) {
+                                cls = "bg-gray-100 text-gray-500 line-through decoration-1";
+                                label = `❌ ${s.platformLabel} プロンプト無`;
+                                title = `${s.platformLabel} のプロンプトが未設定 → このdestinationでは記事生成不可。設定 → 投稿先 → プロンプト で先に設定してください`;
+                              } else if (s.occupied) {
+                                cls = "bg-red-50 text-red-700";
+                                label = `⚠ ${s.platformLabel} 競合${s.hits}件`;
+                                title = `${s.platformLabel} 上位10件に ${s.hits} 件存在 → 投稿しても勝ちにくい`;
+                              } else {
+                                cls = "bg-green-50 text-green-700";
+                                label = `✓ ${s.platformLabel} 隙間あり`;
+                                title = `${s.platformLabel} 上位10件に該当記事なし → 投稿チャンス (プロンプト設定済)`;
+                              }
+                              return (
+                                <span
+                                  key={s.destinationId}
+                                  className={`text-[10px] px-1.5 py-0.5 rounded ${cls}`}
+                                  title={title}
+                                >
+                                  {label}
+                                </span>
+                              );
+                            })}
                           </div>
                         )}
                         {isOpen && c.topUrls.length > 0 && (
