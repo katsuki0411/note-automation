@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import PageHeader from "@/components/PageHeader";
+import { FilterBar, GroupTab } from "@/components/FilterBar";
 import BestsellersClient from "../bestsellers/BestsellersClient";
 
 // タブ定義
@@ -85,24 +86,14 @@ export default function ResearchClient() {
 
   return (
     <>
-      <PageHeader title="商品リサーチ" />
-
-      <div className="max-w-5xl space-y-5">
-        {/* タブバー */}
-        <div className="flex gap-1 border-b border-[var(--border-subtle)] overflow-x-auto -mx-1 px-1">
-          {TABS.map((t) => {
-            const isActive = t.id === activeTab;
-            return (
-              <button
+      <PageHeader title="商品リサーチ">
+        <FilterBar>
+          <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px overflow-x-auto">
+            {TABS.map((t) => (
+              <GroupTab
                 key={t.id}
-                type="button"
+                active={t.id === activeTab}
                 onClick={() => setActiveTab(t.id)}
-                className={`relative px-3 py-2 text-[12px] whitespace-nowrap rounded-t-md transition-colors ${
-                  isActive
-                    ? "bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] font-semibold"
-                    : "text-[color:var(--fg-secondary)] hover:bg-gray-50"
-                }`}
-                title={t.desc}
               >
                 <span className="mr-1">{t.emoji}</span>
                 {t.label}
@@ -111,11 +102,13 @@ export default function ResearchClient() {
                     準備中
                   </span>
                 )}
-              </button>
-            );
-          })}
-        </div>
+              </GroupTab>
+            ))}
+          </div>
+        </FilterBar>
+      </PageHeader>
 
+      <div className="max-w-5xl space-y-5">
         {/* タブ説明 */}
         <div className="text-[12px] text-[color:var(--fg-muted)] leading-snug">
           {activeTabDef.desc}
