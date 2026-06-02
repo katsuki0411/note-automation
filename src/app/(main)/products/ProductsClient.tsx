@@ -156,7 +156,8 @@ export default function ProductsClient() {
         candidates: data.candidates,
         historyId: data.id,
       };
-      setSubject(data.subject);
+      // 履歴クリック時は subject 入力欄を触らない (新規スカウトタブに切替えた時に過去
+      // subject が prefill されてしまうのを防ぐ。subject は result.subject 経由で表示)
       setResult(restored);
       setExpanded(new Set());
       setIdeized(new Set());
