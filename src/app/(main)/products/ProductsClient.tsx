@@ -133,6 +133,17 @@ export default function ProductsClient() {
     refreshHistory();
   }, []);
 
+  // 履歴タブ時のみ body のスクロールを止める。これでページ全体がスクロールせず
+  // カラム内 overflow-y-auto と sticky ヘッダがちゃんと機能する
+  useEffect(() => {
+    if (tab !== "history") return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [tab]);
+
   async function loadHistory(id: string) {
     setLoadingHistoryId(id);
     try {
