@@ -62,6 +62,7 @@ type ScoutResponse = {
 type HistoryItem = {
   id: string;
   subject: string;
+  category: string | null;
   candidate_count: number;
   created_at: string;
 };
@@ -101,6 +102,8 @@ export default function ProductsClient() {
   const [loadingHistoryId, setLoadingHistoryId] = useState<string | null>(null);
   // タブ: 新規スカウト / 履歴一覧
   const [tab, setTab] = useState<"new" | "history">("new");
+  // 履歴ジャンルフィルタ ("" = すべて表示)
+  const [historyCategoryFilter, setHistoryCategoryFilter] = useState<string>("");
 
   // ベストセラー画面 → 「この商品でスカウト」遷移時に q クエリで subject 上書き
   useEffect(() => {
@@ -194,6 +197,8 @@ export default function ProductsClient() {
       if (!res.ok) throw new Error(data.error ?? "スカウト失敗");
       setResult(data);
       refreshHistory();
+      // スカウト完了直後に履歴タブへ自動切替 (左=履歴, 右=結果KW の2カラム表示に乗せる)
+      setTab("history");
     } catch (e) {
       setError(e instanceof Error ? e.message : "失敗");
     } finally {
@@ -372,62 +377,277 @@ export default function ProductsClient() {
           <div className="p-3 rounded-lg bg-red-50 text-red-700 text-[12px]">{error}</div>
         )}
 
-        {/* スカウト履歴タブ */}
+        {/* スカウト履歴タブ: 左 (一覧+フィルタ) / 右 (KW詳細) の2カラム */}
         {tab === "history" && (
-          <div className="space-y-3">
-            {historyLoading ? (
-              <div className="text-[12px] text-[color:var(--fg-muted)]">読み込み中…</div>
-            ) : history.length === 0 ? (
-              <div className="p-6 rounded-lg border border-dashed border-[var(--border-card)] text-center">
-                <p className="text-[13px] text-[color:var(--fg-secondary)]">
-                  まだ履歴がありません
-                </p>
-                <p className="text-[11px] text-[color:var(--fg-muted)] mt-1">
-                  「新規スカウト」タブからスカウト実行すると、ここに自動保存されます
-                </p>
-              </div>
-            ) : (
-              <ul className="space-y-1.5">
-                {history.map((h) => {
-                  const isCurrent = result?.historyId === h.id;
-                  const isLoading = loadingHistoryId === h.id;
-                  return (
-                    <li
-                      key={h.id}
-                      className={`flex items-center gap-2 p-3 rounded-lg border text-[12px] ${
-                        isCurrent
-                          ? "bg-[color:var(--accent-soft)] border-[color:var(--accent)]"
-                          : "bg-white border-[var(--border-subtle)] hover:bg-gray-50"
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => loadHistory(h.id)}
-                        disabled={isLoading}
-                        className="flex-1 min-w-0 text-left disabled:opacity-50 disabled:cursor-wait"
-                        title={isCurrent ? "現在表示中。クリックで再読込" : "クリックで結果を表示"}
-                      >
-                        <div className="font-semibold text-[13px] text-[color:var(--fg-primary)] truncate">
-                          {isLoading ? "⏳ " : isCurrent ? "👁 " : ""}
-                          {h.subject}
-                        </div>
-                        <div className="text-[11px] text-[color:var(--fg-muted)] mt-0.5">
-                          {h.candidate_count} 件 / {new Date(h.created_at).toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" })}
-                        </div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => deleteHistory(h.id, h.subject)}
-                        className="text-[11px] text-red-500 hover:text-red-700 shrink-0 px-2 py-1"
-                        title="この履歴を削除"
-                      >
-                        🗑 削除
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
+          <div className="grid grid-cols-1 md:grid-cols-[300px_1fr] gap-4">
+            {/* 左: 履歴一覧 + ジャンルフィルタ */}
+            <div className="space-y-3 md:sticky md:top-4 md:self-start md:max-h-[calc(100vh-120px)] md:overflow-y-auto">
+              {historyLoading ? (
+                <div className="text-[12px] text-[color:var(--fg-muted)]">読み込み中…</div>
+              ) : history.length === 0 ? (
+                <div className="p-6 rounded-lg border border-dashed border-[var(--border-card)] text-center">
+                  <p className="text-[13px] text-[color:var(--fg-secondary)]">
+                    まだ履歴がありません
+                  </p>
+                  <p className="text-[11px] text-[color:var(--fg-muted)] mt-1">
+                    「新規スカウト」タブからスカウト実行すると、ここに自動保存されます
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* ジャンルフィルタ */}
+                  {(() => {
+                    const cats = Array.from(
+                      new Set(history.map((h) => h.category).filter((c): c is string => !!c)),
+                    ).sort();
+                    if (cats.length === 0) return null;
+                    return (
+                      <div className="flex flex-wrap gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setHistoryCategoryFilter("")}
+                          className={`text-[10px] px-2 py-1 rounded-full ${
+                            historyCategoryFilter === ""
+                              ? "bg-[color:var(--accent)] text-white"
+                              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                          }`}
+                        >
+                          すべて ({history.length})
+                        </button>
+                        {cats.map((c) => {
+                          const count = history.filter((h) => h.category === c).length;
+                          return (
+                            <button
+                              key={c}
+                              type="button"
+                              onClick={() => setHistoryCategoryFilter(c)}
+                              className={`text-[10px] px-2 py-1 rounded-full ${
+                                historyCategoryFilter === c
+                                  ? "bg-[color:var(--accent)] text-white"
+                                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                              }`}
+                            >
+                              {c} ({count})
+                            </button>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+
+                  {/* 履歴リスト */}
+                  <ul className="space-y-1.5">
+                    {history
+                      .filter((h) =>
+                        historyCategoryFilter ? h.category === historyCategoryFilter : true,
+                      )
+                      .map((h) => {
+                        const isCurrent = result?.historyId === h.id;
+                        const isLoading = loadingHistoryId === h.id;
+                        return (
+                          <li
+                            key={h.id}
+                            className={`flex items-center gap-2 p-3 rounded-lg border text-[12px] ${
+                              isCurrent
+                                ? "bg-[color:var(--accent-soft)] border-[color:var(--accent)]"
+                                : "bg-white border-[var(--border-subtle)] hover:bg-gray-50"
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => loadHistory(h.id)}
+                              disabled={isLoading}
+                              className="flex-1 min-w-0 text-left disabled:opacity-50 disabled:cursor-wait"
+                              title={isCurrent ? "現在表示中" : "クリックで結果を表示"}
+                            >
+                              <div className="font-semibold text-[13px] text-[color:var(--fg-primary)] truncate">
+                                {isLoading ? "⏳ " : isCurrent ? "👁 " : ""}
+                                {h.subject}
+                              </div>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                {h.category && (
+                                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">
+                                    {h.category}
+                                  </span>
+                                )}
+                                <span className="text-[10px] text-[color:var(--fg-muted)]">
+                                  {h.candidate_count}件
+                                </span>
+                              </div>
+                              <div className="text-[9px] text-[color:var(--fg-muted)] mt-0.5">
+                                {new Date(h.created_at).toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" })}
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => deleteHistory(h.id, h.subject)}
+                              className="text-[11px] text-red-500 hover:text-red-700 shrink-0 px-1"
+                              title="この履歴を削除"
+                            >
+                              🗑
+                            </button>
+                          </li>
+                        );
+                      })}
+                  </ul>
+                </>
+              )}
+            </div>
+
+            {/* 右: 選択中履歴の KW 詳細 */}
+            <div className="min-w-0">
+              {!result ? (
+                <div className="p-6 rounded-lg border border-dashed border-[var(--border-card)] text-center">
+                  <p className="text-[13px] text-[color:var(--fg-secondary)]">
+                    左の履歴を選ぶと、ここに KW一覧 が表示されます
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="text-[13px]">
+                    <span className="font-semibold">{result.subject}</span> のスカウト結果:{" "}
+                    <span className="text-[color:var(--fg-secondary)]">
+                      {result.candidateCount} 件の関連KW (機会スコア降順)
+                    </span>
+                  </div>
+                  <ul className="space-y-2">
+                    {result.candidates.map((c, i) => {
+                      const diff = DIFF_BADGE[c.seoDifficulty];
+                      const isOpen = expanded.has(i);
+                      const isIdeized = ideized.has(c.kw);
+                      return (
+                        <li
+                          key={i}
+                          className="p-3 rounded-lg border border-[var(--border-subtle)] bg-white"
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap mb-1">
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${diff.cls}`}>
+                                  {diff.text}
+                                </span>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
+                                  機会 {c.opportunityScore}
+                                </span>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">
+                                  {INTENT_LABEL[c.intent] ?? c.intent}
+                                </span>
+                              </div>
+                              <div className="text-[14px] font-semibold text-[color:var(--fg-primary)]">
+                                {c.kw}
+                              </div>
+                              <div className="text-[11px] text-[color:var(--fg-muted)] mt-0.5">
+                                {c.reason}
+                              </div>
+                              <div className="text-[11px] text-[color:var(--fg-secondary)] mt-1.5 leading-snug">
+                                📊 {c.rationale}
+                              </div>
+                              <div className="text-[10px] text-[color:var(--fg-muted)] mt-1">
+                                上位{c.totalScanned}件:
+                                EC {c.buckets.big_ec} / 比較メディア {c.buckets.big_media} /
+                                個人ブログ {c.buckets.individual_blog} / その他 {c.buckets.other}
+                              </div>
+                              {c.ai && (
+                                <div className="mt-2 p-2 rounded bg-purple-50 border border-purple-100">
+                                  <div className="flex items-center gap-2 flex-wrap text-[10px]">
+                                    <span className="font-mono text-purple-700 font-semibold">
+                                      🤖 AI 総合 {c.ai.overall}
+                                    </span>
+                                    <span className="text-[color:var(--fg-muted)]">
+                                      権威 {c.ai.authority} / intent欠 {c.ai.intentGap} / blog余地 {c.ai.blogRoom} / LLMO {c.ai.llmoAffinity} / mediaMix {c.ai.mediaMix}
+                                    </span>
+                                  </div>
+                                  {c.ai.rationale && (
+                                    <div className="text-[10px] text-[color:var(--fg-secondary)] mt-1 leading-snug">
+                                      💡 {c.ai.rationale}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              {c.destinationStatus && c.destinationStatus.length > 0 && (
+                                <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-[10px] text-[color:var(--fg-muted)] mr-1">投稿先:</span>
+                                  {c.destinationStatus.map((s) => {
+                                    const promptReady = s.promptReady !== false;
+                                    let cls: string;
+                                    let label: string;
+                                    let title: string;
+                                    if (!promptReady) {
+                                      cls = "bg-gray-100 text-gray-500 line-through decoration-1";
+                                      label = `❌ ${s.platformLabel} プロンプト無`;
+                                      title = `${s.platformLabel} のプロンプトが未設定 → このdestinationでは記事生成不可。設定 → 投稿先 → プロンプト で先に設定してください`;
+                                    } else if (s.occupied) {
+                                      cls = "bg-red-50 text-red-700";
+                                      label = `⚠ ${s.platformLabel} 競合${s.hits}件`;
+                                      title = `${s.platformLabel} 上位10件に ${s.hits} 件存在 → 投稿しても勝ちにくい`;
+                                    } else {
+                                      cls = "bg-green-50 text-green-700";
+                                      label = `✓ ${s.platformLabel} 隙間あり`;
+                                      title = `${s.platformLabel} 上位10件に該当記事なし → 投稿チャンス (プロンプト設定済)`;
+                                    }
+                                    return (
+                                      <span
+                                        key={s.destinationId}
+                                        className={`text-[10px] px-1.5 py-0.5 rounded ${cls}`}
+                                        title={title}
+                                      >
+                                        {label}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                              {isOpen && c.topUrls.length > 0 && (
+                                <ul className="mt-2 space-y-0.5 pl-4">
+                                  {c.topUrls.map((u, j) => (
+                                    <li key={j} className="text-[10px] text-[color:var(--fg-muted)] truncate">
+                                      {j + 1}. <a href={u} target="_blank" rel="noreferrer" className="hover:underline">{u}</a>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                            <div className="flex flex-col gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => toggleExpand(i)}
+                                className="text-[10px] px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
+                              >
+                                {isOpen ? "閉じる" : "URL"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => ideize(c)}
+                                disabled={isIdeized}
+                                className={`text-[10px] px-2 py-1 rounded whitespace-nowrap ${
+                                  isIdeized
+                                    ? "bg-green-100 text-green-700 cursor-default"
+                                    : "bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] hover:bg-[color:var(--accent)] hover:text-white"
+                                }`}
+                              >
+                                {isIdeized ? "✓ ネタ化済" : "ネタ化"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => generateFromCandidate(c)}
+                                disabled={generating.has(c.kw)}
+                                className="text-[10px] px-2 py-1 rounded whitespace-nowrap bg-[color:var(--accent)] hover:opacity-80 text-white disabled:opacity-50 disabled:cursor-wait"
+                                title="ネタ化と同時に記事生成キューに投入"
+                              >
+                                {generating.has(c.kw) ? "投入中…" : "✍ 記事生成"}
+                              </button>
+                            </div>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <div className="text-[11px] text-[color:var(--fg-muted)]">
+                    「ネタ化」したKWは <Link href="/" className="text-[color:var(--accent-dark)] hover:underline">ライブフィード</Link> に追加されます。そこから記事生成へ。
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -440,154 +660,6 @@ export default function ProductsClient() {
           </div>
         )}
 
-        {result && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="text-[13px]">
-                <span className="font-semibold">{result.subject}</span> のスカウト結果:{" "}
-                <span className="text-[color:var(--fg-secondary)]">
-                  {result.candidateCount} 件の関連KW (機会スコア降順)
-                </span>
-              </div>
-            </div>
-            <ul className="space-y-2">
-              {result.candidates.map((c, i) => {
-                const diff = DIFF_BADGE[c.seoDifficulty];
-                const isOpen = expanded.has(i);
-                const isIdeized = ideized.has(c.kw);
-                return (
-                  <li
-                    key={i}
-                    className="p-3 rounded-lg border border-[var(--border-subtle)] bg-white"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap mb-1">
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${diff.cls}`}>
-                            {diff.text}
-                          </span>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
-                            機会 {c.opportunityScore}
-                          </span>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">
-                            {INTENT_LABEL[c.intent] ?? c.intent}
-                          </span>
-                        </div>
-                        <div className="text-[14px] font-semibold text-[color:var(--fg-primary)]">
-                          {c.kw}
-                        </div>
-                        <div className="text-[11px] text-[color:var(--fg-muted)] mt-0.5">
-                          {c.reason}
-                        </div>
-                        <div className="text-[11px] text-[color:var(--fg-secondary)] mt-1.5 leading-snug">
-                          📊 {c.rationale}
-                        </div>
-                        <div className="text-[10px] text-[color:var(--fg-muted)] mt-1">
-                          上位{c.totalScanned}件:
-                          EC {c.buckets.big_ec} / 比較メディア {c.buckets.big_media} /
-                          個人ブログ {c.buckets.individual_blog} / その他 {c.buckets.other}
-                        </div>
-                        {c.ai && (
-                          <div className="mt-2 p-2 rounded bg-purple-50 border border-purple-100">
-                            <div className="flex items-center gap-2 flex-wrap text-[10px]">
-                              <span className="font-mono text-purple-700 font-semibold">
-                                🤖 AI 総合 {c.ai.overall}
-                              </span>
-                              <span className="text-[color:var(--fg-muted)]">
-                                権威 {c.ai.authority} / intent欠 {c.ai.intentGap} / blog余地 {c.ai.blogRoom} / LLMO {c.ai.llmoAffinity} / mediaMix {c.ai.mediaMix}
-                              </span>
-                            </div>
-                            {c.ai.rationale && (
-                              <div className="text-[10px] text-[color:var(--fg-secondary)] mt-1 leading-snug">
-                                💡 {c.ai.rationale}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        {c.destinationStatus && c.destinationStatus.length > 0 && (
-                          <div className="mt-2 flex items-center gap-1.5 flex-wrap">
-                            <span className="text-[10px] text-[color:var(--fg-muted)] mr-1">投稿先:</span>
-                            {c.destinationStatus.map((s) => {
-                              const promptReady = s.promptReady !== false; // undefined は古い API レスポンス互換で OK 扱い
-                              // 表示色とラベルは「プロンプト無 > 競合あり > OK」の順で重要度判定
-                              let cls: string;
-                              let label: string;
-                              let title: string;
-                              if (!promptReady) {
-                                cls = "bg-gray-100 text-gray-500 line-through decoration-1";
-                                label = `❌ ${s.platformLabel} プロンプト無`;
-                                title = `${s.platformLabel} のプロンプトが未設定 → このdestinationでは記事生成不可。設定 → 投稿先 → プロンプト で先に設定してください`;
-                              } else if (s.occupied) {
-                                cls = "bg-red-50 text-red-700";
-                                label = `⚠ ${s.platformLabel} 競合${s.hits}件`;
-                                title = `${s.platformLabel} 上位10件に ${s.hits} 件存在 → 投稿しても勝ちにくい`;
-                              } else {
-                                cls = "bg-green-50 text-green-700";
-                                label = `✓ ${s.platformLabel} 隙間あり`;
-                                title = `${s.platformLabel} 上位10件に該当記事なし → 投稿チャンス (プロンプト設定済)`;
-                              }
-                              return (
-                                <span
-                                  key={s.destinationId}
-                                  className={`text-[10px] px-1.5 py-0.5 rounded ${cls}`}
-                                  title={title}
-                                >
-                                  {label}
-                                </span>
-                              );
-                            })}
-                          </div>
-                        )}
-                        {isOpen && c.topUrls.length > 0 && (
-                          <ul className="mt-2 space-y-0.5 pl-4">
-                            {c.topUrls.map((u, j) => (
-                              <li key={j} className="text-[10px] text-[color:var(--fg-muted)] truncate">
-                                {j + 1}. <a href={u} target="_blank" rel="noreferrer" className="hover:underline">{u}</a>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                      <div className="flex flex-col gap-1 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => toggleExpand(i)}
-                          className="text-[10px] px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
-                        >
-                          {isOpen ? "閉じる" : "URL"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => ideize(c)}
-                          disabled={isIdeized}
-                          className={`text-[10px] px-2 py-1 rounded whitespace-nowrap ${
-                            isIdeized
-                              ? "bg-green-100 text-green-700 cursor-default"
-                              : "bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] hover:bg-[color:var(--accent)] hover:text-white"
-                          }`}
-                        >
-                          {isIdeized ? "✓ ネタ化済" : "ネタ化"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => generateFromCandidate(c)}
-                          disabled={generating.has(c.kw)}
-                          className="text-[10px] px-2 py-1 rounded whitespace-nowrap bg-[color:var(--accent)] hover:opacity-80 text-white disabled:opacity-50 disabled:cursor-wait"
-                          title="ネタ化と同時に記事生成キューに投入"
-                        >
-                          {generating.has(c.kw) ? "投入中…" : "✍ 記事生成"}
-                        </button>
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-            <div className="text-[11px] text-[color:var(--fg-muted)]">
-              「ネタ化」したKWは <Link href="/" className="text-[color:var(--accent-dark)] hover:underline">ライブフィード</Link> に追加されます。そこから記事生成へ。
-            </div>
-          </div>
-        )}
       </div>
     </>
   );

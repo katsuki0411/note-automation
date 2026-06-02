@@ -9,11 +9,38 @@ export type ExpandedKeyword = {
   reason: string; // なぜこのKWを推した理由 (UI に表示する場合がある)
 };
 
+// スカウト履歴のジャンル分類 (UI フィルタ用)。 Amazon AFF プロジェクトのカテゴリ感に揃える
+export const SCOUT_CATEGORIES = [
+  "家電・PC・ガジェット",
+  "ファッション",
+  "食品・飲料",
+  "美容・ヘルスケア",
+  "ホーム・キッチン",
+  "ベビー・キッズ",
+  "ペット",
+  "本・電子書籍",
+  "スポーツ・アウトドア",
+  "車・バイク",
+  "DIY・工具",
+  "楽器・ホビー",
+  "その他",
+] as const;
+export type ScoutCategory = (typeof SCOUT_CATEGORIES)[number];
+
+export type ExpandKeywordsResult = {
+  keywords: ExpandedKeyword[];
+  category: ScoutCategory; // subject のジャンル推定
+};
+
 const EXPAND_PROMPT = (subject: string) => `
 あなたはアフィリエイトSEOのキーワードリサーチャーです。
 
 # ミッション
-以下のお題 (商品名 / カテゴリ / フリーKW のいずれか) から、実際に Google や ChatGPT で検索されそうな関連キーワードを **25〜30個** 抽出してください。
+以下のお題 (商品名 / カテゴリ / フリーKW のいずれか) から:
+1. 実際に Google や ChatGPT で検索されそうな関連キーワードを **25〜30個** 抽出
+2. このお題が属するジャンルを以下から1つ選ぶ:
+   ${SCOUT_CATEGORIES.join(" / ")}
+
 後段の二段分析 (Brave→Ahrefs) で上澄みを絞るための「広めの母数」を作るのが狙いです。
 
 # お題
@@ -35,14 +62,17 @@ ${subject}
   - review   : レビュー
   - purchase : 購入直前 (「価格」「最安」「中古」など)
 
-# 出力形式 (JSON 配列のみ、前後の説明文禁止)
-[
-  {
-    "kw": "ワイヤレスイヤホン 寝るとき おすすめ",
-    "intent": "comparison",
-    "reason": "睡眠特化型イヤホンの比較ニーズが定常的にある"
-  }
-]
+# 出力形式 (JSON オブジェクトのみ、前後の説明文禁止)
+{
+  "category": "家電・PC・ガジェット",
+  "keywords": [
+    {
+      "kw": "ワイヤレスイヤホン 寝るとき おすすめ",
+      "intent": "comparison",
+      "reason": "睡眠特化型イヤホンの比較ニーズが定常的にある"
+    }
+  ]
+}
 `.trim();
 
 function repairJson(s: string): string {
@@ -51,15 +81,30 @@ function repairJson(s: string): string {
 
 function extractJson(text: string): unknown {
   let cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-  const start = cleaned.indexOf("[");
-  const end = cleaned.lastIndexOf("]");
-  if (start === -1 || end === -1) throw new Error("JSON配列が見つかりません");
-  cleaned = cleaned.slice(start, end + 1);
+  // 後方互換: 旧プロンプトの配列 [...] と新プロンプトのオブジェクト {category, keywords:[...]} 両対応
+  const objStart = cleaned.indexOf("{");
+  const arrStart = cleaned.indexOf("[");
+  const isObj = objStart !== -1 && (arrStart === -1 || objStart < arrStart);
+  if (isObj) {
+    const end = cleaned.lastIndexOf("}");
+    if (end === -1) throw new Error("JSONオブジェクトが見つかりません");
+    cleaned = cleaned.slice(objStart, end + 1);
+  } else {
+    const end = cleaned.lastIndexOf("]");
+    if (arrStart === -1 || end === -1) throw new Error("JSON配列が見つかりません");
+    cleaned = cleaned.slice(arrStart, end + 1);
+  }
   try {
     return JSON.parse(cleaned);
   } catch {
     return JSON.parse(repairJson(cleaned));
   }
+}
+
+function clampCategory(v: unknown): ScoutCategory {
+  return (SCOUT_CATEGORIES as readonly string[]).includes(String(v))
+    ? (v as ScoutCategory)
+    : "その他";
 }
 
 const ALLOWED_INTENT = [
@@ -77,7 +122,7 @@ function clampIntent(v: unknown): ExpandedKeyword["intent"] {
     : "info";
 }
 
-export async function expandKeywords(subject: string): Promise<ExpandedKeyword[]> {
+export async function expandKeywords(subject: string): Promise<ExpandKeywordsResult> {
   const trimmed = subject.trim();
   if (!trimmed) throw new Error("subject が空です");
 
@@ -92,13 +137,23 @@ export async function expandKeywords(subject: string): Promise<ExpandedKeyword[]
     },
   });
   const text = response.text ?? "";
-  const raw = extractJson(text) as Array<{
-    kw?: string;
-    intent?: string;
-    reason?: string;
-  }>;
+  const raw = extractJson(text);
 
-  return raw
+  // 新形式: { category, keywords: [...] } / 旧形式 (配列のみ) 両対応
+  let rawKeywords: Array<{ kw?: string; intent?: string; reason?: string }>;
+  let rawCategory: unknown;
+  if (Array.isArray(raw)) {
+    rawKeywords = raw as Array<{ kw?: string; intent?: string; reason?: string }>;
+    rawCategory = "その他";
+  } else {
+    const obj = raw as { category?: unknown; keywords?: unknown };
+    rawKeywords = Array.isArray(obj.keywords)
+      ? (obj.keywords as Array<{ kw?: string; intent?: string; reason?: string }>)
+      : [];
+    rawCategory = obj.category;
+  }
+
+  const keywords = rawKeywords
     .filter((r) => r?.kw && r.kw.trim())
     .map((r) => ({
       kw: r.kw!.trim(),
@@ -106,4 +161,9 @@ export async function expandKeywords(subject: string): Promise<ExpandedKeyword[]
       reason: r.reason ?? "",
     }))
     .slice(0, 30);
+
+  return {
+    keywords,
+    category: clampCategory(rawCategory),
+  };
 }

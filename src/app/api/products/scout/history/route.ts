@@ -11,9 +11,9 @@ export async function GET(req: NextRequest) {
     const u = new URL(req.url);
     const limit = Math.min(Math.max(parseInt(u.searchParams.get("limit") ?? "20", 10), 1), 100);
     const rows = await sql<
-      { id: string; subject: string; candidate_count: number; created_at: string }[]
+      { id: string; subject: string; category: string | null; candidate_count: number; created_at: string }[]
     >`
-      select id, subject, candidate_count, created_at
+      select id, subject, category, candidate_count, created_at
       from product_scout_history
       where project_id = ${ctx.projectId}
       order by created_at desc

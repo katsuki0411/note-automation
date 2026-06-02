@@ -30,8 +30,8 @@ export async function POST(req: NextRequest) {
       // 現プロジェクトの enabled な destination 一覧 (UI でバッジ表示に使う)
       const destinations = (await loadDestinations(ctx.projectId)).filter((d) => d.enabled);
 
-      // Step 1: 関連KW生成 (intent付き)
-      const expanded = await expandKeywords(subject);
+      // Step 1: 関連KW生成 (intent付き) + ジャンル推定
+      const { keywords: expanded, category } = await expandKeywords(subject);
 
       // Step 2: 各KWの競合判定 (Brave検索 + 任意で Gemini 五軸評価)
       const competitions = await analyzeKeywords(
@@ -97,11 +97,12 @@ export async function POST(req: NextRequest) {
       let historyId: string | undefined;
       try {
         const rows = await sql<{ id: string }[]>`
-          insert into product_scout_history (project_id, user_id, subject, candidate_count, candidates)
+          insert into product_scout_history (project_id, user_id, subject, category, candidate_count, candidates)
           values (
             ${ctx.projectId},
             ${ctx.userId},
             ${subject},
+            ${category},
             ${merged.length},
             ${sql.json(merged as unknown as JSONValue)}
           )
@@ -114,6 +115,7 @@ export async function POST(req: NextRequest) {
 
       return Response.json({
         subject,
+        category,
         candidateCount: merged.length,
         candidates: merged,
         historyId,
