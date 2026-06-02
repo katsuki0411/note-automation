@@ -630,30 +630,36 @@ export default function ProductsClient() {
                                 <div className="mt-2 flex items-center gap-1.5 flex-wrap">
                                   <span className="text-[10px] text-[color:var(--fg-muted)] mr-1">投稿先:</span>
                                   {c.destinationStatus.map((s) => {
+                                    // 競合バッジ (Brave データなのでプロンプトに依らず常時表示)
+                                    const occupiedCls = s.occupied
+                                      ? "bg-red-50 text-red-700"
+                                      : "bg-green-50 text-green-700";
+                                    const occupiedLabel = s.occupied
+                                      ? `⚠ ${s.platformLabel} 競合${s.hits}件`
+                                      : `✓ ${s.platformLabel} 隙間あり`;
+                                    const occupiedTitle = s.occupied
+                                      ? `${s.platformLabel} 上位10件に ${s.hits} 件存在 → 投稿しても勝ちにくい`
+                                      : `${s.platformLabel} 上位10件に該当記事なし → 投稿チャンス`;
                                     const promptReady = s.promptReady !== false;
-                                    let cls: string;
-                                    let label: string;
-                                    let title: string;
-                                    if (!promptReady) {
-                                      cls = "bg-gray-100 text-gray-500 line-through decoration-1";
-                                      label = `❌ ${s.platformLabel} プロンプト無`;
-                                      title = `${s.platformLabel} のプロンプトが未設定 → このdestinationでは記事生成不可。設定 → 投稿先 → プロンプト で先に設定してください`;
-                                    } else if (s.occupied) {
-                                      cls = "bg-red-50 text-red-700";
-                                      label = `⚠ ${s.platformLabel} 競合${s.hits}件`;
-                                      title = `${s.platformLabel} 上位10件に ${s.hits} 件存在 → 投稿しても勝ちにくい`;
-                                    } else {
-                                      cls = "bg-green-50 text-green-700";
-                                      label = `✓ ${s.platformLabel} 隙間あり`;
-                                      title = `${s.platformLabel} 上位10件に該当記事なし → 投稿チャンス (プロンプト設定済)`;
-                                    }
                                     return (
                                       <span
                                         key={s.destinationId}
-                                        className={`text-[10px] px-1.5 py-0.5 rounded ${cls}`}
-                                        title={title}
+                                        className="inline-flex items-center gap-0.5"
                                       >
-                                        {label}
+                                        <span
+                                          className={`text-[10px] px-1.5 py-0.5 rounded ${occupiedCls}`}
+                                          title={occupiedTitle}
+                                        >
+                                          {occupiedLabel}
+                                        </span>
+                                        {!promptReady && (
+                                          <span
+                                            className="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600"
+                                            title={`${s.platformLabel} のプロンプト未設定 → このdestinationでは記事生成不可。設定 → 投稿先 → プロンプトボタン から設定してください`}
+                                          >
+                                            プロンプト無
+                                          </span>
+                                        )}
                                       </span>
                                     );
                                   })}
