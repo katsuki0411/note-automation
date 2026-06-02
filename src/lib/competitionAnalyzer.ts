@@ -192,14 +192,12 @@ ${topResults.map((r, i) => `${i + 1}. ${r.title} | ${r.url}`).join("\n")}
 4. llmoAffinity: AI 検索 (ChatGPT/Perplexity/Gemini AI Overview) で "引用源になりやすい" KW か (情報網羅性・専門解説ニーズが強い = 高)
 5. mediaMix: 動画(YouTube)・SNS が "少ない" ほど高得点 (文字記事に有利。動画ばかりだとテキスト記事の天井低い)
 
-# 出力ルール (絶対遵守)
-- JSON 1個のみ。前後の説明文は禁止。
-- **rationale は必須・絶対省略禁止。空文字 "" や null も禁止。**
-- **rationale は2〜3文 (80文字以上、200文字以内) で具体的に記述すること。**
-- rationale の内容: (a) 上位の傾向 (どんなサイトが多いか)、(b) intent との適合度、(c) 個人ブログが入る隙間の有無 — の3点に必ず触れる。
-- 抽象的な「中程度です」だけの一文は禁止。具体的なドメイン名・サイト種別を出す。
+# rationale の書き方
+- rationale は 80〜200 文字程度で、具体的に記述してください。
+- 望ましい内容: (a) 上位の傾向 (どんなサイトが多いか)、(b) intent との適合度、(c) 個人ブログが入る隙間の有無。
+- 「中程度です」だけの抽象的な一文は避け、具体的なドメイン名・サイト種別を含めてください。
 
-# 出力フォーマット (JSON のみ)
+# 出力フォーマット (JSON のみ。responseSchema で構造強制)
 {
   "authority": 70,
   "intentGap": 50,
@@ -210,19 +208,50 @@ ${topResults.map((r, i) => `${i + 1}. ${r.title} | ${r.url}`).join("\n")}
 }
 `.trim();
 
+  // Structured Output (responseSchema) で JSON 形式を強制
+  // → Gemini が JSON 外の説明文を混ぜたり rationale を省略するのを防ぐ
+  const responseSchema = {
+    type: "object",
+    properties: {
+      authority: { type: "number" },
+      intentGap: { type: "number" },
+      blogRoom: { type: "number" },
+      llmoAffinity: { type: "number" },
+      mediaMix: { type: "number" },
+      rationale: { type: "string" },
+    },
+    required: ["authority", "intentGap", "blogRoom", "llmoAffinity", "mediaMix", "rationale"],
+  };
+
   try {
     const ai = gemini();
     const res = await ai.models.generateContent({
       model: MODELS.research,
       contents: prompt,
-      config: { temperature: 0.3, maxOutputTokens: 2000 },
+      config: {
+        temperature: 0.3,
+        maxOutputTokens: 2000,
+        responseMimeType: "application/json",
+        responseSchema,
+      },
     });
     const text = res.text ?? "";
+    if (!text.trim()) {
+      console.warn(`[evaluateWithAI] empty response for kw="${kw}"`);
+      return undefined;
+    }
+    // responseMimeType: "application/json" 指定でも、念のためフェンス除去
     const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-    const start = cleaned.indexOf("{");
-    const end = cleaned.lastIndexOf("}");
-    if (start === -1 || end === -1) return undefined;
-    const parsed = JSON.parse(cleaned.slice(start, end + 1)) as Record<string, unknown>;
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(cleaned) as Record<string, unknown>;
+    } catch (e) {
+      console.warn(
+        `[evaluateWithAI] JSON parse failed for kw="${kw}": ${e instanceof Error ? e.message : e}`,
+        `\n--- raw response ---\n${cleaned.slice(0, 500)}`,
+      );
+      return undefined;
+    }
     const clamp = (v: unknown, fallback = 50) => {
       const n = typeof v === "number" ? v : Number(v);
       if (!isFinite(n)) return fallback;
@@ -249,7 +278,10 @@ ${topResults.map((r, i) => `${i + 1}. ${r.title} | ${r.url}`).join("\n")}
       overall,
       rationale: String(parsed.rationale ?? ""),
     };
-  } catch {
+  } catch (e) {
+    console.warn(
+      `[evaluateWithAI] Gemini API call failed for kw="${kw}": ${e instanceof Error ? e.message : e}`,
+    );
     return undefined;
   }
 }
