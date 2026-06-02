@@ -340,7 +340,9 @@ export default function ProductsClient() {
         </FilterBar>
       </PageHeader>
 
-      <div className="max-w-3xl space-y-5">
+      {/* 新規スカウトタブは subject 入力が広くなりすぎないよう max-w-3xl で抑える。
+          履歴タブは 2カラム表示なので画面幅いっぱい使う */}
+      <div className={tab === "history" ? "space-y-5" : "max-w-3xl space-y-5"}>
         {tab === "new" && (
         <div className="space-y-2">
           <label htmlFor="subject" className="text-[12px] text-[color:var(--fg-secondary)]">
