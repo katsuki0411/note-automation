@@ -146,7 +146,7 @@ export default function ProductsClient() {
       setExpanded(new Set());
       setIdeized(new Set());
       setError(null);
-      setTab("new"); // 履歴クリック後は「新規スカウト」タブで結果を見せる
+      // タブ移動はしない。同じ「スカウト履歴」タブ内で履歴リストの下に結果を展開表示。
     } catch (e) {
       alert(e instanceof Error ? e.message : "履歴取得失敗");
     } finally {
@@ -375,7 +375,6 @@ export default function ProductsClient() {
         {/* スカウト履歴タブ */}
         {tab === "history" && (
           <div className="space-y-3">
-            <h2 className="section-title">スカウト履歴</h2>
             {historyLoading ? (
               <div className="text-[12px] text-[color:var(--fg-muted)]">読み込み中…</div>
             ) : history.length === 0 ? (
@@ -441,7 +440,7 @@ export default function ProductsClient() {
           </div>
         )}
 
-        {tab === "new" && result && (
+        {result && (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="text-[13px]">
