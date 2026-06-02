@@ -385,6 +385,9 @@ export default function ProductsClient() {
               placeholder="例: ワイヤレスイヤホン 寝るとき"
               className="input-base flex-1"
               disabled={busy}
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
             />
             <button
               type="button"
