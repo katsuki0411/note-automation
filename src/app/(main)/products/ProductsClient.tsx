@@ -496,8 +496,8 @@ export default function ProductsClient() {
               )}
             </div>
 
-            {/* 右: 選択中履歴の KW 詳細 */}
-            <div className="min-w-0">
+            {/* 右: 選択中履歴の KW 詳細 (左カラムと独立してスクロール) */}
+            <div className="min-w-0 md:max-h-[calc(100vh-120px)] md:overflow-y-auto md:pr-2">
               {!result ? (
                 <div className="p-6 rounded-lg border border-dashed border-[var(--border-card)] text-center">
                   <p className="text-[13px] text-[color:var(--fg-secondary)]">
