@@ -359,8 +359,15 @@ export default function ProductsClient() {
       </PageHeader>
 
       {/* 新規スカウトタブは subject 入力が広くなりすぎないよう max-w-3xl で抑える。
-          履歴タブは 2カラム表示なので画面幅いっぱい使う */}
-      <div className={tab === "history" ? "space-y-5" : "max-w-3xl space-y-5"}>
+          履歴タブは 2カラム + 固定高さ overflow-hidden で「ページ全体スクロール」を抑止し、
+          PageHeader 下の余白も -mt で詰めて grid を上端ピッタリに貼り付ける */}
+      <div
+        className={
+          tab === "history"
+            ? "md:h-[calc(100vh-160px)] md:overflow-hidden md:-mt-8 -mt-6"
+            : "max-w-3xl space-y-5"
+        }
+      >
         {tab === "new" && (
         <div className="space-y-2">
           <label htmlFor="subject" className="text-[12px] text-[color:var(--fg-secondary)]">
@@ -402,7 +409,7 @@ export default function ProductsClient() {
             これで「ページ全体スクロール」ではなく「カラム内スクロール」になり、
             内部 sticky ヘッダがちゃんと固定される */}
         {tab === "history" && (
-          <div className="grid grid-cols-1 md:grid-cols-[300px_1fr] gap-4 md:h-[calc(100vh-180px)]">
+          <div className="grid grid-cols-1 md:grid-cols-[300px_1fr] gap-4 md:h-full">
             {/* 左: 履歴一覧 + ジャンルフィルタ (内部スクロール) */}
             <div className="space-y-3 md:overflow-y-auto md:pr-1">
               {historyLoading ? (
