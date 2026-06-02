@@ -328,6 +328,16 @@ export default function IntegrationsTab() {
                       onChange={(e) => setField(def.kind, f.key, e.target.value)}
                       placeholder={f.placeholder}
                       className="input-base mt-1 font-mono"
+                      // ブラウザのパスワードマネージャーが自動入力するのを防ぐ
+                      // (Amazon アクセスキー等の API キー入力欄が誤認される)
+                      name={`integration-${def.kind}-${f.key}`}
+                      autoComplete={f.type === "password" ? "new-password" : "off"}
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
+                      data-1p-ignore="true"
+                      data-lpignore="true"
+                      data-form-type="other"
                     />
                     {f.hint && (
                       <span className="block text-[10px] text-[color:var(--fg-muted)] mt-1">
