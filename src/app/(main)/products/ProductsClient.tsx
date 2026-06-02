@@ -200,6 +200,9 @@ export default function ProductsClient() {
   }, [ideized]);
 
   async function scout() {
+    // 送信値はローカル変数に取ってから入力欄をクリア (連続スカウトで前のテキストが残らないように)
+    const subjectToSend = subject.trim();
+    setSubject("");
     setBusy(true);
     setError(null);
     setResult(null);
@@ -209,7 +212,7 @@ export default function ProductsClient() {
       const res = await fetch("/api/products/scout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subject: subject.trim() }),
+        body: JSON.stringify({ subject: subjectToSend }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "スカウト失敗");
