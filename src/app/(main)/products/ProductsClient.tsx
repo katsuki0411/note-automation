@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
+import { FilterBar, GroupTab } from "@/components/FilterBar";
 import { useGeneration } from "@/components/GenerationProvider";
 import { getCache, setCache } from "@/lib/clientCache";
 import type { FeedIdea } from "@/lib/types";
@@ -98,6 +99,8 @@ export default function ProductsClient() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [loadingHistoryId, setLoadingHistoryId] = useState<string | null>(null);
+  // タブ: 新規スカウト / 履歴一覧
+  const [tab, setTab] = useState<"new" | "history">("new");
 
   // ベストセラー画面 → 「この商品でスカウト」遷移時に q クエリで subject 上書き
   useEffect(() => {
@@ -143,6 +146,7 @@ export default function ProductsClient() {
       setExpanded(new Set());
       setIdeized(new Set());
       setError(null);
+      setTab("new"); // 履歴クリック後は「新規スカウト」タブで結果を見せる
     } catch (e) {
       alert(e instanceof Error ? e.message : "履歴取得失敗");
     } finally {
@@ -315,9 +319,24 @@ export default function ProductsClient() {
       <PageHeader
         title="商品スカウト"
         description="商品名やお題を入力すると、関連キーワードを自動生成し、Brave で上位10件分析して個人ブログでも勝てそうかを判定します。"
-      />
+      >
+        <FilterBar>
+          <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
+            <GroupTab active={tab === "new"} onClick={() => setTab("new")}>
+              新規スカウト
+            </GroupTab>
+            <GroupTab active={tab === "history"} onClick={() => setTab("history")}>
+              スカウト履歴
+              {history.length > 0 && (
+                <span className="ml-1.5 text-[10px] opacity-70">({history.length})</span>
+              )}
+            </GroupTab>
+          </div>
+        </FilterBar>
+      </PageHeader>
 
       <div className="max-w-3xl space-y-5">
+        {tab === "new" && (
         <div className="space-y-2">
           <label htmlFor="subject" className="text-[12px] text-[color:var(--fg-secondary)]">
             商品名 / お題 (例: ワイヤレスイヤホン / オーディオブック / 寝る前 ヨガマット)
@@ -347,62 +366,73 @@ export default function ProductsClient() {
             ⚠ 1回あたり Gemini × 1 / Brave Search × 25〜30 呼ばれます (Brave 無料枠 2,000req/月、月60回前後スカウト可)
           </p>
         </div>
+        )}
 
-        {error && (
+        {tab === "new" && error && (
           <div className="p-3 rounded-lg bg-red-50 text-red-700 text-[12px]">{error}</div>
         )}
 
-        {/* 過去のスカウト履歴 */}
-        {!historyLoading && history.length > 0 && (
-          <details
-            className="rounded-lg border border-[var(--border-subtle)] bg-gray-50/60"
-            open={!result}
-          >
-            <summary className="cursor-pointer select-none px-3 py-2 text-[12px] font-semibold text-[color:var(--fg-secondary)] hover:bg-gray-100 rounded-lg">
-              📚 過去のスカウト履歴 ({history.length}件)
-            </summary>
-            <ul className="px-3 pb-3 pt-1 space-y-1.5">
-              {history.map((h) => {
-                const isCurrent = result?.historyId === h.id;
-                const isLoading = loadingHistoryId === h.id;
-                return (
-                  <li
-                    key={h.id}
-                    className={`flex items-center gap-2 p-2 rounded text-[12px] ${
-                      isCurrent ? "bg-[color:var(--accent-soft)]" : "bg-white hover:bg-gray-50"
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => loadHistory(h.id)}
-                      disabled={isLoading || isCurrent}
-                      className="flex-1 min-w-0 text-left disabled:opacity-50 disabled:cursor-default"
-                      title={isCurrent ? "現在表示中" : "クリックで再表示"}
+        {/* スカウト履歴タブ */}
+        {tab === "history" && (
+          <div className="space-y-3">
+            <h2 className="section-title">スカウト履歴</h2>
+            {historyLoading ? (
+              <div className="text-[12px] text-[color:var(--fg-muted)]">読み込み中…</div>
+            ) : history.length === 0 ? (
+              <div className="p-6 rounded-lg border border-dashed border-[var(--border-card)] text-center">
+                <p className="text-[13px] text-[color:var(--fg-secondary)]">
+                  まだ履歴がありません
+                </p>
+                <p className="text-[11px] text-[color:var(--fg-muted)] mt-1">
+                  「新規スカウト」タブからスカウト実行すると、ここに自動保存されます
+                </p>
+              </div>
+            ) : (
+              <ul className="space-y-1.5">
+                {history.map((h) => {
+                  const isCurrent = result?.historyId === h.id;
+                  const isLoading = loadingHistoryId === h.id;
+                  return (
+                    <li
+                      key={h.id}
+                      className={`flex items-center gap-2 p-3 rounded-lg border text-[12px] ${
+                        isCurrent
+                          ? "bg-[color:var(--accent-soft)] border-[color:var(--accent)]"
+                          : "bg-white border-[var(--border-subtle)] hover:bg-gray-50"
+                      }`}
                     >
-                      <div className="font-semibold text-[color:var(--fg-primary)] truncate">
-                        {isLoading ? "⏳ " : isCurrent ? "👁 " : ""}
-                        {h.subject}
-                      </div>
-                      <div className="text-[10px] text-[color:var(--fg-muted)]">
-                        {h.candidate_count}件 / {new Date(h.created_at).toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" })}
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => deleteHistory(h.id, h.subject)}
-                      className="text-[10px] text-red-500 hover:text-red-700 shrink-0"
-                      title="この履歴を削除"
-                    >
-                      🗑
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </details>
+                      <button
+                        type="button"
+                        onClick={() => loadHistory(h.id)}
+                        disabled={isLoading}
+                        className="flex-1 min-w-0 text-left disabled:opacity-50 disabled:cursor-wait"
+                        title={isCurrent ? "現在表示中。クリックで再読込" : "クリックで結果を表示"}
+                      >
+                        <div className="font-semibold text-[13px] text-[color:var(--fg-primary)] truncate">
+                          {isLoading ? "⏳ " : isCurrent ? "👁 " : ""}
+                          {h.subject}
+                        </div>
+                        <div className="text-[11px] text-[color:var(--fg-muted)] mt-0.5">
+                          {h.candidate_count} 件 / {new Date(h.created_at).toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" })}
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteHistory(h.id, h.subject)}
+                        className="text-[11px] text-red-500 hover:text-red-700 shrink-0 px-2 py-1"
+                        title="この履歴を削除"
+                      >
+                        🗑 削除
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
         )}
 
-        {busy && (
+        {tab === "new" && busy && (
           <div className="p-4 rounded-lg border border-[var(--border-subtle)] bg-gray-50 text-center text-[13px] text-[color:var(--fg-secondary)]">
             ⏳ 関連KW生成 → Brave 検索で各KWの上位10件を分析中…<br />
             <span className="text-[11px] text-[color:var(--fg-muted)]">
@@ -411,7 +441,7 @@ export default function ProductsClient() {
           </div>
         )}
 
-        {result && (
+        {tab === "new" && result && (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="text-[13px]">
