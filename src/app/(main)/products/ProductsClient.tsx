@@ -630,36 +630,23 @@ export default function ProductsClient() {
                                 <div className="mt-2 flex items-center gap-1.5 flex-wrap">
                                   <span className="text-[10px] text-[color:var(--fg-muted)] mr-1">投稿先:</span>
                                   {c.destinationStatus.map((s) => {
-                                    // 競合バッジ (Brave データなのでプロンプトに依らず常時表示)
-                                    const occupiedCls = s.occupied
+                                    // 競合状況のみ表示 (プロンプト有無は投稿時にチェックするのでここでは出さない)
+                                    const cls = s.occupied
                                       ? "bg-red-50 text-red-700"
                                       : "bg-green-50 text-green-700";
-                                    const occupiedLabel = s.occupied
+                                    const label = s.occupied
                                       ? `⚠ ${s.platformLabel} 競合${s.hits}件`
                                       : `✓ ${s.platformLabel} 隙間あり`;
-                                    const occupiedTitle = s.occupied
+                                    const title = s.occupied
                                       ? `${s.platformLabel} 上位10件に ${s.hits} 件存在 → 投稿しても勝ちにくい`
                                       : `${s.platformLabel} 上位10件に該当記事なし → 投稿チャンス`;
-                                    const promptReady = s.promptReady !== false;
                                     return (
                                       <span
                                         key={s.destinationId}
-                                        className="inline-flex items-center gap-0.5"
+                                        className={`text-[10px] px-1.5 py-0.5 rounded ${cls}`}
+                                        title={title}
                                       >
-                                        <span
-                                          className={`text-[10px] px-1.5 py-0.5 rounded ${occupiedCls}`}
-                                          title={occupiedTitle}
-                                        >
-                                          {occupiedLabel}
-                                        </span>
-                                        {!promptReady && (
-                                          <span
-                                            className="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600"
-                                            title={`${s.platformLabel} のプロンプト未設定 → このdestinationでは記事生成不可。設定 → 投稿先 → プロンプトボタン から設定してください`}
-                                          >
-                                            プロンプト無
-                                          </span>
-                                        )}
+                                        {label}
                                       </span>
                                     );
                                   })}

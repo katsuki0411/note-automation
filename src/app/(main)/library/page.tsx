@@ -677,27 +677,51 @@ export default function LibraryPage() {
                     から追加してください
                   </div>
                 ) : (
-                  destinations.map((d) => (
-                    <label
-                      key={d.id}
-                      className={`flex items-center gap-2 text-[13px] cursor-pointer p-2 rounded-lg border border-[var(--border-subtle)] hover:bg-gray-50 ${
-                        !d.enabled ? "opacity-50" : ""
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedTargets.has(d.id)}
-                        onChange={() => toggleTarget(d.id)}
-                        disabled={postStatus.state === "sending" || !d.enabled}
-                      />
-                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)]">
-                        {PLATFORM_LABELS[d.platform as Platform] ?? d.platform}
-                      </span>
-                      <span className="text-[12px] text-[color:var(--fg-primary)]">
-                        {d.label}
-                      </span>
-                    </label>
-                  ))
+                  destinations.map((d) => {
+                    // プロンプト設定済かどうか (prompt_config に1つでも非空文字列があれば true)
+                    const pc = d.prompt_config as Record<string, unknown> | null | undefined;
+                    const promptReady =
+                      !!pc &&
+                      Object.values(pc).some(
+                        (v) => typeof v === "string" && v.trim().length > 0,
+                      );
+                    return (
+                      <label
+                        key={d.id}
+                        className={`flex items-center gap-2 text-[13px] cursor-pointer p-2 rounded-lg border border-[var(--border-subtle)] hover:bg-gray-50 ${
+                          !d.enabled ? "opacity-50" : ""
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedTargets.has(d.id)}
+                          onChange={() => toggleTarget(d.id)}
+                          disabled={postStatus.state === "sending" || !d.enabled}
+                        />
+                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)]">
+                          {PLATFORM_LABELS[d.platform as Platform] ?? d.platform}
+                        </span>
+                        <span className="text-[12px] text-[color:var(--fg-primary)] flex-1">
+                          {d.label}
+                        </span>
+                        {promptReady ? (
+                          <span
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-green-50 text-green-700"
+                            title="プロンプト設定済"
+                          >
+                            ✓ プロンプト有
+                          </span>
+                        ) : (
+                          <span
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-700"
+                            title="プロンプト未設定。設定→投稿先→プロンプトボタン から設定してください"
+                          >
+                            ⚠ プロンプト無
+                          </span>
+                        )}
+                      </label>
+                    );
+                  })
                 )}
               </div>
             </div>
