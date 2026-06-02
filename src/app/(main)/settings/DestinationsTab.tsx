@@ -266,6 +266,11 @@ export default function DestinationsTab() {
   const addablePlatforms: Platform[] = (Object.keys(PLATFORM_LABELS) as Platform[]).filter(
     (p) => !ADD_EXCLUDED_PLATFORMS.has(p),
   );
+  // 編集モード時は現 destination の platform が除外リストに入っていても表示する
+  // (note は ADD_EXCLUDED に入っているが、編集モードでは select で正しく表示する必要があるため)
+  const visiblePlatforms: Platform[] = isEditMode && !addablePlatforms.includes(platform)
+    ? [platform, ...addablePlatforms]
+    : addablePlatforms;
 
   return (
     <div className="max-w-2xl space-y-5">
@@ -535,7 +540,7 @@ export default function DestinationsTab() {
               disabled={isEditMode}
               className="input-base mt-1 disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              {addablePlatforms.map((p) => (
+              {visiblePlatforms.map((p) => (
                 <option key={p} value={p}>
                   {PLATFORM_LABELS[p]}
                   {PLATFORM_CONFIG_SCHEMA[p]?.notImplementedYet ? " (投稿実装準備中)" : ""}
@@ -621,7 +626,23 @@ export default function DestinationsTab() {
               type="url"
               value={configValues.myUrlPrefix ?? ""}
               onChange={(e) => changeConfigField("myUrlPrefix", e.target.value)}
-              placeholder="例: https://katsugram.hatenadiary.com/"
+              placeholder={
+                platform === "note"
+                  ? "例: https://note.com/〇〇〇/"
+                  : platform === "hatena"
+                    ? "例: https://〇〇〇.hatenablog.com/"
+                    : platform === "livedoor"
+                      ? "例: https://blog.livedoor.jp/〇〇〇/"
+                      : platform === "fc2"
+                        ? "例: https://〇〇〇.blog.fc2.com/"
+                        : platform === "seesaa"
+                          ? "例: https://〇〇〇.seesaa.net/"
+                          : platform === "blogger"
+                            ? "例: https://〇〇〇.blogspot.com/"
+                            : platform === "ameba"
+                              ? "例: https://ameblo.jp/〇〇〇/"
+                              : "例: https://〇〇〇.com/"
+              }
               className="input-base mt-1 font-mono"
             />
             <span className="block text-[10px] text-[color:var(--fg-muted)] mt-1">
