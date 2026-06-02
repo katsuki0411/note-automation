@@ -5,6 +5,7 @@ import PageHeader from "@/components/PageHeader";
 import { FilterBar, GroupTab } from "@/components/FilterBar";
 import DestinationsTab from "./DestinationsTab";
 import IntegrationsTab from "./IntegrationsTab";
+import AccountsTab from "./AccountsTab";
 import {
   ARTICLE_MODEL_OPTIONS,
   DEFAULT_ARTICLE_MODEL,
@@ -15,7 +16,7 @@ import {
 
 // 「自分の記事URL」タブは 2026-06-02 廃止。各 destination の編集フォーム内
 // 「自分の記事URL (任意)」欄に統合した (DestinationsTab 参照)。
-type Tab = "destinations" | "model" | "integrations";
+type Tab = "destinations" | "model" | "integrations" | "accounts";
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>("destinations");
@@ -62,12 +63,16 @@ export default function SettingsPage() {
             <GroupTab active={tab === "integrations"} onClick={() => setTab("integrations")}>
               API連携
             </GroupTab>
+            <GroupTab active={tab === "accounts"} onClick={() => setTab("accounts")}>
+              アカウント
+            </GroupTab>
           </div>
         </FilterBar>
       </PageHeader>
 
       {tab === "destinations" && <DestinationsTab />}
       {tab === "integrations" && <IntegrationsTab />}
+      {tab === "accounts" && <AccountsTab />}
 
       {tab === "model" && (
         <div className="max-w-2xl space-y-4">
