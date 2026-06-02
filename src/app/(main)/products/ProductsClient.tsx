@@ -415,15 +415,15 @@ export default function ProductsClient() {
                 </div>
               ) : (
                 <>
-                  {/* ジャンルフィルタ (プルダウン) + 未分類バックフィル */}
+                  {/* ジャンルフィルタ + 未分類バックフィル (左カラムのスクロール時に固定) */}
                   {(() => {
                     const cats = Array.from(
                       new Set(history.map((h) => h.category).filter((c): c is string => !!c)),
                     ).sort();
                     const uncategorized = history.filter((h) => !h.category).length;
                     return (
-                      <div className="space-y-1.5">
-                        {cats.length > 0 && (
+                      <div className="sticky top-0 z-10 bg-white border-b border-[var(--border-subtle)] pb-2 mb-2 space-y-1.5 min-h-[60px]">
+                        {cats.length > 0 ? (
                           <label className="block">
                             <span className="text-[10px] text-[color:var(--fg-muted)]">
                               ジャンルで絞り込み
@@ -444,6 +444,10 @@ export default function ProductsClient() {
                               })}
                             </select>
                           </label>
+                        ) : (
+                          <div className="text-[10px] text-[color:var(--fg-muted)] py-2">
+                            履歴 {history.length} 件
+                          </div>
                         )}
                         {/* バックフィル: 未分類が残ってる時だけ表示 */}
                         {uncategorized > 0 && (
@@ -532,11 +536,16 @@ export default function ProductsClient() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  <div className="text-[13px]">
-                    <span className="font-semibold">{result.subject}</span> のスカウト結果:{" "}
-                    <span className="text-[color:var(--fg-secondary)]">
-                      {result.candidateCount} 件の関連KW (機会スコア降順)
-                    </span>
+                  {/* タイトル (右カラムのスクロール時に固定。左の絞り込みヘッダと高さ合わせ) */}
+                  <div className="sticky top-0 z-10 bg-white border-b border-[var(--border-subtle)] pb-2 mb-2 text-[13px] min-h-[60px] flex items-center">
+                    <div>
+                      <div className="text-[10px] text-[color:var(--fg-muted)]">
+                        スカウト結果 {result.candidateCount} 件 (機会スコア降順)
+                      </div>
+                      <div className="font-semibold text-[color:var(--fg-primary)] line-clamp-2 leading-snug mt-0.5">
+                        {result.subject}
+                      </div>
+                    </div>
                   </div>
                   <ul className="space-y-2">
                     {result.candidates.map((c, i) => {
