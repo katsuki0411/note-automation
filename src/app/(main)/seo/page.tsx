@@ -224,7 +224,6 @@ export default function SeoPage() {
     <>
       <PageHeader
         title="SEO順位チェック"
-        description={`Brave Searchで上位10位までスキャン・毎日10時自動更新。追跡中${enabledCount}/${targets.length}件`}
         right={
           <>
             <button

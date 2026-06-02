@@ -48,10 +48,7 @@ export default function SettingsPage() {
 
   return (
     <>
-      <PageHeader
-        title="設定"
-        description="投稿先・記事生成モデル・API連携を管理します。"
-      >
+      <PageHeader title="設定">
         <FilterBar>
           <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
             <GroupTab active={tab === "destinations"} onClick={() => setTab("destinations")}>
