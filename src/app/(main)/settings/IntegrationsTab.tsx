@@ -320,48 +320,58 @@ export default function IntegrationsTab() {
           return (
             <li
               key={def.kind}
-              className="p-4 rounded-lg border border-[var(--border-subtle)] space-y-3 bg-white"
+              className="rounded-lg border border-[var(--border-subtle)] bg-white overflow-hidden"
             >
-              <div className="flex items-start gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="text-[14px] font-semibold text-[color:var(--fg-primary)]">
-                      {def.title}
-                    </h3>
-                    {def.badge && (
-                      <span
-                        className={`text-[10px] px-1.5 py-0.5 rounded ${
-                          def.scope === "project"
-                            ? "bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)]"
-                            : "bg-blue-50 text-blue-700"
-                        }`}
-                      >
-                        {def.badge}
-                      </span>
-                    )}
-                    {hasAnyValue && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-700">
-                        ✓ 設定済
-                      </span>
-                    )}
+              <details className="group">
+                <summary className="list-none cursor-pointer p-4 hover:bg-gray-50 flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-[14px] font-semibold text-[color:var(--fg-primary)]">
+                        {def.title}
+                      </h3>
+                      {def.badge && (
+                        <span
+                          className={`text-[10px] px-1.5 py-0.5 rounded ${
+                            def.scope === "project"
+                              ? "bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)]"
+                              : "bg-blue-50 text-blue-700"
+                          }`}
+                        >
+                          {def.badge}
+                        </span>
+                      )}
+                      {hasAnyValue ? (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-700">
+                          ✓ 設定済
+                        </span>
+                      ) : (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
+                          未設定
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[12px] text-[color:var(--fg-secondary)] leading-snug mt-1 line-clamp-1 group-open:line-clamp-none">
+                      {def.description}
+                    </p>
                   </div>
-                  <p className="text-[12px] text-[color:var(--fg-secondary)] leading-snug mt-1">
-                    {def.description}
-                  </p>
+                  <span className="shrink-0 text-[12px] text-[color:var(--fg-muted)] group-open:rotate-180 transition-transform">
+                    ▾
+                  </span>
+                </summary>
+
+                <div className="px-4 pb-4 pt-1 space-y-3 border-t border-[var(--border-subtle)]">
                   {def.envFallbackNote && (
-                    <p className="text-[10px] text-[color:var(--fg-muted)] mt-0.5">
+                    <p className="text-[10px] text-[color:var(--fg-muted)]">
                       ℹ {def.envFallbackNote}
                     </p>
                   )}
                   {def.restartRequired && (
-                    <p className="text-[10px] text-orange-700 mt-0.5">
+                    <p className="text-[10px] text-orange-700">
                       ⚠ このAPIはシングルトンSDK経由のため、保存後に dev server 再起動が必要
                     </p>
                   )}
-                </div>
-              </div>
 
-              <div className="grid gap-2">
+                  <div className="grid gap-2">
                 {def.fields.map((f) => (
                   <label key={f.key} className="block">
                     <span className="text-[11px] text-[color:var(--fg-secondary)]">
@@ -391,34 +401,36 @@ export default function IntegrationsTab() {
                     )}
                   </label>
                 ))}
-              </div>
-
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-[11px] text-[color:var(--fg-muted)]">
-                  {updated && (
-                    <span>
-                      最終更新:{" "}
-                      {new Date(updated).toLocaleString("ja-JP", {
-                        dateStyle: "short",
-                        timeStyle: "short",
-                      })}
-                    </span>
-                  )}
-                  {justSaved && (
-                    <span className="text-[color:var(--accent-dark)] font-semibold">
-                      ✓ 保存しました
-                    </span>
-                  )}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => save(def)}
-                  disabled={isSaving}
-                  className="btn-accent disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  {isSaving ? "保存中…" : "保存"}
-                </button>
+
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 text-[11px] text-[color:var(--fg-muted)]">
+                    {updated && (
+                      <span>
+                        最終更新:{" "}
+                        {new Date(updated).toLocaleString("ja-JP", {
+                          dateStyle: "short",
+                          timeStyle: "short",
+                        })}
+                      </span>
+                    )}
+                    {justSaved && (
+                      <span className="text-[color:var(--accent-dark)] font-semibold">
+                        ✓ 保存しました
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => save(def)}
+                    disabled={isSaving}
+                    className="btn-accent disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    {isSaving ? "保存中…" : "保存"}
+                  </button>
+                </div>
               </div>
+              </details>
             </li>
           );
         })}
