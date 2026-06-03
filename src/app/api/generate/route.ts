@@ -242,8 +242,17 @@ export async function POST(req: NextRequest) {
         promptSource: resolved.source,
       });
     } catch (e) {
+      // Vercel runtime logs に詳細を残す (デフォルトの 500 ハンドラだと message が省略される)
+      console.error("[/api/generate] failed:", e);
+      if (e instanceof Error && e.stack) {
+        console.error("[/api/generate] stack:", e.stack);
+      }
       const message = e instanceof Error ? e.message : "unknown error";
-      return Response.json({ error: message }, { status: 500 });
+      const stack = e instanceof Error ? e.stack : undefined;
+      return Response.json(
+        { error: message, stack },
+        { status: 500 },
+      );
     }
   });
 }
