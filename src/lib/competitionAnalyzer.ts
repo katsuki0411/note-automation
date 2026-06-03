@@ -1,56 +1,29 @@
-// 指定 KW で Brave 上位N件を取得し、(1) 固定ドメイン分類 と (2) Gemini AI 五軸評価
+// 指定 KW で Google 上位N件を取得し、(1) 固定ドメイン分類 と (2) Gemini AI 五軸評価
 // の両方で SEO/LLMO 競合度を判定する。
 //
 // (1) 固定分類は早くて安定だが新興メディアを取りこぼす。
 // (2) Gemini 評価は動的でかつ intent との整合性 / LLMO 適性 まで判定するが、
 //     ハルシネーションの可能性あり。両方並べて表示し、ユーザーが見比べる設計。
 //
-// SCAN_DEPTH=10 なら count=10 を1リクエストで取得し、Brave 無料枠 (2,000req/月) で
-// 月 250 回程度のスカウト (1 KW = 1 req × 6〜8 KW/回) が可能。
+// 2026-06-03: Brave Search API → DataForSEO Google SERP API に完全移行。
+// Google順位ベースの正確な判定 + $0.0006/query で大量取得可能。
 
 import { gemini, MODELS } from "./gemini";
+import { fetchSerpInternal } from "./dataforseo";
 import { detectPlatformOccupancy } from "./platformDomain";
 import type { Platform } from "./posters/types";
 
-const BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search";
 const SCAN_DEPTH = 10;
-// Brave API の1ページ上限 (max 20)。SCAN_DEPTH を増やしてもこのサイズを超えるとページ送り
-const PAGE_SIZE = 20;
 
-type BraveItem = { url?: string; title?: string };
-type BraveResponse = { web?: { results?: BraveItem[] } };
-
+/**
+ * 指定 KW で Google 上位 N件を取得 (DataForSEO 経由)。
+ * 旧 Brave Search 用の Pagination インターフェースは廃止 (DataForSEO は1リクエストで取得可)。
+ */
 async function fetchSearchPage(
   query: string,
-  pageOffset: number,
 ): Promise<{ url: string; title: string }[]> {
-  const apiKey = process.env.BRAVE_SEARCH_API_KEY;
-  if (!apiKey) throw new Error("BRAVE_SEARCH_API_KEY が未設定です");
-  const url = new URL(BRAVE_ENDPOINT);
-  url.searchParams.set("q", query);
-  // SCAN_DEPTH=10 のとき count=10 で1リクエスト完結 (リクエスト数削減のため)
-  url.searchParams.set("count", String(Math.min(PAGE_SIZE, SCAN_DEPTH)));
-  url.searchParams.set("offset", String(pageOffset));
-  url.searchParams.set("country", "JP");
-  url.searchParams.set("search_lang", "jp");
-  url.searchParams.set("ui_lang", "ja-JP");
-  url.searchParams.set("safesearch", "off");
-
-  const res = await fetch(url.toString(), {
-    headers: {
-      "X-Subscription-Token": apiKey,
-      Accept: "application/json",
-    },
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Brave Search error ${res.status}: ${text.slice(0, 200)}`);
-  }
-  const data = (await res.json()) as BraveResponse;
-  return (data.web?.results ?? [])
-    .map((it) => ({ url: it.url ?? "", title: it.title ?? "" }))
-    .filter((r) => r.url);
+  const serp = await fetchSerpInternal(query, { depth: SCAN_DEPTH });
+  return serp.results.map((it) => ({ url: it.url, title: it.title }));
 }
 
 // 上位ドメインの分類
@@ -291,16 +264,9 @@ export async function analyzeKeyword(
   kw: string,
   opts: { intent?: string; useAI?: boolean } = {},
 ): Promise<CompetitionResult> {
-  const totalPages = Math.ceil(SCAN_DEPTH / PAGE_SIZE);
-  const all: { url: string; title: string }[] = [];
-  for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
-    const items = await fetchSearchPage(kw, pageIdx);
-    for (const it of items) {
-      if (all.length >= SCAN_DEPTH) break;
-      all.push(it);
-    }
-    if (items.length < PAGE_SIZE) break;
-  }
+  // DataForSEO は1リクエストで指定件数取れるのでループ不要
+  const items = await fetchSearchPage(kw);
+  const all = items.slice(0, SCAN_DEPTH);
 
   const buckets: CompetitionBucket = {
     big_ec: 0,

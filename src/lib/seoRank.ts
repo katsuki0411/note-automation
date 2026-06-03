@@ -198,44 +198,18 @@ export async function deleteTarget(projectId: string, id: string): Promise<boole
   return result.count > 0;
 }
 
-// ===== Brave Search API による順位スキャン =====
+// ===== DataForSEO Google SERP API による順位スキャン =====
+// 2026-06-03: Brave → DataForSEO に完全移行。
+// Google順位ベースで正確、$0.0006/query で経済的。
 
-const BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search";
-// 上位10件まで追跡 (10位以内に入っているかが Visible Click-Rate のしきい値のため十分)。
-// 30→10 縮小で 1ターゲットあたり最大2req → 1req になり、Brave 無料枠の消費を半減。
+import { fetchSerpInternal } from "./dataforseo";
+
+// 上位10件まで追跡 (10位以内が事実上のクリック圏)。
 const SCAN_DEPTH = 10;
-const PAGE_SIZE = 20;
 
-type BraveItem = { url?: string };
-type BraveResponse = { web?: { results?: BraveItem[] } };
-
-async function fetchSearchPage(query: string, pageOffset: number): Promise<string[]> {
-  const apiKey = process.env.BRAVE_SEARCH_API_KEY;
-  if (!apiKey) throw new Error("BRAVE_SEARCH_API_KEY が未設定です");
-
-  const url = new URL(BRAVE_ENDPOINT);
-  url.searchParams.set("q", query);
-  // count は SCAN_DEPTH と PAGE_SIZE の小さい方 (SCAN_DEPTH=10 なら1リクエスト完結)
-  url.searchParams.set("count", String(Math.min(PAGE_SIZE, SCAN_DEPTH)));
-  url.searchParams.set("offset", String(pageOffset));
-  url.searchParams.set("country", "JP");
-  url.searchParams.set("search_lang", "jp");
-  url.searchParams.set("ui_lang", "ja-JP");
-  url.searchParams.set("safesearch", "off");
-
-  const res = await fetch(url.toString(), {
-    headers: {
-      "X-Subscription-Token": apiKey,
-      Accept: "application/json",
-    },
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Brave Search error ${res.status}: ${text.slice(0, 200)}`);
-  }
-  const data = (await res.json()) as BraveResponse;
-  return (data.web?.results ?? []).map((it) => it.url ?? "").filter(Boolean);
+async function fetchSearchPage(query: string): Promise<string[]> {
+  const serp = await fetchSerpInternal(query, { depth: SCAN_DEPTH });
+  return serp.results.map((r) => r.url).filter(Boolean);
 }
 
 export type ScanResult = {
@@ -246,29 +220,28 @@ export type ScanResult = {
 };
 
 export async function scanRank(kw: string, targetUrlPrefix: string): Promise<ScanResult> {
-  let scanned = 0;
   try {
-    const totalPages = Math.ceil(SCAN_DEPTH / PAGE_SIZE);
-    for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
-      const urls = await fetchSearchPage(kw, pageIdx);
-      for (let i = 0; i < urls.length; i++) {
-        if (scanned >= SCAN_DEPTH) break;
-        scanned++;
-        if (urls[i].startsWith(targetUrlPrefix)) {
-          return {
-            rank: pageIdx * PAGE_SIZE + i + 1,
-            foundUrl: urls[i],
-            totalScanned: scanned,
-            error: null,
-          };
-        }
+    // DataForSEO は1リクエストで指定件数取れるのでループ不要
+    const urls = await fetchSearchPage(kw);
+    for (let i = 0; i < urls.length && i < SCAN_DEPTH; i++) {
+      if (urls[i].startsWith(targetUrlPrefix)) {
+        return {
+          rank: i + 1,
+          foundUrl: urls[i],
+          totalScanned: Math.min(urls.length, SCAN_DEPTH),
+          error: null,
+        };
       }
-      if (urls.length < PAGE_SIZE) break;
     }
-    return { rank: null, foundUrl: null, totalScanned: scanned, error: null };
+    return {
+      rank: null,
+      foundUrl: null,
+      totalScanned: Math.min(urls.length, SCAN_DEPTH),
+      error: null,
+    };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "unknown";
-    return { rank: null, foundUrl: null, totalScanned: scanned, error: msg };
+    return { rank: null, foundUrl: null, totalScanned: 0, error: msg };
   }
 }
 

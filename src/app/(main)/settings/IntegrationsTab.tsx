@@ -24,7 +24,6 @@ type IntegrationsResponse = {
     a8_net: IntegrationRow | null;
   };
   user: {
-    brave_search: IntegrationRow | null;
     gemini: IntegrationRow | null;
     claude: IntegrationRow | null;
     ahrefs: IntegrationRow | null;
@@ -111,25 +110,7 @@ const INTEGRATION_DEFS: IntegrationDef[] = [
       },
     ],
   },
-  {
-    scope: "user",
-    kind: "brave_search",
-    title: "Brave Search API",
-    description:
-      "商品スカウト / SEO順位スキャンで使用する検索 API。空欄なら環境変数 BRAVE_SEARCH_API_KEY を使用。",
-    badge: "ユーザー単位",
-    envFallbackNote: "未設定なら .env.local の BRAVE_SEARCH_API_KEY を使用",
-    restartRequired: true,
-    fields: [
-      {
-        key: "api_key",
-        label: "API キー",
-        type: "password",
-        placeholder: "BSA... で始まるキー",
-        hint: "https://api-dashboard.search.brave.com/ で発行",
-      },
-    ],
-  },
+  // Brave Search は 2026-06-03 廃止 (DataForSEO に完全移行)
   {
     scope: "user",
     kind: "gemini",

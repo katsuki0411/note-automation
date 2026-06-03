@@ -54,7 +54,6 @@ export async function POST(req: NextRequest) {
       );
     } else if (body.scope === "user") {
       const userKinds: UserIntegrationKind[] = [
-        "brave_search",
         "gemini",
         "claude",
         "ahrefs",

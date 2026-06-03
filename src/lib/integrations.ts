@@ -10,8 +10,8 @@ import { sql } from "./db";
 // =========================================================
 
 export type ProjectIntegrationKind = "amazon_associate" | "a8_net";
+// brave_search は 2026-06-03 廃止 (DataForSEO に完全移行済み)
 export type UserIntegrationKind =
-  | "brave_search"
   | "gemini"
   | "claude"
   | "ahrefs"
@@ -96,7 +96,6 @@ export async function listUserIntegrations(
     where user_id = ${userId}
   `;
   const map: Record<string, IntegrationRow | null> = {
-    brave_search: null,
     gemini: null,
     claude: null,
     ahrefs: null,
@@ -125,15 +124,6 @@ export async function upsertUserIntegration(
 }
 
 // ---------------- env フォールバック関数 (利用側 lib 用) ----------------
-
-/**
- * Brave Search API キー: user_integrations → env.BRAVE_SEARCH_API_KEY の順
- */
-export async function resolveBraveSearchKey(userId: string): Promise<string | null> {
-  const row = await getUserIntegration<{ api_key?: string }>(userId, "brave_search");
-  const dbKey = row?.enabled ? row.config.api_key?.trim() : undefined;
-  return dbKey || process.env.BRAVE_SEARCH_API_KEY || null;
-}
 
 /**
  * Gemini API キー: user_integrations → env.GEMINI_API_KEY の順
