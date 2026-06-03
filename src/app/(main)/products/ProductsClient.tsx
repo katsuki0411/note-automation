@@ -152,13 +152,44 @@ export default function ProductsClient() {
   async function loadHistory(id: string) {
     setLoadingHistoryId(id);
     try {
-      const res = await fetch(`/api/products/scout/history/${id}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "履歴取得失敗");
+      // 履歴本体 + 最新 destinations を並列取得 (履歴保存後にプロンプト設定された場合に
+      // 古い destinationStatus.promptReady を最新値で上書きするため)
+      const [histRes, destsRes] = await Promise.all([
+        fetch(`/api/products/scout/history/${id}`),
+        fetch("/api/destinations"),
+      ]);
+      const data = await histRes.json();
+      if (!histRes.ok) throw new Error(data.error ?? "履歴取得失敗");
+      const destsData = (await destsRes.json()) as {
+        destinations?: Array<{ id: string; prompt_config?: unknown }>;
+      };
+      // destinationId → 現在の promptReady のマップ
+      const promptReadyMap = new Map<string, boolean>();
+      for (const d of destsData.destinations ?? []) {
+        const pc = d.prompt_config as Record<string, unknown> | null | undefined;
+        const ready =
+          !!pc &&
+          Object.values(pc).some(
+            (v) => typeof v === "string" && v.trim().length > 0,
+          );
+        promptReadyMap.set(d.id, ready);
+      }
+      // candidates の destinationStatus.promptReady を最新値で上書き
+      const candidates = (data.candidates as ScoutCandidate[] | undefined) ?? [];
+      for (const c of candidates) {
+        if (c.destinationStatus) {
+          for (const s of c.destinationStatus) {
+            if (promptReadyMap.has(s.destinationId)) {
+              s.promptReady = promptReadyMap.get(s.destinationId);
+            }
+          }
+        }
+      }
+
       const restored: ScoutResponse = {
         subject: data.subject,
         candidateCount: data.candidateCount,
-        candidates: data.candidates,
+        candidates,
         historyId: data.id,
       };
       // 履歴クリック時は subject 入力欄を触らない (新規スカウトタブに切替えた時に過去
