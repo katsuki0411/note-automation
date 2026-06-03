@@ -61,8 +61,40 @@ function mockSerp(kw: string): SerpResponse {
 }
 
 /**
+ * env からのみ認証情報を取得する内部関数 (lib 内部での呼び出し用、userId 不要)
+ */
+function envCredentials(): { login: string; password: string } | null {
+  const login = process.env.DATAFORSEO_LOGIN?.trim();
+  const password = process.env.DATAFORSEO_PASSWORD?.trim();
+  if (login && password) return { login, password };
+  return null;
+}
+
+/**
+ * 内部呼出用 SERP 取得 (userId 不要、env のみ参照)。
+ * competitionAnalyzer / seoRank などの lib から呼ぶ用。
+ * Brave Search API を完全置換した。
+ */
+export async function fetchSerpInternal(
+  kw: string,
+  opts: { depth?: number; locationCode?: number; languageCode?: string } = {},
+): Promise<SerpResponse> {
+  if (process.env.DATAFORSEO_USE_MOCK === "true") {
+    return mockSerp(kw);
+  }
+  const creds = envCredentials();
+  if (!creds) {
+    throw new Error(
+      "DataForSEO 認証情報が未設定 (env: DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD)",
+    );
+  }
+  return fetchSerpWithCreds(creds, kw, opts);
+}
+
+/**
  * 1つの KW で Google 上位N件を取得 (Live モード: リアルタイム結果、$0.002/query)
  * 結果は最大 10件。location は日本 (2392)、言語は日本語。
+ * userId 経由で user_integrations から認証情報を取得 → env フォールバック
  */
 export async function fetchSerpLive(
   userId: string,
@@ -77,6 +109,17 @@ export async function fetchSerpLive(
   if (!creds) {
     throw new Error("DataForSEO 認証情報が未設定。設定→API連携 で登録してください");
   }
+  return fetchSerpWithCreds(creds, kw, opts);
+}
+
+/**
+ * 実際の API 呼出 (credentials を引数で受け取る共通関数)
+ */
+async function fetchSerpWithCreds(
+  creds: { login: string; password: string },
+  kw: string,
+  opts: { depth?: number; locationCode?: number; languageCode?: string } = {},
+): Promise<SerpResponse> {
 
   const body = [
     {
