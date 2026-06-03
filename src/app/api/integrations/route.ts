@@ -53,7 +53,13 @@ export async function POST(req: NextRequest) {
         body.enabled ?? true,
       );
     } else if (body.scope === "user") {
-      const userKinds: UserIntegrationKind[] = ["brave_search", "gemini", "claude"];
+      const userKinds: UserIntegrationKind[] = [
+        "brave_search",
+        "gemini",
+        "claude",
+        "ahrefs",
+        "dataforseo",
+      ];
       if (!userKinds.includes(body.kind as UserIntegrationKind)) {
         return Response.json({ error: `不正な kind: ${body.kind}` }, { status: 400 });
       }

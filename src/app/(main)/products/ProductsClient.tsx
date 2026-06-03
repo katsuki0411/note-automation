@@ -105,6 +105,11 @@ export default function ProductsClient() {
   // 履歴ジャンルフィルタ ("" = すべて表示)
   const [historyCategoryFilter, setHistoryCategoryFilter] = useState<string>("");
   const [backfilling, setBackfilling] = useState(false);
+  // Ahrefs 精査結果 (KWごと)
+  const [ahrefsMetrics, setAhrefsMetrics] = useState<
+    Record<string, { kd: number | null; vol: number | null; cpc: number | null }>
+  >({});
+  const [refining, setRefining] = useState<Set<string>>(new Set());
 
   // ベストセラー画面 → 「この商品でスカウト」遷移時に q クエリで subject 上書き
   useEffect(() => {
@@ -167,6 +172,35 @@ export default function ProductsClient() {
       alert(e instanceof Error ? e.message : "履歴取得失敗");
     } finally {
       setLoadingHistoryId(null);
+    }
+  }
+
+  async function refineKw(kw: string) {
+    setRefining((s) => new Set([...s, kw]));
+    try {
+      const res = await fetch("/api/products/scout/refine", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kw }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Ahrefs 精査失敗");
+      setAhrefsMetrics((m) => ({
+        ...m,
+        [kw]: {
+          kd: data.metrics?.keywordDifficulty ?? null,
+          vol: data.metrics?.searchVolume ?? null,
+          cpc: data.metrics?.cpc ?? null,
+        },
+      }));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Ahrefs 精査失敗");
+    } finally {
+      setRefining((s) => {
+        const n = new Set(s);
+        n.delete(kw);
+        return n;
+      });
     }
   }
 
@@ -613,6 +647,30 @@ export default function ProductsClient() {
                                 EC {c.buckets.big_ec} / 比較メディア {c.buckets.big_media} /
                                 個人ブログ {c.buckets.individual_blog} / その他 {c.buckets.other}
                               </div>
+                              {ahrefsMetrics[c.kw] && (
+                                <div className="mt-2 p-2 rounded bg-orange-50 border border-orange-100">
+                                  <div className="flex items-center gap-2 flex-wrap text-[10px]">
+                                    <span className="font-mono text-orange-700 font-semibold">
+                                      🔬 Ahrefs
+                                    </span>
+                                    {ahrefsMetrics[c.kw].kd !== null && (
+                                      <span className="text-[color:var(--fg-secondary)]">
+                                        KD <strong>{ahrefsMetrics[c.kw].kd}</strong>
+                                      </span>
+                                    )}
+                                    {ahrefsMetrics[c.kw].vol !== null && (
+                                      <span className="text-[color:var(--fg-secondary)]">
+                                        月Vol <strong>{ahrefsMetrics[c.kw].vol?.toLocaleString("ja-JP")}</strong>
+                                      </span>
+                                    )}
+                                    {ahrefsMetrics[c.kw].cpc !== null && (
+                                      <span className="text-[color:var(--fg-secondary)]">
+                                        CPC <strong>${ahrefsMetrics[c.kw].cpc?.toFixed(2)}</strong>
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
                               {c.ai && (
                                 <div className="mt-2 p-2 rounded bg-purple-50 border border-purple-100">
                                   <div className="flex items-center gap-2 flex-wrap text-[10px]">
@@ -673,6 +731,15 @@ export default function ProductsClient() {
                                 className="text-[10px] px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
                               >
                                 {isOpen ? "閉じる" : "URL"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => refineKw(c.kw)}
+                                disabled={refining.has(c.kw)}
+                                className="text-[10px] px-2 py-1 rounded whitespace-nowrap bg-orange-50 text-orange-700 hover:bg-orange-100 disabled:opacity-50 disabled:cursor-wait"
+                                title="Ahrefs で KD/検索Vol/CPC を取得 (50 units 消費)"
+                              >
+                                {refining.has(c.kw) ? "⏳" : ahrefsMetrics[c.kw] ? "🔬 再精査" : "🔬 Ahrefs精査"}
                               </button>
                               <button
                                 type="button"

@@ -27,6 +27,8 @@ type IntegrationsResponse = {
     brave_search: IntegrationRow | null;
     gemini: IntegrationRow | null;
     claude: IntegrationRow | null;
+    ahrefs: IntegrationRow | null;
+    dataforseo: IntegrationRow | null;
   };
 };
 
@@ -163,6 +165,49 @@ const INTEGRATION_DEFS: IntegrationDef[] = [
         type: "password",
         placeholder: "sk-ant-api03-... で始まるキー",
         hint: "https://console.anthropic.com/ で発行",
+      },
+    ],
+  },
+  {
+    scope: "user",
+    kind: "ahrefs",
+    title: "Ahrefs API",
+    description:
+      "KD (キーワード難易度) / 検索Vol / CPC / DR / 被リンク取得。Lite プラン以上で API token 発行可。月10,000 units (= 約200 query) なので「上澄み KW のピンポイント精査」用。",
+    badge: "ユーザー単位",
+    envFallbackNote: "未設定なら .env.local の AHREFS_API_TOKEN を使用",
+    fields: [
+      {
+        key: "api_token",
+        label: "API トークン",
+        type: "password",
+        placeholder: "Ahrefs Dashboard → API → Token",
+        hint: "https://ahrefs.com/api → Generate token で発行",
+      },
+    ],
+  },
+  {
+    scope: "user",
+    kind: "dataforseo",
+    title: "DataForSEO",
+    description:
+      "Google SERP の大量取得 ($0.0006/query)。商品スカウトの「広く取る」段で使用。Basic 認証 (login + password)。",
+    badge: "ユーザー単位",
+    envFallbackNote: "未設定なら .env.local の DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD を使用",
+    fields: [
+      {
+        key: "login",
+        label: "ログイン (メアド)",
+        type: "text",
+        placeholder: "DataForSEO 登録メアド",
+        hint: "https://app.dataforseo.com → My Profile",
+      },
+      {
+        key: "password",
+        label: "パスワード (API)",
+        type: "password",
+        placeholder: "Settings → API Access の パスワード",
+        hint: "ログインpassではなく API用 password (画面に表示される)",
       },
     ],
   },

@@ -10,7 +10,12 @@ import { sql } from "./db";
 // =========================================================
 
 export type ProjectIntegrationKind = "amazon_associate" | "a8_net";
-export type UserIntegrationKind = "brave_search" | "gemini" | "claude";
+export type UserIntegrationKind =
+  | "brave_search"
+  | "gemini"
+  | "claude"
+  | "ahrefs"
+  | "dataforseo";
 
 export type IntegrationRow<T = Record<string, unknown>> = {
   config: T;
@@ -94,6 +99,8 @@ export async function listUserIntegrations(
     brave_search: null,
     gemini: null,
     claude: null,
+    ahrefs: null,
+    dataforseo: null,
   };
   for (const r of rows) {
     map[r.kind] = { config: r.config, enabled: r.enabled, updated_at: r.updated_at };
@@ -144,6 +151,38 @@ export async function resolveClaudeKey(userId: string): Promise<string | null> {
   const row = await getUserIntegration<{ api_key?: string }>(userId, "claude");
   const dbKey = row?.enabled ? row.config.api_key?.trim() : undefined;
   return dbKey || process.env.ANTHROPIC_API_KEY || null;
+}
+
+/**
+ * Ahrefs API トークン: user_integrations → env.AHREFS_API_TOKEN の順
+ */
+export async function resolveAhrefsToken(userId: string): Promise<string | null> {
+  const row = await getUserIntegration<{ api_token?: string }>(userId, "ahrefs");
+  const dbKey = row?.enabled ? row.config.api_token?.trim() : undefined;
+  return dbKey || process.env.AHREFS_API_TOKEN || null;
+}
+
+/**
+ * DataForSEO 認証情報: user_integrations → env (DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD) の順
+ * Basic 認証なので login + password の2フィールド構成
+ */
+export type DataForSeoCredentials = { login: string; password: string };
+export async function resolveDataForSeoCredentials(
+  userId: string,
+): Promise<DataForSeoCredentials | null> {
+  const row = await getUserIntegration<{ login?: string; password?: string }>(
+    userId,
+    "dataforseo",
+  );
+  if (row?.enabled) {
+    const login = row.config.login?.trim();
+    const password = row.config.password?.trim();
+    if (login && password) return { login, password };
+  }
+  const envLogin = process.env.DATAFORSEO_LOGIN?.trim();
+  const envPass = process.env.DATAFORSEO_PASSWORD?.trim();
+  if (envLogin && envPass) return { login: envLogin, password: envPass };
+  return null;
 }
 
 /**
