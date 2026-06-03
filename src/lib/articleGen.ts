@@ -3,7 +3,8 @@ import { gemini } from "./gemini";
 
 export type ArticleModel = "claude" | "gemini";
 
-export const DEFAULT_ARTICLE_MODEL: ArticleModel = "claude";
+// デフォルトは Gemini 2.5 Pro (Claude は別途 Anthropic クレジット課金が必要なため)
+export const DEFAULT_ARTICLE_MODEL: ArticleModel = "gemini";
 
 export const GEMINI_ARTICLE_MODEL = "gemini-2.5-pro" as const;
 
@@ -13,14 +14,14 @@ export const ARTICLE_MODEL_OPTIONS: ReadonlyArray<{
   description: string;
 }> = [
   {
-    id: "claude",
-    label: "Claude Sonnet 4.6",
-    description: "デフォルト。長文構成・繊細な日本語に強い",
-  },
-  {
     id: "gemini",
     label: "Gemini 2.5 Pro",
-    description: "代替モデル。高速で大容量",
+    description: "デフォルト。高速・無料枠あり・長文対応",
+  },
+  {
+    id: "claude",
+    label: "Claude Sonnet 4.6",
+    description: "代替モデル。Anthropic クレジット必要、日本語の繊細な表現に強い",
   },
 ];
 
