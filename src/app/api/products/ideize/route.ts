@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { withProjectContext } from "@/lib/auth";
-import { appendIdeas } from "@/lib/feed";
+import { appendIdeas, loadFeed } from "@/lib/feed";
 import type { FeedIdea } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -37,12 +37,23 @@ export async function POST(req: NextRequest) {
       };
 
       const result = await appendIdeas(ctx.projectId, ctx.userId, [newIdea]);
-      const saved = result.addedIdeas[0] ?? null;
+      let saved: FeedIdea | null = result.addedIdeas[0] ?? null;
+      let reused = false;
+
+      // 同じ KW が既にネタ化済みで dedupe で skip された場合、既存 idea を取得して返す
+      // (ユーザーが「同じ KW で再度記事生成したい」ケースに対応)
+      if (!saved && result.skipped > 0) {
+        const feed = await loadFeed(ctx.projectId);
+        saved = feed.ideas.find((i) => i.title === body.kw) ?? null;
+        reused = !!saved;
+      }
+
       return Response.json({
         ok: true,
         idea: saved,
         added: result.added,
         skipped: result.skipped,
+        reused,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "unknown";
