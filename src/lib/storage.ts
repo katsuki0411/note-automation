@@ -97,6 +97,53 @@ export async function markArticlePosted(
   `;
 }
 
+// マルチポストモーダル等での手動編集を反映する。
+// 現状は本文・タイトルのみ。画像やタグはこのルートでは触らない。
+export async function updateArticleContent(
+  projectId: string,
+  articleId: string,
+  patch: { bodyMarkdown?: string; bestTitle?: string },
+): Promise<Article | null> {
+  const next: { body_markdown?: string; best_title?: string } = {};
+  if (typeof patch.bodyMarkdown === "string") next.body_markdown = patch.bodyMarkdown;
+  if (typeof patch.bestTitle === "string" && patch.bestTitle.trim()) {
+    next.best_title = patch.bestTitle.trim();
+  }
+  if (Object.keys(next).length === 0) return null;
+
+  // 個別の update を投げる。sql タグの仕様で「動的 SET 句」を作るより明示的な方が安全。
+  if (next.body_markdown !== undefined && next.best_title !== undefined) {
+    await sql`
+      update articles
+         set body_markdown = ${next.body_markdown},
+             best_title    = ${next.best_title}
+       where id = ${articleId} and project_id = ${projectId}
+    `;
+  } else if (next.body_markdown !== undefined) {
+    await sql`
+      update articles
+         set body_markdown = ${next.body_markdown}
+       where id = ${articleId} and project_id = ${projectId}
+    `;
+  } else if (next.best_title !== undefined) {
+    await sql`
+      update articles
+         set best_title = ${next.best_title}
+       where id = ${articleId} and project_id = ${projectId}
+    `;
+  }
+
+  const rows = await sql<ArticleRow[]>`
+    select id, created_at, idea, best_title, title_candidates,
+           best_title_reason, body_markdown, image_prompt_subject,
+           image_alt_text, image_path, posted_at
+      from articles
+     where id = ${articleId} and project_id = ${projectId}
+     limit 1
+  `;
+  return rows[0] ? rowToArticle(rows[0]) : null;
+}
+
 // Supabase Storage の `images` 公開バケットに保存し、public URL を返す。
 // 再生成時に上書きされるよう upsert: true。
 // 画像パスにも projectId を含めて、別 project が同じ articleId を使うことが

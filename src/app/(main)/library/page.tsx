@@ -48,6 +48,15 @@ function feedIdeaOf(a: Article): FeedIdea | null {
     : null;
 }
 
+// destination.prompt_config に「実際に書かれた値」が1つでもあれば true
+function isPromptReady(d: PostingDestinationRow): boolean {
+  const pc = d.prompt_config as Record<string, unknown> | null | undefined;
+  return (
+    !!pc &&
+    Object.values(pc).some((v) => typeof v === "string" && v.trim().length > 0)
+  );
+}
+
 export default function LibraryPage() {
   const cached = getCache<Article[]>(CACHE_KEY);
   const cachedActive = getCache<string | null>(ACTIVE_CACHE_KEY);
@@ -82,6 +91,11 @@ export default function LibraryPage() {
   const [destinations, setDestinations] = useState<PostingDestinationRow[]>([]);
   // 選択中の宛先 (id) — "note" は拡張経由のnote投稿を表す擬似ID
   const [selectedTargets, setSelectedTargets] = useState<Set<string>>(new Set());
+  // 本文編集モード (モーダル内で展開する textarea)
+  const [editingBody, setEditingBody] = useState(false);
+  const [editingBodyDraft, setEditingBodyDraft] = useState("");
+  const [editingBodySaving, setEditingBodySaving] = useState(false);
+  const [editingBodyError, setEditingBodyError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/destinations")
@@ -98,11 +112,49 @@ export default function LibraryPage() {
     setPostTagsInput(suggestedTags.slice(0, 5).join(", "));
     setPostPublish(true);
     setPostStatus({ state: "idle" });
-    // 初期状態: note + 有効な宛先全部にチェック
+    // 初期状態: note 拡張は常時ON / 外部宛先は「有効 かつ プロンプト設定済み」のものだけON
+    // プロンプト未設定の宛先は投稿スキップされるため最初からチェックを外しておく
     const init = new Set<string>(["note"]);
-    destinations.filter((d) => d.enabled).forEach((d) => init.add(d.id));
+    destinations
+      .filter((d) => d.enabled && isPromptReady(d))
+      .forEach((d) => init.add(d.id));
     setSelectedTargets(init);
+    setEditingBody(false);
+    setEditingBodyDraft(a.bodyMarkdown ?? "");
+    setEditingBodyError(null);
+    setEditingBodySaving(false);
     setPostModalArticle(a);
+  }
+
+  async function saveEditedBody() {
+    if (!postModalArticle) return;
+    if (editingBodyDraft === postModalArticle.bodyMarkdown) {
+      setEditingBody(false);
+      return;
+    }
+    setEditingBodySaving(true);
+    setEditingBodyError(null);
+    try {
+      const res = await fetch(`/api/articles/${postModalArticle.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bodyMarkdown: editingBodyDraft }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "保存に失敗しました");
+      const updated: Article = data.article;
+      setPostModalArticle(updated);
+      setArticles((prev) => {
+        const next = prev.map((a) => (a.id === updated.id ? updated : a));
+        setCache(CACHE_KEY, next);
+        return next;
+      });
+      setEditingBody(false);
+    } catch (e) {
+      setEditingBodyError(e instanceof Error ? e.message : "保存に失敗しました");
+    } finally {
+      setEditingBodySaving(false);
+    }
   }
 
   function toggleTarget(id: string) {
@@ -636,7 +688,7 @@ export default function LibraryPage() {
           onClick={closePostModal}
         >
           <div
-            className="card w-full max-w-md mx-4 p-6 bg-white"
+            className={`card w-full ${editingBody ? "max-w-3xl" : "max-w-md"} mx-4 p-6 bg-white max-h-[90vh] overflow-y-auto`}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-2">
@@ -645,9 +697,74 @@ export default function LibraryPage() {
             <h3 className="text-[18px] font-semibold tracking-tight mb-1">
               {postModalArticle.bestTitle}
             </h3>
-            <p className="text-[12px] text-[color:var(--fg-secondary)] mb-4">
+            <p className="text-[12px] text-[color:var(--fg-secondary)] mb-3">
               チェックを入れた宛先すべてに同じ記事を一括投稿します
             </p>
+
+            {/* 本文編集セクション */}
+            <div className="mb-4 rounded-xl border border-[var(--border-subtle)] bg-gray-50/40">
+              <div className="flex items-center justify-between px-3 py-2">
+                <div className="text-[11px] font-medium text-[color:var(--fg-secondary)]">
+                  本文 ({(postModalArticle.bodyMarkdown ?? "").length.toLocaleString()} 文字)
+                </div>
+                {!editingBody ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingBodyDraft(postModalArticle.bodyMarkdown ?? "");
+                      setEditingBodyError(null);
+                      setEditingBody(true);
+                    }}
+                    className="text-[11px] px-2 py-1 rounded-md border border-[var(--border-card)] bg-white hover:bg-gray-50"
+                    disabled={postStatus.state === "sending"}
+                  >
+                    ✏️ 本文編集
+                  </button>
+                ) : (
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingBody(false);
+                        setEditingBodyError(null);
+                      }}
+                      className="text-[11px] px-2 py-1 rounded-md border border-[var(--border-card)] bg-white hover:bg-gray-50"
+                      disabled={editingBodySaving}
+                    >
+                      キャンセル
+                    </button>
+                    <button
+                      type="button"
+                      onClick={saveEditedBody}
+                      className="text-[11px] px-2 py-1 rounded-md bg-black text-white hover:bg-gray-800 disabled:opacity-50"
+                      disabled={editingBodySaving}
+                    >
+                      {editingBodySaving ? "保存中..." : "💾 保存"}
+                    </button>
+                  </div>
+                )}
+              </div>
+              {editingBody && (
+                <div className="px-3 pb-3">
+                  <textarea
+                    value={editingBodyDraft}
+                    onChange={(e) => setEditingBodyDraft(e.target.value)}
+                    className="w-full text-[13px] leading-[1.7] font-mono px-3 py-2 rounded-lg border border-[var(--border-card)] bg-white"
+                    rows={18}
+                    spellCheck={false}
+                    disabled={editingBodySaving}
+                  />
+                  {editingBodyError && (
+                    <div className="mt-2 text-[11px] text-red-700 bg-red-50 border border-red-100 rounded px-2 py-1">
+                      {editingBodyError}
+                    </div>
+                  )}
+                  <div className="mt-2 text-[10px] text-[color:var(--fg-muted)]">
+                    保存後は次回の投稿実行から反映されます。投稿済みの外部記事は影響を受けません。
+                  </div>
+                </div>
+              )}
+            </div>
 
             <div className="mb-4">
               <div className="text-[11px] font-medium text-[color:var(--fg-secondary)] mb-2">
@@ -678,13 +795,7 @@ export default function LibraryPage() {
                   </div>
                 ) : (
                   destinations.map((d) => {
-                    // プロンプト設定済かどうか (prompt_config に1つでも非空文字列があれば true)
-                    const pc = d.prompt_config as Record<string, unknown> | null | undefined;
-                    const promptReady =
-                      !!pc &&
-                      Object.values(pc).some(
-                        (v) => typeof v === "string" && v.trim().length > 0,
-                      );
+                    const promptReady = isPromptReady(d);
                     return (
                       <label
                         key={d.id}
