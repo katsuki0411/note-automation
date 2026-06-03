@@ -39,11 +39,11 @@ const BESTSELLERS_ITEM: NavItem = {
   icon: BestsellersIcon,
 };
 
-// アフィ系限定: 商品スカウト (Brave で関連KW競合判定)
+// アフィ系限定: KWスカウト (DataForSEO で関連KW競合判定)
 const PRODUCT_SCOUT_ITEM: NavItem = {
   href: "/products",
-  label: "商品スカウト",
-  desc: "Product Scout",
+  label: "KWスカウト",
+  desc: "Keyword Scout",
   icon: ProductScoutIcon,
 };
 
