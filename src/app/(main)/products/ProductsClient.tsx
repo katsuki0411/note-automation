@@ -371,13 +371,13 @@ export default function ProductsClient() {
       </PageHeader>
 
       {/* 新規スカウトタブは subject 入力が広くなりすぎないよう max-w-3xl で抑える。
-          履歴タブは PageHeader (sticky z-20) 直下に sticky で張り付け、固定高さの中で
-          カラム内部だけがスクロールする形に。これで「ページ全体スクロール」しても
-          2カラム自体は動かない */}
+          履歴タブは PageHeader (sticky z-20) 直下に sticky で張り付け + main の
+          左右 padding (px-4/md:px-8) を -mx で打ち消して、タブバー (FilterBar) と
+          同じ画面端まで 2カラムを広げる */}
       <div
         className={
           tab === "history"
-            ? "md:sticky md:top-0 md:h-[calc(100vh-140px)] md:overflow-hidden md:-mt-8 -mt-6"
+            ? "md:sticky md:top-0 md:h-[calc(100vh-140px)] md:overflow-hidden md:-mt-8 -mt-6 -mx-4 md:-mx-8 px-2 md:px-4"
             : "max-w-3xl space-y-5"
         }
       >
