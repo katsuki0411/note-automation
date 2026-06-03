@@ -441,23 +441,20 @@ export default function ProductsClient() {
                 </div>
               ) : (
                 <>
-                  {/* ジャンルフィルタ + 未分類バックフィル (左カラムのスクロール時に固定) */}
+                  {/* ジャンルフィルタ (左カラムのスクロール時に固定) */}
                   {(() => {
                     const cats = Array.from(
                       new Set(history.map((h) => h.category).filter((c): c is string => !!c)),
                     ).sort();
                     const uncategorized = history.filter((h) => !h.category).length;
                     return (
-                      <div className="sticky top-0 z-10 bg-white border-b border-[var(--border-subtle)] py-2 mb-2 space-y-1.5 min-h-[72px] flex flex-col justify-center">
-                        {cats.length > 0 ? (
-                          <label className="block">
-                            <span className="text-[10px] text-[color:var(--fg-muted)]">
-                              ジャンルで絞り込み
-                            </span>
+                      <>
+                        <div className="sticky top-0 z-10 bg-white border-b border-[var(--border-subtle)] h-[60px] flex items-center">
+                          {cats.length > 0 ? (
                             <select
                               value={historyCategoryFilter}
                               onChange={(e) => setHistoryCategoryFilter(e.target.value)}
-                              className="input-base mt-0.5 text-[11px] py-1.5"
+                              className="input-base text-[11px] py-1.5 w-full"
                             >
                               <option value="">すべて ({history.length})</option>
                               {cats.map((c) => {
@@ -469,13 +466,13 @@ export default function ProductsClient() {
                                 );
                               })}
                             </select>
-                          </label>
-                        ) : (
-                          <div className="text-[10px] text-[color:var(--fg-muted)] py-2">
-                            履歴 {history.length} 件
-                          </div>
-                        )}
-                        {/* バックフィル: 未分類が残ってる時だけ表示 */}
+                          ) : (
+                            <div className="text-[11px] text-[color:var(--fg-muted)]">
+                              履歴 {history.length} 件
+                            </div>
+                          )}
+                        </div>
+                        {/* バックフィル: 未分類が残ってる時だけ sticky エリアの下に表示 */}
                         {uncategorized > 0 && (
                           <button
                             type="button"
@@ -489,7 +486,7 @@ export default function ProductsClient() {
                               : `📂 未分類 ${uncategorized}件 を一括分類`}
                           </button>
                         )}
-                      </div>
+                      </>
                     );
                   })()}
 
@@ -562,13 +559,16 @@ export default function ProductsClient() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {/* タイトル (右カラムのスクロール時に固定。左の絞り込みヘッダと高さ合わせ) */}
-                  <div className="sticky top-0 z-10 bg-white border-b border-[var(--border-subtle)] py-2 mb-2 text-[13px] min-h-[72px] flex items-center">
-                    <div>
-                      <div className="text-[10px] text-[color:var(--fg-muted)]">
+                  {/* タイトル (右カラムのスクロール時に固定。左の絞り込みヘッダと同じ h-[60px] で揃える) */}
+                  <div className="sticky top-0 z-10 bg-white border-b border-[var(--border-subtle)] h-[60px] flex items-center">
+                    <div className="min-w-0">
+                      <div className="text-[10px] text-[color:var(--fg-muted)] leading-tight">
                         スカウト結果 {result.candidateCount} 件 (機会スコア降順)
                       </div>
-                      <div className="font-semibold text-[color:var(--fg-primary)] line-clamp-2 leading-snug mt-0.5">
+                      <div
+                        className="font-semibold text-[13px] text-[color:var(--fg-primary)] truncate leading-tight mt-0.5"
+                        title={result.subject}
+                      >
                         {result.subject}
                       </div>
                     </div>
