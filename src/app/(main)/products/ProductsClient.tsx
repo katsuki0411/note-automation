@@ -426,8 +426,8 @@ export default function ProductsClient() {
             内部 sticky ヘッダがちゃんと固定される */}
         {tab === "history" && (
           <div className="grid grid-cols-1 md:grid-cols-[300px_1fr] gap-4 md:h-full">
-            {/* 左: 履歴一覧 + ジャンルフィルタ (内部スクロール) */}
-            <div className="space-y-3 md:overflow-y-auto md:pr-1">
+            {/* 左: 履歴一覧 + ジャンルフィルタ。flex-col で「固定ヘッダ + スクロール領域」に分割 */}
+            <div className="flex flex-col md:h-full min-h-0">
               {historyLoading ? (
                 <div className="text-[12px] text-[color:var(--fg-muted)]">読み込み中…</div>
               ) : history.length === 0 ? (
@@ -449,7 +449,8 @@ export default function ProductsClient() {
                     const uncategorized = history.filter((h) => !h.category).length;
                     return (
                       <>
-                        <div className="sticky top-0 z-10 bg-white border-b border-[var(--border-subtle)] h-[60px] flex items-center">
+                        {/* 固定ヘッダ (スクロールバーがこの下から始まる) */}
+                        <div className="shrink-0 bg-white border-b border-[var(--border-subtle)] h-[60px] flex items-center">
                           {cats.length > 0 ? (
                             <select
                               value={historyCategoryFilter}
@@ -472,13 +473,13 @@ export default function ProductsClient() {
                             </div>
                           )}
                         </div>
-                        {/* バックフィル: 未分類が残ってる時だけ sticky エリアの下に表示 */}
+                        {/* バックフィル: 未分類が残ってる時だけ表示 (ヘッダの下、スクロール領域の上) */}
                         {uncategorized > 0 && (
                           <button
                             type="button"
                             onClick={backfillCategories}
                             disabled={backfilling}
-                            className="w-full text-[10px] px-2 py-1.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 disabled:opacity-50 disabled:cursor-wait border border-blue-200"
+                            className="shrink-0 mt-2 w-full text-[10px] px-2 py-1.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 disabled:opacity-50 disabled:cursor-wait border border-blue-200"
                             title="Gemini で subject から category を一括推定して埋める"
                           >
                             {backfilling
@@ -490,8 +491,8 @@ export default function ProductsClient() {
                     );
                   })()}
 
-                  {/* 履歴リスト */}
-                  <ul className="space-y-1.5">
+                  {/* 履歴リスト (この領域だけがスクロールするので、スクロールバーがヘッダ下から始まる) */}
+                  <ul className="flex-1 overflow-y-auto space-y-1.5 mt-2 pr-1 min-h-0">
                     {history
                       .filter((h) =>
                         historyCategoryFilter ? h.category === historyCategoryFilter : true,
@@ -549,8 +550,8 @@ export default function ProductsClient() {
               )}
             </div>
 
-            {/* 右: 選択中履歴の KW 詳細 (左カラムと独立してスクロール) */}
-            <div className="min-w-0 md:overflow-y-auto md:pr-2">
+            {/* 右: 選択中履歴の KW 詳細 (flex-col で「固定ヘッダ + スクロール領域」分割) */}
+            <div className="min-w-0 flex flex-col md:h-full min-h-0">
               {!result ? (
                 <div className="p-6 rounded-lg border border-dashed border-[var(--border-card)] text-center">
                   <p className="text-[13px] text-[color:var(--fg-secondary)]">
@@ -558,9 +559,9 @@ export default function ProductsClient() {
                   </p>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {/* タイトル (右カラムのスクロール時に固定。左の絞り込みヘッダと同じ h-[60px] で揃える) */}
-                  <div className="sticky top-0 z-10 bg-white border-b border-[var(--border-subtle)] h-[60px] flex items-center">
+                <>
+                  {/* 固定タイトル (左の絞り込みヘッダと同じ h-[60px] で揃える) */}
+                  <div className="shrink-0 bg-white border-b border-[var(--border-subtle)] h-[60px] flex items-center">
                     <div className="min-w-0">
                       <div className="text-[10px] text-[color:var(--fg-muted)] leading-tight">
                         スカウト結果 {result.candidateCount} 件 (機会スコア降順)
@@ -573,6 +574,8 @@ export default function ProductsClient() {
                       </div>
                     </div>
                   </div>
+                  {/* スクロール領域 (この部分だけスクロールバー表示) */}
+                  <div className="flex-1 overflow-y-auto pr-2 mt-2 min-h-0">
                   <ul className="space-y-2">
                     {result.candidates.map((c, i) => {
                       const diff = DIFF_BADGE[c.seoDifficulty];
@@ -698,10 +701,11 @@ export default function ProductsClient() {
                       );
                     })}
                   </ul>
-                  <div className="text-[11px] text-[color:var(--fg-muted)]">
+                  <div className="text-[11px] text-[color:var(--fg-muted)] mt-3">
                     「ネタ化」したKWは <Link href="/" className="text-[color:var(--accent-dark)] hover:underline">ライブフィード</Link> に追加されます。そこから記事生成へ。
                   </div>
-                </div>
+                  </div>
+                </>
               )}
             </div>
           </div>
