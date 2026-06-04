@@ -975,7 +975,7 @@ export default function LibraryPage() {
                   </p>
                 </div>
               ) : (
-                <ul className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                <ul className="space-y-1.5">
                   {adoptedArticles.map((a) => {
                     const fi = a.idea as FeedIdea;
                     const kw = a.idea.title;
@@ -985,52 +985,60 @@ export default function LibraryPage() {
                     return (
                       <li
                         key={a.id}
-                        className="p-4 rounded-xl border border-[var(--border-card)] bg-white hover:border-gray-400 transition flex flex-col gap-2.5"
+                        className="px-4 py-3 rounded-lg border border-[var(--border-card)] bg-white hover:border-gray-400 transition flex items-center gap-4"
                       >
-                        <div>
-                          <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-1">
-                            KEYWORD
-                          </div>
-                          <div className="text-[14px] font-semibold leading-snug line-clamp-2">
+                        {/* KW (主、可変幅) + 補助の subject */}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[14px] font-semibold leading-tight truncate">
                             {kw}
                           </div>
                           {sourceSubject && (
-                            <div className="text-[10px] text-[color:var(--fg-muted)] mt-1">
+                            <div className="text-[10px] text-[color:var(--fg-muted)] mt-0.5 truncate">
                               🛒 {sourceSubject}
                             </div>
                           )}
                         </div>
-                        <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
-                          {platform && (
-                            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={getPlatformFaviconUrl(platform)}
-                                alt=""
-                                className="w-3 h-3 rounded-sm"
-                                loading="lazy"
-                              />
+
+                        {/* platform バッジ (固定幅) */}
+                        {platform ? (
+                          <span className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 text-gray-700 text-[10.5px] w-[120px]">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={getPlatformFaviconUrl(platform)}
+                              alt=""
+                              className="w-3 h-3 rounded-sm"
+                              loading="lazy"
+                            />
+                            <span className="truncate">
                               {PLATFORM_LABELS[platform] ?? platform}
                             </span>
-                          )}
-                          {a.postedAt ? (
-                            <span className="px-1.5 py-0.5 rounded bg-green-50 text-green-700">
-                              ✓ 投稿済
-                            </span>
-                          ) : (
-                            <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">
-                              ⏳ 未投稿
-                            </span>
-                          )}
-                          <span className="font-mono text-[color:var(--fg-muted)] ml-auto">
-                            {new Date(a.createdAt).toLocaleString("ja-JP", {
-                              month: "2-digit",
-                              day: "2-digit",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
                           </span>
-                        </div>
+                        ) : (
+                          <span className="shrink-0 w-[120px]" />
+                        )}
+
+                        {/* 投稿状況 */}
+                        {a.postedAt ? (
+                          <span className="shrink-0 px-1.5 py-0.5 rounded bg-green-50 text-green-700 text-[10.5px] w-[60px] text-center">
+                            ✓ 投稿済
+                          </span>
+                        ) : (
+                          <span className="shrink-0 px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[10.5px] w-[60px] text-center">
+                            ⏳ 未投稿
+                          </span>
+                        )}
+
+                        {/* 日時 */}
+                        <span className="shrink-0 text-[10.5px] font-mono text-[color:var(--fg-muted)] w-[90px] text-right">
+                          {new Date(a.createdAt).toLocaleString("ja-JP", {
+                            month: "2-digit",
+                            day: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+
+                        {/* 記事を見るボタン */}
                         <button
                           type="button"
                           onClick={() => {
@@ -1038,7 +1046,7 @@ export default function LibraryPage() {
                             if (a.destinationId) setSelectedDestinationId(a.destinationId);
                             setTab("articles");
                           }}
-                          className="text-center text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-black text-white hover:bg-gray-800 transition"
+                          className="shrink-0 text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-black text-white hover:bg-gray-800 transition"
                         >
                           📖 記事を見る
                         </button>
