@@ -133,6 +133,15 @@ export default function LibraryPage() {
   // 記事プレビューの見出し画像の表示/非表示トグル (画像が大きすぎる時用)
   const [showHeaderImage, setShowHeaderImage] = useState(true);
 
+  // インライン編集 (詳細ビュー側のタイトル/本文を直接編集)
+  type InlineEdit = {
+    field: "title" | "body";
+    draft: string;
+    saving: boolean;
+    error: string | null;
+  };
+  const [inlineEdit, setInlineEdit] = useState<InlineEdit | null>(null);
+
   // マルチポストモーダル
   const [postModalArticle, setPostModalArticle] = useState<Article | null>(null);
   const [postTagsInput, setPostTagsInput] = useState("");
@@ -312,6 +321,60 @@ export default function LibraryPage() {
     setEditingBodyError(null);
     setEditingBodySaving(false);
     setPostModalArticle(a);
+  }
+
+  // 詳細ビュー側のインライン編集 (タイトル / 本文 を直接編集して PATCH)
+  function startInlineEdit(field: "title" | "body") {
+    if (!currentArticle) return;
+    setInlineEdit({
+      field,
+      draft: field === "title" ? currentArticle.bestTitle : currentArticle.bodyMarkdown,
+      saving: false,
+      error: null,
+    });
+  }
+
+  async function saveInlineEdit() {
+    if (!currentArticle || !inlineEdit) return;
+    const original =
+      inlineEdit.field === "title"
+        ? currentArticle.bestTitle
+        : currentArticle.bodyMarkdown;
+    if (inlineEdit.draft === original) {
+      setInlineEdit(null);
+      return;
+    }
+    setInlineEdit({ ...inlineEdit, saving: true, error: null });
+    try {
+      const body =
+        inlineEdit.field === "title"
+          ? { bestTitle: inlineEdit.draft }
+          : { bodyMarkdown: inlineEdit.draft };
+      const res = await fetch(`/api/articles/${currentArticle.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "保存に失敗しました");
+      const updated: Article = data.article;
+      setArticles((prev) => {
+        const next = prev.map((a) => (a.id === updated.id ? updated : a));
+        setCache(CACHE_KEY, next);
+        return next;
+      });
+      setInlineEdit(null);
+    } catch (e) {
+      setInlineEdit((prev) =>
+        prev
+          ? {
+              ...prev,
+              saving: false,
+              error: e instanceof Error ? e.message : "保存に失敗しました",
+            }
+          : null,
+      );
+    }
   }
 
   async function saveEditedBody() {
@@ -800,22 +863,69 @@ export default function LibraryPage() {
                         <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-1">
                           ARTICLE TITLE
                         </div>
-                        <div className="flex items-start gap-3">
-                          <div className="text-[15px] text-[color:var(--fg-primary)] font-medium leading-snug flex-1 min-w-0">
-                            {currentArticle.bestTitle}
+                        {inlineEdit?.field === "title" ? (
+                          <div className="space-y-2">
+                            <input
+                              type="text"
+                              value={inlineEdit.draft}
+                              onChange={(e) =>
+                                setInlineEdit({ ...inlineEdit, draft: e.target.value })
+                              }
+                              disabled={inlineEdit.saving}
+                              autoFocus
+                              className="w-full text-[15px] font-medium px-3 py-2 rounded-md border border-[var(--border-card)] bg-white"
+                            />
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setInlineEdit(null)}
+                                disabled={inlineEdit.saving}
+                                className="text-[11px] px-3 py-1 rounded-md border border-[var(--border-card)] bg-white hover:bg-gray-50"
+                              >
+                                キャンセル
+                              </button>
+                              <button
+                                type="button"
+                                onClick={saveInlineEdit}
+                                disabled={inlineEdit.saving}
+                                className="text-[11px] font-semibold px-3 py-1 rounded-md bg-black text-white hover:bg-gray-800 disabled:opacity-50 shadow-sm"
+                              >
+                                {inlineEdit.saving ? "保存中..." : "💾 保存"}
+                              </button>
+                            </div>
+                            {inlineEdit.error && (
+                              <div className="text-[11px] text-red-700 bg-red-50 border border-red-100 rounded px-2 py-1">
+                                {inlineEdit.error}
+                              </div>
+                            )}
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => copy(currentArticle.bestTitle, "title")}
-                            className={`shrink-0 text-[11px] font-semibold px-3 py-1 rounded-md transition shadow-sm ${
-                              copied === "title"
-                                ? "bg-emerald-600 text-white"
-                                : "bg-[color:var(--accent)] text-white hover:opacity-85"
-                            }`}
-                          >
-                            {copied === "title" ? "✓ コピー完了!" : "📋 コピー"}
-                          </button>
-                        </div>
+                        ) : (
+                          <div className="flex items-start gap-3">
+                            <div className="text-[15px] text-[color:var(--fg-primary)] font-medium leading-snug flex-1 min-w-0">
+                              {currentArticle.bestTitle}
+                            </div>
+                            <div className="flex shrink-0 gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => startInlineEdit("title")}
+                                className="text-[11px] font-semibold px-3 py-1 rounded-md border border-[var(--border-card)] bg-white text-[color:var(--fg-primary)] hover:bg-gray-50 shadow-sm"
+                              >
+                                ✏️ 編集
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => copy(currentArticle.bestTitle, "title")}
+                                className={`text-[11px] font-semibold px-3 py-1 rounded-md transition shadow-sm ${
+                                  copied === "title"
+                                    ? "bg-emerald-600 text-white"
+                                    : "bg-[color:var(--accent)] text-white hover:opacity-85"
+                                }`}
+                              >
+                                {copied === "title" ? "✓ コピー完了!" : "📋 コピー"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
                         {currentArticle.bestTitleReason && (
                           <p className="text-[12px] text-[color:var(--fg-secondary)] mt-1">
                             {currentArticle.bestTitleReason}
@@ -929,21 +1039,75 @@ export default function LibraryPage() {
                         <div className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)]">
                           MARKDOWN
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => copy(currentArticle.bodyMarkdown, "body")}
-                          className={`text-[11px] font-semibold px-3 py-1 rounded-md transition shadow-sm ${
-                            copied === "body"
-                              ? "bg-emerald-600 text-white"
-                              : "bg-[color:var(--accent)] text-white hover:opacity-85"
-                          }`}
-                        >
-                          {copied === "body" ? "✓ コピー完了!" : "📋 コピー"}
-                        </button>
+                        {inlineEdit?.field !== "body" && (
+                          <div className="flex gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => startInlineEdit("body")}
+                              className="text-[11px] font-semibold px-3 py-1 rounded-md border border-[var(--border-card)] bg-white text-[color:var(--fg-primary)] hover:bg-gray-50 shadow-sm"
+                            >
+                              ✏️ 編集
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => copy(currentArticle.bodyMarkdown, "body")}
+                              className={`text-[11px] font-semibold px-3 py-1 rounded-md transition shadow-sm ${
+                                copied === "body"
+                                  ? "bg-emerald-600 text-white"
+                                  : "bg-[color:var(--accent)] text-white hover:opacity-85"
+                              }`}
+                            >
+                              {copied === "body" ? "✓ コピー完了!" : "📋 コピー"}
+                            </button>
+                          </div>
+                        )}
                       </div>
-                      <pre className="p-5 rounded-xl bg-gray-50 border border-[var(--border-subtle)] text-[14px] leading-[1.85] whitespace-pre-wrap font-sans">
-                        {currentArticle.bodyMarkdown}
-                      </pre>
+                      {inlineEdit?.field === "body" ? (
+                        <div className="space-y-2">
+                          <textarea
+                            value={inlineEdit.draft}
+                            onChange={(e) =>
+                              setInlineEdit({ ...inlineEdit, draft: e.target.value })
+                            }
+                            disabled={inlineEdit.saving}
+                            rows={22}
+                            spellCheck={false}
+                            className="w-full text-[14px] leading-[1.85] font-mono px-4 py-3 rounded-xl border border-[var(--border-card)] bg-white"
+                          />
+                          <div className="flex items-center justify-between">
+                            <div className="text-[10px] text-[color:var(--fg-muted)]">
+                              {(inlineEdit.draft ?? "").length.toLocaleString()} 文字
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setInlineEdit(null)}
+                                disabled={inlineEdit.saving}
+                                className="text-[11px] px-3 py-1 rounded-md border border-[var(--border-card)] bg-white hover:bg-gray-50"
+                              >
+                                キャンセル
+                              </button>
+                              <button
+                                type="button"
+                                onClick={saveInlineEdit}
+                                disabled={inlineEdit.saving}
+                                className="text-[11px] font-semibold px-3 py-1 rounded-md bg-black text-white hover:bg-gray-800 disabled:opacity-50 shadow-sm"
+                              >
+                                {inlineEdit.saving ? "保存中..." : "💾 保存"}
+                              </button>
+                            </div>
+                          </div>
+                          {inlineEdit.error && (
+                            <div className="text-[11px] text-red-700 bg-red-50 border border-red-100 rounded px-2 py-1">
+                              {inlineEdit.error}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <pre className="p-5 rounded-xl bg-gray-50 border border-[var(--border-subtle)] text-[14px] leading-[1.85] whitespace-pre-wrap font-sans">
+                          {currentArticle.bodyMarkdown}
+                        </pre>
+                      )}
                     </article>
                   ) : (
                     /* 未生成スロット */
