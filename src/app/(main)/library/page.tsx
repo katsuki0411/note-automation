@@ -6,6 +6,7 @@ import type { Article, FeedIdea, ThemeId } from "@/lib/types";
 import { THEMES } from "@/lib/types";
 import PageHeader from "@/components/PageHeader";
 import Loading from "@/components/Loading";
+import { FilterBar } from "@/components/FilterBar";
 import { getCache, setCache } from "@/lib/clientCache";
 import { postToNote, type NotePostResult } from "@/lib/notePost";
 import { PLATFORM_LABELS, type Platform, type PostingDestinationRow } from "@/lib/posters/types";
@@ -544,7 +545,46 @@ export default function LibraryPage() {
   // ---------- レンダリング ----------
   return (
     <>
-      <PageHeader title="ライブラリ" />
+      <PageHeader title="ライブラリ">
+        {initialLoaded && articles.length > 0 && (
+          <FilterBar>
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <label className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)]">
+                  GENRE
+                </label>
+                <select
+                  value={genreFilter}
+                  onChange={(e) => setGenreFilter(e.target.value)}
+                  className="text-[12px] px-3 py-1.5 rounded-lg border border-[var(--border-card)] bg-white"
+                >
+                  <option value="all">すべて ({articles.length})</option>
+                  {allGenres.map(([id, count]) => (
+                    <option key={id} value={id}>
+                      {THEME_LABEL[id] ?? id} ({count})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                <label className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)]">
+                  KW
+                </label>
+                <input
+                  type="text"
+                  value={kwSearch}
+                  onChange={(e) => setKwSearch(e.target.value)}
+                  placeholder="キーワードで絞り込み..."
+                  className="flex-1 text-[12px] px-3 py-1.5 rounded-lg border border-[var(--border-card)] bg-white"
+                />
+              </div>
+              <div className="text-[11px] font-mono text-[color:var(--fg-muted)]">
+                {keywordGroups.length} KW / {articles.length} ARTICLES
+              </div>
+            </div>
+          </FilterBar>
+        )}
+      </PageHeader>
 
       {!initialLoaded ? (
         <div className="card p-10">
@@ -553,50 +593,25 @@ export default function LibraryPage() {
       ) : articles.length === 0 ? (
         <EmptyLibraryCta />
       ) : (
-        <>
-          {/* フィルター行: ジャンル + KW検索 */}
-          <div className="flex items-center gap-3 flex-wrap mb-4">
-            <div className="flex items-center gap-2">
-              <label className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)]">
-                GENRE
-              </label>
-              <select
-                value={genreFilter}
-                onChange={(e) => setGenreFilter(e.target.value)}
-                className="text-[13px] px-3 py-1.5 rounded-lg border border-[var(--border-card)] bg-white"
-              >
-                <option value="all">すべて ({articles.length})</option>
-                {allGenres.map(([id, count]) => (
-                  <option key={id} value={id}>
-                    {THEME_LABEL[id] ?? id} ({count})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-center gap-2 flex-1 min-w-[200px]">
-              <label className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)]">
-                KW
-              </label>
-              <input
-                type="text"
-                value={kwSearch}
-                onChange={(e) => setKwSearch(e.target.value)}
-                placeholder="キーワードで絞り込み..."
-                className="flex-1 text-[13px] px-3 py-1.5 rounded-lg border border-[var(--border-card)] bg-white"
-              />
-            </div>
-            <div className="text-[11px] font-mono text-[color:var(--fg-muted)]">
-              {keywordGroups.length} KW / {articles.length} ARTICLES
-            </div>
-          </div>
-
-          <div className="grid md:grid-cols-[280px_1fr] gap-5">
-            {/* ---------- 左カラム: KW一覧 ---------- */}
-            <aside className="space-y-1.5">
-              {keywordGroups.length === 0 ? (
-                <div className="text-[12px] text-[color:var(--fg-muted)] italic px-2 py-4">
-                  該当KWなし
+        // KWスカウト履歴と同じ「画面いっぱい広げてカラム内スクロール」パターン:
+        // PageHeader (sticky z-20) の直下に sticky で張り付け、main の左右 padding を打ち消し、
+        // 縦は viewport 高さから余白を引いた分だけ確保 → grid の各カラムが overflow-y-auto で独立スクロール
+        <div className="md:sticky md:top-0 md:h-[calc(100vh-140px)] md:overflow-hidden md:-mt-8 -mt-6 -mx-4 md:-mx-8 px-2 md:px-4">
+          <div className="grid grid-cols-1 md:grid-cols-[300px_1fr] gap-4 md:h-full">
+            {/* ---------- 左カラム: KW一覧 (固定ヘッダ + スクロール領域) ---------- */}
+            <aside className="flex flex-col md:h-full min-h-0">
+              {/* 固定ヘッダ (KWスカウト履歴と高さ揃え) */}
+              <div className="shrink-0 bg-white border-b border-[var(--border-subtle)] h-[60px] flex items-center">
+                <div className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)]">
+                  {keywordGroups.length} KW
                 </div>
+              </div>
+              {/* スクロール領域 */}
+              <ul className="flex-1 overflow-y-auto space-y-1.5 mt-2 pr-1 min-h-0">
+              {keywordGroups.length === 0 ? (
+                <li className="text-[12px] text-[color:var(--fg-muted)] italic px-2 py-4">
+                  該当KWなし
+                </li>
               ) : (
                 keywordGroups.map((g) => {
                   const isActive = selectedKwKey === g.key;
@@ -606,102 +621,105 @@ export default function LibraryPage() {
                       .filter((x): x is string => !!x),
                   ).size;
                   return (
-                    <button
-                      key={g.key}
-                      onClick={() => setSelectedKwKey(g.key)}
-                      className={`w-full text-left p-3 rounded-xl transition-all border ${
-                        isActive
-                          ? "bg-white border-[color:var(--accent)] shadow-sm"
-                          : "bg-white border-[var(--border-card)] hover:border-gray-400"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="text-[13px] font-medium leading-snug tracking-tight line-clamp-2">
-                            {g.label}
-                          </div>
-                          <div className="flex flex-wrap gap-1 mt-1.5">
-                            {g.themeId && THEME_LABEL[g.themeId] && (
-                              <span className="px-1.5 py-0.5 rounded bg-gray-100 text-[9.5px] text-[color:var(--fg-secondary)]">
-                                {THEME_LABEL[g.themeId]}
-                              </span>
-                            )}
-                            <span className="px-1.5 py-0.5 rounded bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] text-[9.5px]">
-                              {generatedCount}/{siteTabs.length} サイト
-                            </span>
-                          </div>
+                    <li key={g.key}>
+                      <button
+                        onClick={() => setSelectedKwKey(g.key)}
+                        className={`w-full text-left p-3 rounded-xl transition-all border ${
+                          isActive
+                            ? "bg-white border-[color:var(--accent)] shadow-sm"
+                            : "bg-white border-[var(--border-card)] hover:border-gray-400"
+                        }`}
+                      >
+                        <div className="text-[13px] font-medium leading-snug tracking-tight line-clamp-2">
+                          {g.label}
                         </div>
-                      </div>
-                    </button>
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {g.themeId && THEME_LABEL[g.themeId] && (
+                            <span className="px-1.5 py-0.5 rounded bg-gray-100 text-[9.5px] text-[color:var(--fg-secondary)]">
+                              {THEME_LABEL[g.themeId]}
+                            </span>
+                          )}
+                          <span className="px-1.5 py-0.5 rounded bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] text-[9.5px]">
+                            {generatedCount}/{siteTabs.length} サイト
+                          </span>
+                        </div>
+                      </button>
+                    </li>
                   );
                 })
               )}
+              </ul>
             </aside>
 
-            {/* ---------- 右カラム: サイトタブ + 記事プレビュー ---------- */}
-            <section className="space-y-4">
+            {/* ---------- 右カラム: サイトタブ + 記事プレビュー (固定ヘッダ + スクロール領域) ---------- */}
+            <section className="min-w-0 flex flex-col md:h-full min-h-0">
               {!currentGroup ? (
-                <div className="card p-12 text-center text-[color:var(--fg-muted)]">
+                <div className="m-auto card p-12 text-center text-[color:var(--fg-muted)]">
                   ← 左から KW を選んでください
                 </div>
               ) : (
                 <>
-                  {/* KWヘッダー */}
-                  <div className="card p-4">
-                    <div className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-1">
-                      KEYWORD
-                    </div>
-                    <h2 className="text-[18px] font-semibold tracking-tight">
-                      {currentGroup.label}
-                    </h2>
-                    <div className="text-[12px] text-[color:var(--fg-secondary)] mt-1">
-                      {currentGroup.articles.length} 記事 ・
-                      未生成: {ungeneratedSiteCount} サイト
-                    </div>
-                  </div>
-
-                  {/* サイトタブ */}
-                  <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] overflow-x-auto">
-                    {siteTabs.length === 0 ? (
-                      <div className="text-[12px] text-[color:var(--fg-muted)] italic py-3 px-2">
-                        投稿先未登録。{" "}
-                        <Link href="/settings" className="underline">
-                          設定 → 投稿先
-                        </Link>{" "}
-                        から追加
+                  {/* 固定ヘッダ (KWラベル + サイトタブ) — h-[60px] は左と同じだが
+                      タブも入れたいので最低限の高さに留めず flex で詰める */}
+                  <div className="shrink-0 bg-white border-b border-[var(--border-subtle)]">
+                    {/* KWラベル */}
+                    <div className="h-[60px] flex items-center gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)] leading-tight">
+                          KEYWORD ・ {currentGroup.articles.length}記事 / 未生成 {ungeneratedSiteCount}サイト
+                        </div>
+                        <div
+                          className="font-semibold text-[14px] text-[color:var(--fg-primary)] truncate leading-tight mt-0.5"
+                          title={currentGroup.label}
+                        >
+                          {currentGroup.label}
+                        </div>
                       </div>
-                    ) : (
-                      siteTabs.map((d) => {
-                        const isActive = selectedDestinationId === d.id;
-                        const hasArticle = currentGroup.articles.some(
-                          (a) => a.destinationId === d.id,
-                        );
-                        return (
-                          <button
-                            key={d.id}
-                            onClick={() => setSelectedDestinationId(d.id)}
-                            className={`flex items-center gap-1.5 px-3 py-2 -mb-px border-b-2 text-[12px] whitespace-nowrap ${
-                              isActive
-                                ? "border-[color:var(--accent)] text-[color:var(--accent-dark)] font-medium"
-                                : "border-transparent text-[color:var(--fg-secondary)] hover:text-[color:var(--fg-primary)]"
-                            }`}
-                          >
-                            <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
-                              {PLATFORM_LABELS[d.platform as Platform] ?? d.platform}
-                            </span>
-                            <span>{d.label}</span>
-                            {hasArticle ? (
-                              <span className="text-green-600 text-[10px]">✓</span>
-                            ) : (
-                              <span className="text-[color:var(--fg-muted)] text-[10px]">○</span>
-                            )}
-                          </button>
-                        );
-                      })
-                    )}
+                    </div>
+                    {/* サイトタブ (GroupTab と同じ下線スタイルで統一) */}
+                    <div className="flex items-center gap-0 overflow-x-auto -mb-px">
+                      {siteTabs.length === 0 ? (
+                        <div className="text-[12px] text-[color:var(--fg-muted)] italic py-3 px-2">
+                          投稿先未登録。{" "}
+                          <Link href="/settings" className="underline">
+                            設定 → 投稿先
+                          </Link>{" "}
+                          から追加
+                        </div>
+                      ) : (
+                        siteTabs.map((d) => {
+                          const isActive = selectedDestinationId === d.id;
+                          const hasArticle = currentGroup.articles.some(
+                            (a) => a.destinationId === d.id,
+                          );
+                          return (
+                            <button
+                              key={d.id}
+                              onClick={() => setSelectedDestinationId(d.id)}
+                              className={`px-4 py-2 text-[13px] font-semibold border-b-2 transition flex items-center gap-1.5 whitespace-nowrap ${
+                                isActive
+                                  ? "border-[color:var(--accent)] text-[color:var(--fg-primary)]"
+                                  : "border-transparent text-[color:var(--fg-muted)] hover:text-[color:var(--fg-secondary)]"
+                              }`}
+                            >
+                              <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
+                                {PLATFORM_LABELS[d.platform as Platform] ?? d.platform}
+                              </span>
+                              <span>{d.label}</span>
+                              {hasArticle ? (
+                                <span className="text-green-600 text-[10px]">✓</span>
+                              ) : (
+                                <span className="text-[color:var(--fg-muted)] text-[10px]">○</span>
+                              )}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
                   </div>
 
-                  {/* タブ内コンテンツ: 該当 article or 未生成 */}
+                  {/* スクロール領域: 該当 article or 未生成 */}
+                  <div className="flex-1 overflow-y-auto pr-1 mt-3 min-h-0">
                   {currentArticle ? (
                     <article className="card p-7">
                       {currentArticle.imagePath && (
@@ -881,11 +899,12 @@ export default function LibraryPage() {
                       )}
                     </div>
                   )}
+                  </div>
                 </>
               )}
             </section>
           </div>
-        </>
+        </div>
       )}
 
       {postModalArticle && (
