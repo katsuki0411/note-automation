@@ -677,10 +677,9 @@ export default function LibraryPage() {
           <div className="grid grid-cols-1 md:grid-cols-[300px_1fr] gap-4 md:h-full">
             {/* ---------- 左カラム: フィルター + KW一覧 ---------- */}
             <aside className="flex flex-col md:h-full min-h-0">
-              {/* フィルター: 右カラム上部ヘッダ (KWラベル h-[60px] + サイトタブ h-[40px] = 100px)
-                  と境界線の Y 位置が揃うよう2段構成にする */}
+              {/* フィルター 2段 (h-[50px] x 2 = 100px) — 右カラム上ヘッダと総高さ揃え */}
               <div className="shrink-0 bg-white border-b border-[var(--border-subtle)]">
-                <div className="h-[60px] flex items-center">
+                <div className="h-[50px] flex items-center">
                   <select
                     value={genreFilter}
                     onChange={(e) => setGenreFilter(e.target.value)}
@@ -694,13 +693,13 @@ export default function LibraryPage() {
                     ))}
                   </select>
                 </div>
-                <div className="h-[40px] flex items-center">
+                <div className="h-[50px] flex items-center">
                   <input
                     type="text"
                     value={kwSearch}
                     onChange={(e) => setKwSearch(e.target.value)}
                     placeholder="🔍 キーワードで絞り込み..."
-                    className="w-full h-[28px] text-[12px] px-3 rounded-lg border border-[var(--border-card)] bg-white"
+                    className="w-full text-[12px] px-3 py-1.5 rounded-lg border border-[var(--border-card)] bg-white"
                   />
                 </div>
               </div>
@@ -761,8 +760,8 @@ export default function LibraryPage() {
                   {/* 固定ヘッダ: サイトタブ + ボタン群 + メタバッジ。
                       合計高さを左カラムのフィルター (h-[60px]+h-[40px]=100px) に揃える */}
                   <div className="shrink-0 bg-white border-b border-[var(--border-subtle)]">
-                    {/* サイトタブ h-[40px] (上段) */}
-                    <div className="h-[40px] flex items-center flex-wrap -mb-px">
+                    {/* サイトタブ h-[50px] (上段) */}
+                    <div className="h-[50px] flex items-center flex-wrap -mb-px">
                       {siteTabs.length === 0 ? (
                         <div className="text-[12px] text-[color:var(--fg-muted)] italic py-3 px-2">
                           投稿先未登録。{" "}
@@ -808,28 +807,27 @@ export default function LibraryPage() {
                         })
                       )}
                     </div>
-                    {/* ボタン群 + メタバッジ (下段、h-[60px])。
-                        この shrink-0 親要素の border-b が
-                        左カラム上ヘッダの border-b と同じ Y位置に揃う */}
+                    {/* ボタン群 + メタバッジ (下段、h-[50px])。
+                        shrink-0 親の border-b が左カラム上ヘッダと同 Y 位置に揃う */}
                     {currentArticle && (
-                      <div className="h-[60px] flex flex-wrap items-center justify-between gap-3">
+                      <div className="h-[50px] flex flex-wrap items-center justify-between gap-3">
                         <div className="flex flex-wrap gap-2">
                           <button
                             onClick={() => openPostModal(currentArticle)}
-                            className="btn-primary"
+                            className="btn-primary btn-sm"
                             title="note + 登録済み外部ブログにマルチポストする"
                           >
                             📤 マルチポスト
                           </button>
                           {currentArticle.imagePath && (
-                            <a href={currentArticle.imagePath} download className="btn-ghost">
+                            <a href={currentArticle.imagePath} download className="btn-ghost btn-sm">
                               画像DL
                             </a>
                           )}
                           <button
                             onClick={() => generateImage(currentArticle.id)}
                             disabled={imageStatus.state === "loading"}
-                            className="btn-ghost"
+                            className="btn-ghost btn-sm"
                             title="Nano Banana (Gemini 2.5 Flash Image) で見出し画像を生成（約6円/枚）"
                           >
                             {imageStatus.state === "loading"
@@ -841,7 +839,7 @@ export default function LibraryPage() {
                           {currentArticle.imagePath && (
                             <button
                               onClick={() => setShowHeaderImage((v) => !v)}
-                              className="btn-ghost"
+                              className="btn-ghost btn-sm"
                               title="記事プレビューの見出し画像を一時的に隠す"
                             >
                               {showHeaderImage ? "🙈 画像を隠す" : "🖼 画像を表示"}
@@ -850,7 +848,7 @@ export default function LibraryPage() {
                           <button
                             onClick={() => generateDerivative(currentArticle.id)}
                             disabled={derivativeStatus.state === "loading"}
-                            className="btn-ghost"
+                            className="btn-ghost btn-sm"
                             title="この記事を起点に切り口違いの派生ネタ5件をフィードに追加"
                           >
                             {derivativeStatus.state === "loading"
@@ -1113,7 +1111,7 @@ export default function LibraryPage() {
                       <button
                         onClick={generateArticleForSite}
                         disabled={generateForSiteState.state === "loading"}
-                        className="btn-primary"
+                        className="btn-primary btn-sm"
                       >
                         {generateForSiteState.state === "loading"
                           ? "🤖 生成中..."
@@ -1440,14 +1438,14 @@ export default function LibraryPage() {
             <div className="flex gap-2 justify-end">
               <button
                 onClick={closePostModal}
-                className="btn-ghost"
+                className="btn-ghost btn-sm"
                 disabled={postStatus.state === "sending"}
               >
                 閉じる
               </button>
               <button
                 onClick={submitPost}
-                className="btn-primary"
+                className="btn-primary btn-sm"
                 disabled={postStatus.state === "sending" || postStatus.state === "done"}
               >
                 {postStatus.state === "sending" ? "送信中..." : "投稿実行"}

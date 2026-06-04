@@ -73,6 +73,10 @@ html, body {
 }
 .btn-ghost:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-dark); }
 
+/* 小サイズ修飾子: ライブラリ等コンパクトに収めたい場所で `btn-primary btn-sm` */
+.btn-sm.btn-primary { padding: 0.4rem 1.1rem; font-size: 0.75rem; }
+.btn-sm.btn-ghost { padding: 0.35rem 0.9rem; font-size: 0.75rem; }
+
 /* グリーンアクセントボタン */
 .btn-accent {
   display: inline-flex;
