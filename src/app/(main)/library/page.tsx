@@ -9,7 +9,12 @@ import Loading from "@/components/Loading";
 import { FilterBar } from "@/components/FilterBar";
 import { getCache, setCache } from "@/lib/clientCache";
 import { postToNote, type NotePostResult } from "@/lib/notePost";
-import { PLATFORM_LABELS, type Platform, type PostingDestinationRow } from "@/lib/posters/types";
+import {
+  PLATFORM_LABELS,
+  getPlatformFaviconUrl,
+  type Platform,
+  type PostingDestinationRow,
+} from "@/lib/posters/types";
 import { useProject } from "@/components/ProjectContext";
 
 const CACHE_KEY = "library:articles";
@@ -701,6 +706,13 @@ export default function LibraryPage() {
                                   : "border-transparent text-[color:var(--fg-muted)] hover:text-[color:var(--fg-secondary)]"
                               }`}
                             >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={getPlatformFaviconUrl(d.platform as Platform)}
+                                alt=""
+                                className="w-4 h-4 rounded-sm shrink-0"
+                                loading="lazy"
+                              />
                               <span>
                                 {PLATFORM_LABELS[d.platform as Platform] ?? d.platform}
                               </span>

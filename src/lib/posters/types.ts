@@ -50,6 +50,23 @@ export const PLATFORM_LABELS: Record<Platform, string> = {
   ameba: "Amebaブログ",
 };
 
+// favicon 表示用のドメイン。Google の s2/favicons API で公式ファビコンを取得する。
+// 商標ロゴをローカルに同梱するのは管理コスト/権利的に避けたいので、
+// 各プラットフォームの公式 favicon をオンデマンドで利用する方式。
+export const PLATFORM_FAVICON_DOMAIN: Record<Platform, string> = {
+  hatena: "hatenablog.com",
+  note: "note.com",
+  livedoor: "blog.livedoor.com",
+  fc2: "blog.fc2.com",
+  seesaa: "seesaa.net",
+  blogger: "blogger.com",
+  ameba: "ameblo.jp",
+};
+
+export function getPlatformFaviconUrl(platform: Platform, size = 32): string {
+  return `https://www.google.com/s2/favicons?domain=${PLATFORM_FAVICON_DOMAIN[platform]}&sz=${size}`;
+}
+
 // 各プラットフォームのアフィリエイト対応状況。
 // マルチポスト UI / DestinationsTab 表示で「Amazon/A8 対応」バッジに使う。
 // note: 商業利用ガイドラインで概ねOKだが Amazon リンクは note 公式機能経由が推奨
