@@ -825,11 +825,10 @@ export default function LibraryPage() {
                     </div>
                   </div>
 
-                  {/* スクロール領域: 該当 article or 未生成 */}
-                  <div className="flex-1 overflow-y-auto pr-1 mt-3 min-h-0">
-                  {currentArticle ? (
-                    <article className="card p-7">
-                      {/* アクションボタン群 — 画像より上に配置 */}
+                  {/* 固定領域: アクションボタン + メタバッジ (currentArticle ある時だけ表示)。
+                       スクロール領域の外に出すことで、本文を下スクロールしてもボタンが見える */}
+                  {currentArticle && (
+                    <div className="shrink-0 card p-4 mt-3">
                       <div className="flex flex-wrap gap-2 mb-3">
                         <button
                           onClick={() => openPostModal(currentArticle)}
@@ -875,10 +874,8 @@ export default function LibraryPage() {
                             : "↳ このテーマで派生案"}
                         </button>
                       </div>
-
-                      {/* メタ情報バッジ — 画像より上に配置 */}
                       {currentFeed && (
-                        <div className="flex flex-wrap items-center gap-1.5 mb-5 text-[11px]">
+                        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
                           {currentFeed.themeId && THEME_LABEL[currentFeed.themeId] && (
                             <span className="px-2 py-0.5 rounded-full bg-gray-100 text-[color:var(--fg-secondary)]">
                               テーマ: {THEME_LABEL[currentFeed.themeId]}
@@ -899,7 +896,13 @@ export default function LibraryPage() {
                           </span>
                         </div>
                       )}
+                    </div>
+                  )}
 
+                  {/* スクロール領域: 該当 article or 未生成 (画像から下) */}
+                  <div className="flex-1 overflow-y-auto pr-1 mt-3 min-h-0">
+                  {currentArticle ? (
+                    <article className="card p-7">
                       {currentArticle.imagePath && showHeaderImage && (
                         <img
                           src={currentArticle.imagePath}
