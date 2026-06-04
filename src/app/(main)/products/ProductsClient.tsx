@@ -7,7 +7,7 @@ import PageHeader from "@/components/PageHeader";
 import { FilterBar, GroupTab } from "@/components/FilterBar";
 import { useGeneration } from "@/components/GenerationProvider";
 import { getCache, setCache } from "@/lib/clientCache";
-import type { FeedIdea } from "@/lib/types";
+import type { Article, FeedIdea, FeedState } from "@/lib/types";
 
 const CACHE_SUBJECT = "products:subject";
 const CACHE_RESULT = "products:result";
@@ -100,8 +100,14 @@ export default function ProductsClient() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [loadingHistoryId, setLoadingHistoryId] = useState<string | null>(null);
-  // タブ: 新規スカウト / 履歴一覧
-  const [tab, setTab] = useState<"new" | "history">("new");
+  // タブ: 新規スカウト / 履歴一覧 / 保留KW (ネタ化のみ実行された未記事化 KW)
+  const [tab, setTab] = useState<"new" | "history" | "pending">("new");
+  // 保留KW タブ用
+  const [pendingIdeas, setPendingIdeas] = useState<FeedIdea[]>([]);
+  const [pendingArticles, setPendingArticles] = useState<Article[]>([]);
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [generatingFromPending, setGeneratingFromPending] = useState<Set<string>>(new Set());
+  const [dismissing, setDismissing] = useState<Set<string>>(new Set());
   // 履歴ジャンルフィルタ ("" = すべて表示)
   const [historyCategoryFilter, setHistoryCategoryFilter] = useState<string>("");
   const [backfilling, setBackfilling] = useState(false);
@@ -138,16 +144,75 @@ export default function ProductsClient() {
     refreshHistory();
   }, []);
 
-  // 履歴タブ時のみ body のスクロールを止める。これでページ全体がスクロールせず
-  // カラム内 overflow-y-auto と sticky ヘッダがちゃんと機能する
+  // 履歴 / 保留KW タブ時のみ body のスクロールを止める
   useEffect(() => {
-    if (tab !== "history") return;
+    if (tab !== "history" && tab !== "pending") return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prev;
     };
   }, [tab]);
+
+  // 保留KW タブ表示時に feed.ideas + articles をロード
+  const loadPending = async () => {
+    setPendingLoading(true);
+    try {
+      const [feedRes, articlesRes] = await Promise.all([
+        fetch("/api/feed", { cache: "no-store" }),
+        fetch("/api/articles", { cache: "no-store" }),
+      ]);
+      const feedData = (await feedRes.json()) as FeedState;
+      const articlesData = (await articlesRes.json()) as { articles: Article[] };
+      setPendingIdeas(feedData.ideas ?? []);
+      setPendingArticles(articlesData.articles ?? []);
+    } finally {
+      setPendingLoading(false);
+    }
+  };
+  useEffect(() => {
+    if (tab !== "pending") return;
+    loadPending();
+  }, [tab]);
+
+  // 保留KW から記事生成キュー投入
+  async function generateFromPendingIdea(idea: FeedIdea) {
+    setGeneratingFromPending((s) => new Set([...s, idea.id]));
+    try {
+      enqueue([idea]);
+      // ローカル state からは消しておく (記事化されたら articles 側に出るが、即座に反映)
+      setPendingArticles((prev) => prev); // no-op; pendingIdeas をフィルタしてはいけない (失敗時に戻せない)
+    } finally {
+      setGeneratingFromPending((s) => {
+        const n = new Set(s);
+        n.delete(idea.id);
+        return n;
+      });
+    }
+  }
+
+  // 保留KW から破棄
+  async function dismissPendingIdea(idea: FeedIdea) {
+    if (!confirm(`「${idea.title}」を保留KWから外しますか?`)) return;
+    setDismissing((s) => new Set([...s, idea.id]));
+    try {
+      const res = await fetch("/api/feed", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: idea.id }),
+      });
+      if (!res.ok) throw new Error("削除失敗");
+      setPendingIdeas((prev) => prev.filter((i) => i.id !== idea.id));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "削除失敗");
+    } finally {
+      setDismissing((s) => {
+        const n = new Set(s);
+        n.delete(idea.id);
+        return n;
+      });
+    }
+  }
 
   async function loadHistory(id: string) {
     setLoadingHistoryId(id);
@@ -431,6 +496,9 @@ export default function ProductsClient() {
                 <span className="ml-1.5 text-[10px] opacity-70">({history.length})</span>
               )}
             </GroupTab>
+            <GroupTab active={tab === "pending"} onClick={() => setTab("pending")}>
+              保留KW
+            </GroupTab>
           </div>
         </FilterBar>
       </PageHeader>
@@ -441,7 +509,7 @@ export default function ProductsClient() {
           同じ画面端まで 2カラムを広げる */}
       <div
         className={
-          tab === "history"
+          tab === "history" || tab === "pending"
             ? "md:sticky md:top-0 md:h-[calc(100vh-140px)] md:overflow-hidden md:-mt-8 -mt-6 -mx-4 md:-mx-8 px-2 md:px-4"
             : "max-w-3xl space-y-5"
         }
@@ -782,14 +850,14 @@ export default function ProductsClient() {
                                     : "bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] hover:bg-[color:var(--accent)] hover:text-white"
                                 }`}
                               >
-                                {isIdeized ? "✓ ネタ化済" : "ネタ化"}
+                                {isIdeized ? "✓ 保留済" : "保留"}
                               </button>
                               <button
                                 type="button"
                                 onClick={() => generateFromCandidate(c)}
                                 disabled={generating.has(c.kw)}
                                 className="text-[10px] px-2 py-1 rounded whitespace-nowrap bg-[color:var(--accent)] hover:opacity-80 text-white disabled:opacity-50 disabled:cursor-wait"
-                                title="ネタ化と同時に記事生成キューに投入"
+                                title="保留と同時に記事生成キューに投入"
                               >
                                 {generating.has(c.kw) ? "投入中…" : "✍ 記事生成"}
                               </button>
@@ -800,7 +868,11 @@ export default function ProductsClient() {
                     })}
                   </ul>
                   <div className="text-[11px] text-[color:var(--fg-muted)] mt-3">
-                    「ネタ化」したKWは <Link href="/" className="text-[color:var(--accent-dark)] hover:underline">ライブフィード</Link> に追加されます。そこから記事生成へ。
+                    「保留」したKWは <button
+                      type="button"
+                      onClick={() => setTab("pending")}
+                      className="text-[color:var(--accent-dark)] hover:underline"
+                    >保留KW</button> タブに移ります。後でまとめて記事生成できます。
                   </div>
                   </div>
                 </>
@@ -817,6 +889,101 @@ export default function ProductsClient() {
             </span>
           </div>
         )}
+
+        {/* 保留KW タブ: scout 由来 (idea.customLabel "🛒 *") かつまだ記事化されていない idea を listing */}
+        {tab === "pending" && (() => {
+          const adoptedIdeaIds = new Set(
+            pendingArticles
+              .map((a) => (a.idea as FeedIdea)?.id)
+              .filter((x): x is string => !!x),
+          );
+          const items = pendingIdeas.filter(
+            (i) =>
+              i.customLabel?.startsWith("🛒") &&
+              !adoptedIdeaIds.has(i.id),
+          );
+          return (
+            <div className="flex flex-col md:h-full min-h-0">
+              <div className="shrink-0 bg-white border-b border-[var(--border-subtle)] h-[60px] flex items-center justify-between">
+                <div className="text-[12px] text-[color:var(--fg-secondary)]">
+                  保留中の KW: <strong>{items.length}</strong> 件
+                </div>
+                <div className="text-[10px] text-[color:var(--fg-muted)] font-mono">
+                  スカウト → 保留 を実行したもの (記事生成すると採用KWへ)
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto pr-2 mt-3 min-h-0">
+                {pendingLoading ? (
+                  <div className="text-[12px] text-[color:var(--fg-muted)] py-4">読み込み中…</div>
+                ) : items.length === 0 ? (
+                  <div className="p-8 rounded-lg border border-dashed border-[var(--border-card)] text-center">
+                    <p className="text-[13px] text-[color:var(--fg-secondary)]">
+                      保留中の KW はありません
+                    </p>
+                    <p className="text-[11px] text-[color:var(--fg-muted)] mt-1">
+                      「スカウト履歴」タブの候補カードから「保留」を押すと、ここに溜まります
+                    </p>
+                  </div>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {items.map((idea) => {
+                      const subject = idea.customLabel?.replace(/^🛒\s*/, "")?.trim();
+                      const isGenerating = generatingFromPending.has(idea.id);
+                      const isDismissing = dismissing.has(idea.id);
+                      return (
+                        <li
+                          key={idea.id}
+                          className="px-4 py-3 rounded-lg border border-[var(--border-card)] bg-white hover:border-gray-400 transition flex items-center gap-4"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[14px] font-semibold leading-tight truncate">
+                              {idea.title}
+                            </div>
+                            {subject && (
+                              <div className="text-[10px] text-[color:var(--fg-muted)] mt-0.5 truncate">
+                                🛒 {subject}
+                              </div>
+                            )}
+                          </div>
+                          {typeof idea.priorityScore === "number" && (
+                            <span className="shrink-0 px-1.5 py-0.5 rounded bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] text-[10.5px] w-[90px] text-center font-mono">
+                              機会 {idea.priorityScore}
+                            </span>
+                          )}
+                          <span className="shrink-0 text-[10.5px] font-mono text-[color:var(--fg-muted)] w-[90px] text-right">
+                            {new Date(idea.createdAt).toLocaleString("ja-JP", {
+                              month: "2-digit",
+                              day: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => generateFromPendingIdea(idea)}
+                            disabled={isGenerating || isDismissing}
+                            className="shrink-0 text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-[color:var(--accent)] hover:opacity-80 text-white disabled:opacity-50 disabled:cursor-wait"
+                          >
+                            {isGenerating ? "投入中…" : "✍ 記事生成"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => dismissPendingIdea(idea)}
+                            disabled={isGenerating || isDismissing}
+                            className="shrink-0 text-[12px] px-2 py-1.5 rounded-lg border border-[var(--border-card)] text-[color:var(--fg-secondary)] hover:bg-red-50 hover:text-red-700 hover:border-red-200 disabled:opacity-50"
+                            title="保留から外す"
+                          >
+                            🗑
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
       </div>
     </>
