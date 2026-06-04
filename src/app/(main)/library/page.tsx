@@ -130,6 +130,9 @@ export default function LibraryPage() {
     message?: string;
   }>({ state: "idle" });
 
+  // 記事プレビューの見出し画像の表示/非表示トグル (画像が大きすぎる時用)
+  const [showHeaderImage, setShowHeaderImage] = useState(true);
+
   // マルチポストモーダル
   const [postModalArticle, setPostModalArticle] = useState<Article | null>(null);
   const [postTagsInput, setPostTagsInput] = useState("");
@@ -763,7 +766,7 @@ export default function LibraryPage() {
                   <div className="flex-1 overflow-y-auto pr-1 mt-3 min-h-0">
                   {currentArticle ? (
                     <article className="card p-7">
-                      {currentArticle.imagePath && (
+                      {currentArticle.imagePath && showHeaderImage && (
                         <img
                           src={currentArticle.imagePath}
                           alt={currentArticle.imageAltText ?? currentArticle.bestTitle}
@@ -867,6 +870,15 @@ export default function LibraryPage() {
                               ? "🔄 画像を再生成"
                               : "🎨 見出し画像を生成"}
                         </button>
+                        {currentArticle.imagePath && (
+                          <button
+                            onClick={() => setShowHeaderImage((v) => !v)}
+                            className="btn-ghost"
+                            title="記事プレビューの見出し画像を一時的に隠す"
+                          >
+                            {showHeaderImage ? "🙈 画像を隠す" : "🖼 画像を表示"}
+                          </button>
+                        )}
                         <button
                           onClick={() => generateDerivative(currentArticle.id)}
                           disabled={derivativeStatus.state === "loading"}
