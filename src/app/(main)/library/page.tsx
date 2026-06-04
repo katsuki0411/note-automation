@@ -829,6 +829,77 @@ export default function LibraryPage() {
                   <div className="flex-1 overflow-y-auto pr-1 mt-3 min-h-0">
                   {currentArticle ? (
                     <article className="card p-7">
+                      {/* アクションボタン群 — 画像より上に配置 */}
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        <button
+                          onClick={() => openPostModal(currentArticle)}
+                          className="btn-primary"
+                          title="note + 登録済み外部ブログにマルチポストする"
+                        >
+                          📤 マルチポスト
+                        </button>
+                        {currentArticle.imagePath && (
+                          <a href={currentArticle.imagePath} download className="btn-ghost">
+                            画像DL
+                          </a>
+                        )}
+                        <button
+                          onClick={() => generateImage(currentArticle.id)}
+                          disabled={imageStatus.state === "loading"}
+                          className="btn-ghost"
+                          title="Nano Banana (Gemini 2.5 Flash Image) で見出し画像を生成（約6円/枚）"
+                        >
+                          {imageStatus.state === "loading"
+                            ? "🎨 生成中..."
+                            : currentArticle.imagePath
+                              ? "🔄 画像を再生成"
+                              : "🎨 見出し画像を生成"}
+                        </button>
+                        {currentArticle.imagePath && (
+                          <button
+                            onClick={() => setShowHeaderImage((v) => !v)}
+                            className="btn-ghost"
+                            title="記事プレビューの見出し画像を一時的に隠す"
+                          >
+                            {showHeaderImage ? "🙈 画像を隠す" : "🖼 画像を表示"}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => generateDerivative(currentArticle.id)}
+                          disabled={derivativeStatus.state === "loading"}
+                          className="btn-ghost"
+                          title="この記事を起点に切り口違いの派生ネタ5件をフィードに追加"
+                        >
+                          {derivativeStatus.state === "loading"
+                            ? "🔍 派生案を探索中..."
+                            : "↳ このテーマで派生案"}
+                        </button>
+                      </div>
+
+                      {/* メタ情報バッジ — 画像より上に配置 */}
+                      {currentFeed && (
+                        <div className="flex flex-wrap items-center gap-1.5 mb-5 text-[11px]">
+                          {currentFeed.themeId && THEME_LABEL[currentFeed.themeId] && (
+                            <span className="px-2 py-0.5 rounded-full bg-gray-100 text-[color:var(--fg-secondary)]">
+                              テーマ: {THEME_LABEL[currentFeed.themeId]}
+                            </span>
+                          )}
+                          {currentFeed.voice?.platform && (
+                            <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800">
+                              ネタ元: {currentFeed.voice.platform}
+                            </span>
+                          )}
+                          <span className="px-2 py-0.5 rounded-full bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] font-mono">
+                            🕒 {new Date(currentArticle.createdAt).toLocaleString("ja-JP", {
+                              month: "2-digit",
+                              day: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        </div>
+                      )}
+
                       {currentArticle.imagePath && showHeaderImage && (
                         <img
                           src={currentArticle.imagePath}
@@ -933,74 +1004,6 @@ export default function LibraryPage() {
                         )}
                       </div>
 
-                      {currentFeed && (
-                        <div className="flex flex-wrap items-center gap-1.5 mb-5 text-[11px]">
-                          {currentFeed.themeId && THEME_LABEL[currentFeed.themeId] && (
-                            <span className="px-2 py-0.5 rounded-full bg-gray-100 text-[color:var(--fg-secondary)]">
-                              テーマ: {THEME_LABEL[currentFeed.themeId]}
-                            </span>
-                          )}
-                          {currentFeed.voice?.platform && (
-                            <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800">
-                              ネタ元: {currentFeed.voice.platform}
-                            </span>
-                          )}
-                          <span className="px-2 py-0.5 rounded-full bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] font-mono">
-                            🕒 {new Date(currentArticle.createdAt).toLocaleString("ja-JP", {
-                              month: "2-digit",
-                              day: "2-digit",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </span>
-                        </div>
-                      )}
-
-                      <div className="flex flex-wrap gap-2 mb-3">
-                        <button
-                          onClick={() => openPostModal(currentArticle)}
-                          className="btn-primary"
-                          title="note + 登録済み外部ブログにマルチポストする"
-                        >
-                          📤 マルチポスト
-                        </button>
-                        {currentArticle.imagePath && (
-                          <a href={currentArticle.imagePath} download className="btn-ghost">
-                            画像DL
-                          </a>
-                        )}
-                        <button
-                          onClick={() => generateImage(currentArticle.id)}
-                          disabled={imageStatus.state === "loading"}
-                          className="btn-ghost"
-                          title="Nano Banana (Gemini 2.5 Flash Image) で見出し画像を生成（約6円/枚）"
-                        >
-                          {imageStatus.state === "loading"
-                            ? "🎨 生成中..."
-                            : currentArticle.imagePath
-                              ? "🔄 画像を再生成"
-                              : "🎨 見出し画像を生成"}
-                        </button>
-                        {currentArticle.imagePath && (
-                          <button
-                            onClick={() => setShowHeaderImage((v) => !v)}
-                            className="btn-ghost"
-                            title="記事プレビューの見出し画像を一時的に隠す"
-                          >
-                            {showHeaderImage ? "🙈 画像を隠す" : "🖼 画像を表示"}
-                          </button>
-                        )}
-                        <button
-                          onClick={() => generateDerivative(currentArticle.id)}
-                          disabled={derivativeStatus.state === "loading"}
-                          className="btn-ghost"
-                          title="この記事を起点に切り口違いの派生ネタ5件をフィードに追加"
-                        >
-                          {derivativeStatus.state === "loading"
-                            ? "🔍 派生案を探索中..."
-                            : "↳ このテーマで派生案"}
-                        </button>
-                      </div>
                       {imageStatus.message && (
                         <div
                           className={`mb-3 text-[12px] px-4 py-2 rounded-lg ${
