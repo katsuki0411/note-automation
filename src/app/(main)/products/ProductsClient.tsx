@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
@@ -174,6 +174,24 @@ export default function ProductsClient() {
     if (tab !== "pending") return;
     loadPending();
   }, [tab]);
+
+  // タブ未表示でも GroupTab に (件数) を出したいので、初回マウント時に1回だけロード
+  useEffect(() => {
+    loadPending();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // GroupTab 表示用: scout 由来 (customLabel "🛒 *") かつまだ記事化されていない idea 数
+  const pendingCount = useMemo(() => {
+    const adoptedIdeaIds = new Set(
+      pendingArticles
+        .map((a) => (a.idea as FeedIdea)?.id)
+        .filter((x): x is string => !!x),
+    );
+    return pendingIdeas.filter(
+      (i) => i.customLabel?.startsWith("🛒") && !adoptedIdeaIds.has(i.id),
+    ).length;
+  }, [pendingIdeas, pendingArticles]);
 
   // 保留KW から記事生成キュー投入
   async function generateFromPendingIdea(idea: FeedIdea) {
@@ -498,6 +516,9 @@ export default function ProductsClient() {
             </GroupTab>
             <GroupTab active={tab === "pending"} onClick={() => setTab("pending")}>
               保留KW
+              {pendingCount > 0 && (
+                <span className="ml-1.5 text-[10px] opacity-70">({pendingCount})</span>
+              )}
             </GroupTab>
           </div>
         </FilterBar>
