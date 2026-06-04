@@ -143,6 +143,16 @@ export default function LibraryPage() {
       .catch(() => {});
   }, []);
 
+  // ライブラリ全体は「カラム内スクロール」設計のため、body のページ全体スクロールを抑止。
+  // (これを忘れると右端にページ全体スクロールバーが残ってしまう)
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
   useEffect(() => {
     // ?id=xxx で来た場合 (投稿レコード等から) はその記事の KW × destination を選択
     const urlId =
