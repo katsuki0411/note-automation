@@ -518,7 +518,7 @@ export default function LibraryPage() {
   function copy(text: string, label: string) {
     navigator.clipboard.writeText(text);
     setCopied(label);
-    setTimeout(() => setCopied(null), 1400);
+    setTimeout(() => setCopied(null), 2000);
   }
 
   // 未生成サイト用に記事を生成 (現在の KW × 選択中サイト)
@@ -800,8 +800,21 @@ export default function LibraryPage() {
                         <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-1">
                           ARTICLE TITLE
                         </div>
-                        <div className="text-[15px] text-[color:var(--fg-primary)] font-medium leading-snug">
-                          {currentArticle.bestTitle}
+                        <div className="flex items-start gap-3">
+                          <div className="text-[15px] text-[color:var(--fg-primary)] font-medium leading-snug flex-1 min-w-0">
+                            {currentArticle.bestTitle}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => copy(currentArticle.bestTitle, "title")}
+                            className={`shrink-0 text-[11px] px-2.5 py-1 rounded-md border transition ${
+                              copied === "title"
+                                ? "bg-green-50 border-green-200 text-green-700"
+                                : "bg-white border-[var(--border-card)] text-[color:var(--fg-secondary)] hover:bg-gray-50"
+                            }`}
+                          >
+                            {copied === "title" ? "✓ コピー完了!" : "コピー"}
+                          </button>
                         </div>
                         {currentArticle.bestTitleReason && (
                           <p className="text-[12px] text-[color:var(--fg-secondary)] mt-1">
@@ -840,18 +853,6 @@ export default function LibraryPage() {
                           title="note + 登録済み外部ブログにマルチポストする"
                         >
                           📤 マルチポスト
-                        </button>
-                        <button
-                          onClick={() => copy(currentArticle.bestTitle, "title")}
-                          className="btn-ghost"
-                        >
-                          {copied === "title" ? "✓ コピー完了" : "タイトルをコピー"}
-                        </button>
-                        <button
-                          onClick={() => copy(currentArticle.bodyMarkdown, "body")}
-                          className="btn-ghost"
-                        >
-                          {copied === "body" ? "✓ コピー完了" : "本文をコピー"}
                         </button>
                         {currentArticle.imagePath && (
                           <a href={currentArticle.imagePath} download className="btn-ghost">
@@ -924,8 +925,21 @@ export default function LibraryPage() {
 
                       <div className="hairline mb-5" />
 
-                      <div className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-3">
-                        MARKDOWN
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)]">
+                          MARKDOWN
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => copy(currentArticle.bodyMarkdown, "body")}
+                          className={`text-[11px] px-2.5 py-1 rounded-md border transition ${
+                            copied === "body"
+                              ? "bg-green-50 border-green-200 text-green-700"
+                              : "bg-white border-[var(--border-card)] text-[color:var(--fg-secondary)] hover:bg-gray-50"
+                          }`}
+                        >
+                          {copied === "body" ? "✓ コピー完了!" : "コピー"}
+                        </button>
                       </div>
                       <pre className="p-5 rounded-xl bg-gray-50 border border-[var(--border-subtle)] text-[14px] leading-[1.85] whitespace-pre-wrap font-sans">
                         {currentArticle.bodyMarkdown}
