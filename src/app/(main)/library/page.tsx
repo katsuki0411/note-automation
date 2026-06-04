@@ -6,7 +6,7 @@ import type { Article, FeedIdea, ThemeId } from "@/lib/types";
 import { THEMES } from "@/lib/types";
 import PageHeader from "@/components/PageHeader";
 import Loading from "@/components/Loading";
-import { FilterBar } from "@/components/FilterBar";
+import { FilterBar, GroupTab } from "@/components/FilterBar";
 import { getCache, setCache } from "@/lib/clientCache";
 import { postToNote, type NotePostResult } from "@/lib/notePost";
 import {
@@ -20,6 +20,9 @@ import { useProject } from "@/components/ProjectContext";
 const CACHE_KEY = "library:articles";
 const SELECTED_KW_CACHE_KEY = "library:selectedKw";
 const SELECTED_DEST_CACHE_KEY = "library:selectedDest";
+const TAB_CACHE_KEY = "library:tab";
+
+type LibraryTab = "adopted" | "articles";
 
 // project.kind に応じて空状態の文言とリンク先を切替
 function EmptyLibraryCta() {
@@ -98,6 +101,14 @@ export default function LibraryPage() {
   const setSelectedDestinationId = useCallback((id: string | null) => {
     setSelectedDestinationIdState(id);
     setCache(SELECTED_DEST_CACHE_KEY, id);
+  }, []);
+
+  const [tab, setTabState] = useState<LibraryTab>(
+    () => (getCache<LibraryTab>(TAB_CACHE_KEY) ?? "articles"),
+  );
+  const setTab = useCallback((t: LibraryTab) => {
+    setTabState(t);
+    setCache(TAB_CACHE_KEY, t);
   }, []);
 
   const [genreFilter, setGenreFilter] = useState<string>("all"); // themeId | "all"
@@ -270,6 +281,14 @@ export default function LibraryPage() {
   }, [currentGroup, selectedDestinationId]);
 
   const currentFeed = currentArticle ? feedIdeaOf(currentArticle) : null;
+
+  // 採用KW タブ用: scout 由来 (idea.customLabel が "🛒 *") の article 一覧
+  const adoptedArticles = useMemo<Article[]>(() => {
+    return articles.filter((a) => {
+      const cl = (a.idea as FeedIdea)?.customLabel?.trim();
+      return cl?.startsWith("🛒") ?? false;
+    });
+  }, [articles]);
 
   // ---------- マルチポストモーダル制御 ----------
   function openPostModal(a: Article) {
@@ -562,44 +581,22 @@ export default function LibraryPage() {
   return (
     <>
       <PageHeader title="ライブラリ">
-        {initialLoaded && articles.length > 0 && (
-          <FilterBar>
-            <div className="flex items-center gap-3 flex-wrap">
-              <div className="flex items-center gap-2">
-                <label className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)]">
-                  GENRE
-                </label>
-                <select
-                  value={genreFilter}
-                  onChange={(e) => setGenreFilter(e.target.value)}
-                  className="text-[12px] px-3 py-1.5 rounded-lg border border-[var(--border-card)] bg-white"
-                >
-                  <option value="all">すべて ({articles.length})</option>
-                  {allGenres.map(([id, count]) => (
-                    <option key={id} value={id}>
-                      {THEME_LABEL[id] ?? id} ({count})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex items-center gap-2 flex-1 min-w-[200px]">
-                <label className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)]">
-                  KW
-                </label>
-                <input
-                  type="text"
-                  value={kwSearch}
-                  onChange={(e) => setKwSearch(e.target.value)}
-                  placeholder="キーワードで絞り込み..."
-                  className="flex-1 text-[12px] px-3 py-1.5 rounded-lg border border-[var(--border-card)] bg-white"
-                />
-              </div>
-              <div className="text-[11px] font-mono text-[color:var(--fg-muted)]">
-                {keywordGroups.length} KW / {articles.length} ARTICLES
-              </div>
-            </div>
-          </FilterBar>
-        )}
+        <FilterBar>
+          <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
+            <GroupTab active={tab === "adopted"} onClick={() => setTab("adopted")}>
+              採用KW
+              {adoptedArticles.length > 0 && (
+                <span className="ml-1.5 text-[10px] opacity-70">({adoptedArticles.length})</span>
+              )}
+            </GroupTab>
+            <GroupTab active={tab === "articles"} onClick={() => setTab("articles")}>
+              生成記事
+              {articles.length > 0 && (
+                <span className="ml-1.5 text-[10px] opacity-70">({articles.length})</span>
+              )}
+            </GroupTab>
+          </div>
+        </FilterBar>
       </PageHeader>
 
       {!initialLoaded ? (
@@ -608,17 +605,33 @@ export default function LibraryPage() {
         </div>
       ) : articles.length === 0 ? (
         <EmptyLibraryCta />
-      ) : (
-        // KWスカウト履歴と同じ「ページ全体は固定 (overflow-hidden) + 各カラム独立スクロール」パターン。
-        // ページ全体スクロールが発生せず、左右カラムそれぞれが viewport 内で独立に動く。
+      ) : tab === "articles" ? (
+        // 「生成記事」タブ: KWスカウト履歴と同じ「ページ全体固定 + カラム内独立スクロール」
         <div className="md:sticky md:top-0 md:h-[calc(100vh-140px)] md:overflow-hidden md:-mt-8 -mt-6 -mx-4 md:-mx-8 px-2 md:px-4">
           <div className="grid grid-cols-1 md:grid-cols-[300px_1fr] gap-4 md:h-full">
-            {/* ---------- 左カラム: KW一覧 (固定ヘッダ + スクロール領域) ---------- */}
+            {/* ---------- 左カラム: フィルター + KW一覧 ---------- */}
             <aside className="flex flex-col md:h-full min-h-0">
-              <div className="shrink-0 h-[60px] flex items-center bg-white border-b border-[var(--border-subtle)]">
-                <div className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)]">
-                  {keywordGroups.length} KW
-                </div>
+              {/* フィルター行 (旧上部 FilterBar から移動): ジャンルプルダウン + KW検索 */}
+              <div className="shrink-0 bg-white border-b border-[var(--border-subtle)] py-2 space-y-2">
+                <select
+                  value={genreFilter}
+                  onChange={(e) => setGenreFilter(e.target.value)}
+                  className="w-full text-[12px] px-3 py-1.5 rounded-lg border border-[var(--border-card)] bg-white"
+                >
+                  <option value="all">ジャンル: すべて ({articles.length})</option>
+                  {allGenres.map(([id, count]) => (
+                    <option key={id} value={id}>
+                      {THEME_LABEL[id] ?? id} ({count})
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  value={kwSearch}
+                  onChange={(e) => setKwSearch(e.target.value)}
+                  placeholder="🔍 キーワードで絞り込み..."
+                  className="w-full text-[12px] px-3 py-1.5 rounded-lg border border-[var(--border-card)] bg-white"
+                />
               </div>
               <ul className="flex-1 overflow-y-auto space-y-1.5 mt-2 pr-1 min-h-0">
               {keywordGroups.length === 0 ? (
@@ -937,6 +950,104 @@ export default function LibraryPage() {
                 </>
               )}
             </section>
+          </div>
+        </div>
+      ) : (
+        // 「採用KW」タブ: scout 由来 (idea.customLabel が "🛒 *") の article 一覧
+        <div className="md:sticky md:top-0 md:h-[calc(100vh-140px)] md:overflow-hidden md:-mt-8 -mt-6 -mx-4 md:-mx-8 px-2 md:px-4">
+          <div className="flex flex-col md:h-full min-h-0">
+            <div className="shrink-0 bg-white border-b border-[var(--border-subtle)] h-[60px] flex items-center justify-between">
+              <div className="text-[12px] text-[color:var(--fg-secondary)]">
+                記事生成済みの KW: <strong>{adoptedArticles.length}</strong> 件
+              </div>
+              <div className="text-[10px] text-[color:var(--fg-muted)] font-mono">
+                KWスカウト → 記事生成 を実行したもの
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto pr-2 mt-3 min-h-0">
+              {adoptedArticles.length === 0 ? (
+                <div className="p-8 rounded-lg border border-dashed border-[var(--border-card)] text-center">
+                  <p className="text-[13px] text-[color:var(--fg-secondary)]">
+                    採用KWはまだありません
+                  </p>
+                  <p className="text-[11px] text-[color:var(--fg-muted)] mt-1">
+                    「KWスカウト → スカウト履歴」の候補カードから ✍記事生成 を押すと、ここに表示されます
+                  </p>
+                </div>
+              ) : (
+                <ul className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {adoptedArticles.map((a) => {
+                    const fi = a.idea as FeedIdea;
+                    const kw = a.idea.title;
+                    const sourceSubject = fi?.customLabel?.replace(/^🛒\s*/, "")?.trim();
+                    const dest = destinations.find((d) => d.id === a.destinationId);
+                    const platform = dest?.platform as Platform | undefined;
+                    return (
+                      <li
+                        key={a.id}
+                        className="p-4 rounded-xl border border-[var(--border-card)] bg-white hover:border-gray-400 transition flex flex-col gap-2.5"
+                      >
+                        <div>
+                          <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-1">
+                            KEYWORD
+                          </div>
+                          <div className="text-[14px] font-semibold leading-snug line-clamp-2">
+                            {kw}
+                          </div>
+                          {sourceSubject && (
+                            <div className="text-[10px] text-[color:var(--fg-muted)] mt-1">
+                              🛒 {sourceSubject}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                          {platform && (
+                            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={getPlatformFaviconUrl(platform)}
+                                alt=""
+                                className="w-3 h-3 rounded-sm"
+                                loading="lazy"
+                              />
+                              {PLATFORM_LABELS[platform] ?? platform}
+                            </span>
+                          )}
+                          {a.postedAt ? (
+                            <span className="px-1.5 py-0.5 rounded bg-green-50 text-green-700">
+                              ✓ 投稿済
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">
+                              ⏳ 未投稿
+                            </span>
+                          )}
+                          <span className="font-mono text-[color:var(--fg-muted)] ml-auto">
+                            {new Date(a.createdAt).toLocaleString("ja-JP", {
+                              month: "2-digit",
+                              day: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedKwKey(keywordKeyOf(a));
+                            if (a.destinationId) setSelectedDestinationId(a.destinationId);
+                            setTab("articles");
+                          }}
+                          className="text-center text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-black text-white hover:bg-gray-800 transition"
+                        >
+                          📖 記事を見る
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
           </div>
         </div>
       )}
