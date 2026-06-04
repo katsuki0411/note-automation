@@ -6,14 +6,14 @@ import type { Article, FeedIdea, ThemeId } from "@/lib/types";
 import { THEMES } from "@/lib/types";
 import PageHeader from "@/components/PageHeader";
 import Loading from "@/components/Loading";
-import { FilterBar, GroupTab, FilterPill } from "@/components/FilterBar";
 import { getCache, setCache } from "@/lib/clientCache";
 import { postToNote, type NotePostResult } from "@/lib/notePost";
 import { PLATFORM_LABELS, type Platform, type PostingDestinationRow } from "@/lib/posters/types";
 import { useProject } from "@/components/ProjectContext";
 
 const CACHE_KEY = "library:articles";
-const ACTIVE_CACHE_KEY = "library:activeId";
+const SELECTED_KW_CACHE_KEY = "library:selectedKw";
+const SELECTED_DEST_CACHE_KEY = "library:selectedDest";
 
 // project.kind に応じて空状態の文言とリンク先を切替
 function EmptyLibraryCta() {
@@ -35,8 +35,6 @@ function EmptyLibraryCta() {
   );
 }
 
-type GroupBy = "theme" | "source" | "keyword";
-
 const THEME_LABEL: Record<string, string> = Object.fromEntries(
   THEMES.map((t) => [t.id, t.label]),
 );
@@ -57,20 +55,48 @@ function isPromptReady(d: PostingDestinationRow): boolean {
   );
 }
 
+// KW のグルーピングキー。同じネタ (idea) なら destination 違いでも同じ KW として束ねる
+function keywordKeyOf(a: Article): string {
+  const fi = feedIdeaOf(a);
+  return fi?.targetKeywordId ?? a.idea?.title ?? a.id;
+}
+function keywordLabelOf(a: Article): string {
+  const fi = feedIdeaOf(a);
+  return fi?.customLabel?.trim() || a.idea?.title || "(無題)";
+}
+
+type KeywordGroup = {
+  key: string;
+  label: string;
+  themeId?: ThemeId;
+  latestCreatedAt: string;
+  articles: Article[]; // この KW で生成された記事 (destination 違いの全件)
+};
+
 export default function LibraryPage() {
   const cached = getCache<Article[]>(CACHE_KEY);
-  const cachedActive = getCache<string | null>(ACTIVE_CACHE_KEY);
+  const cachedKw = getCache<string | null>(SELECTED_KW_CACHE_KEY);
+  const cachedDest = getCache<string | null>(SELECTED_DEST_CACHE_KEY);
   const [articles, setArticles] = useState<Article[]>(cached ?? []);
   const [initialLoaded, setInitialLoaded] = useState(cached !== undefined);
-  const [active, setActiveState] = useState<string | null>(cachedActive ?? null);
 
-  const setActive = useCallback((id: string | null) => {
-    setActiveState(id);
-    setCache(ACTIVE_CACHE_KEY, id);
+  const [selectedKwKey, setSelectedKwKeyState] = useState<string | null>(cachedKw ?? null);
+  const [selectedDestinationId, setSelectedDestinationIdState] = useState<string | null>(
+    cachedDest ?? null,
+  );
+  const setSelectedKwKey = useCallback((k: string | null) => {
+    setSelectedKwKeyState(k);
+    setCache(SELECTED_KW_CACHE_KEY, k);
   }, []);
+  const setSelectedDestinationId = useCallback((id: string | null) => {
+    setSelectedDestinationIdState(id);
+    setCache(SELECTED_DEST_CACHE_KEY, id);
+  }, []);
+
+  const [genreFilter, setGenreFilter] = useState<string>("all"); // themeId | "all"
+  const [kwSearch, setKwSearch] = useState<string>("");
+
   const [copied, setCopied] = useState<string | null>(null);
-  const [groupBy, setGroupBy] = useState<GroupBy>("source");
-  const [filter, setFilter] = useState<string>("all");
   const [derivativeStatus, setDerivativeStatus] = useState<{
     state: "idle" | "loading" | "done" | "error";
     message?: string;
@@ -80,7 +106,13 @@ export default function LibraryPage() {
     message?: string;
   }>({ state: "idle" });
 
-  // マルチポストモーダル（note拡張 + 登録済み外部宛先を選んで一括投稿）
+  // 未生成サイト用「このサイト用に生成」ボタンの状態
+  const [generateForSiteState, setGenerateForSiteState] = useState<{
+    state: "idle" | "loading" | "error";
+    message?: string;
+  }>({ state: "idle" });
+
+  // マルチポストモーダル
   const [postModalArticle, setPostModalArticle] = useState<Article | null>(null);
   const [postTagsInput, setPostTagsInput] = useState("");
   const [postPublish, setPostPublish] = useState(true);
@@ -89,14 +121,14 @@ export default function LibraryPage() {
     message?: string;
   }>({ state: "idle" });
   const [destinations, setDestinations] = useState<PostingDestinationRow[]>([]);
-  // 選択中の宛先 (id) — "note" は拡張経由のnote投稿を表す擬似ID
   const [selectedTargets, setSelectedTargets] = useState<Set<string>>(new Set());
-  // 本文編集モード (モーダル内で展開する textarea)
+  // 本文編集モード
   const [editingBody, setEditingBody] = useState(false);
   const [editingBodyDraft, setEditingBodyDraft] = useState("");
   const [editingBodySaving, setEditingBodySaving] = useState(false);
   const [editingBodyError, setEditingBodyError] = useState<string | null>(null);
 
+  // ---------- データロード ----------
   useEffect(() => {
     fetch("/api/destinations")
       .then((r) => r.json())
@@ -104,6 +136,125 @@ export default function LibraryPage() {
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    // ?id=xxx で来た場合 (投稿レコード等から) はその記事の KW × destination を選択
+    const urlId =
+      typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("id")
+        : null;
+    fetch("/api/articles")
+      .then((r) => r.json())
+      .then((d) => {
+        const next: Article[] = d.articles ?? [];
+        setArticles(next);
+        setCache(CACHE_KEY, next);
+        if (urlId) {
+          const hit = next.find((a) => a.id === urlId);
+          if (hit) {
+            setSelectedKwKey(keywordKeyOf(hit));
+            if (hit.destinationId) setSelectedDestinationId(hit.destinationId);
+          }
+        }
+      })
+      .finally(() => setInitialLoaded(true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ---------- 集約 ----------
+  const allGenres = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const a of articles) {
+      const t = feedIdeaOf(a)?.themeId;
+      if (!t) continue;
+      m.set(t, (m.get(t) ?? 0) + 1);
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  }, [articles]);
+
+  const keywordGroups = useMemo<KeywordGroup[]>(() => {
+    const map = new Map<string, KeywordGroup>();
+    for (const a of articles) {
+      if (genreFilter !== "all") {
+        if (feedIdeaOf(a)?.themeId !== genreFilter) continue;
+      }
+      const k = keywordKeyOf(a);
+      const label = keywordLabelOf(a);
+      const exist = map.get(k);
+      if (exist) {
+        exist.articles.push(a);
+        if (a.createdAt > exist.latestCreatedAt) exist.latestCreatedAt = a.createdAt;
+      } else {
+        map.set(k, {
+          key: k,
+          label,
+          themeId: feedIdeaOf(a)?.themeId,
+          latestCreatedAt: a.createdAt,
+          articles: [a],
+        });
+      }
+    }
+    const groups = [...map.values()].sort(
+      (a, b) => b.latestCreatedAt.localeCompare(a.latestCreatedAt),
+    );
+    if (kwSearch.trim()) {
+      const q = kwSearch.trim().toLowerCase();
+      return groups.filter((g) => g.label.toLowerCase().includes(q));
+    }
+    return groups;
+  }, [articles, genreFilter, kwSearch]);
+
+  // 選択中 KW の整合性チェック (フィルター変更で消えたら先頭に振り直す)
+  useEffect(() => {
+    if (keywordGroups.length === 0) {
+      if (selectedKwKey !== null) setSelectedKwKey(null);
+      return;
+    }
+    if (!selectedKwKey || !keywordGroups.find((g) => g.key === selectedKwKey)) {
+      setSelectedKwKey(keywordGroups[0].key);
+    }
+  }, [keywordGroups, selectedKwKey, setSelectedKwKey]);
+
+  const currentGroup = useMemo(
+    () => keywordGroups.find((g) => g.key === selectedKwKey) ?? null,
+    [keywordGroups, selectedKwKey],
+  );
+
+  // サイトタブ候補: enabled な destination (note を最初に持ってくる)
+  const siteTabs = useMemo(() => {
+    const list = destinations
+      .filter((d) => d.enabled)
+      .slice()
+      .sort((a, b) => {
+        if (a.platform === "note" && b.platform !== "note") return -1;
+        if (a.platform !== "note" && b.platform === "note") return 1;
+        return a.label.localeCompare(b.label);
+      });
+    return list;
+  }, [destinations]);
+
+  // 選択中 destination の整合性チェック
+  useEffect(() => {
+    if (siteTabs.length === 0) return;
+    if (
+      !selectedDestinationId ||
+      !siteTabs.find((d) => d.id === selectedDestinationId)
+    ) {
+      setSelectedDestinationId(siteTabs[0].id);
+    }
+  }, [siteTabs, selectedDestinationId, setSelectedDestinationId]);
+
+  // 選択中 KW × 選択中 destination の article (なければ null = 未生成)
+  const currentArticle = useMemo<Article | null>(() => {
+    if (!currentGroup || !selectedDestinationId) return null;
+    return (
+      currentGroup.articles.find((a) => a.destinationId === selectedDestinationId) ??
+      null
+    );
+  }, [currentGroup, selectedDestinationId]);
+
+  const currentFeed = currentArticle ? feedIdeaOf(currentArticle) : null;
+
+  // ---------- マルチポストモーダル制御 ----------
   function openPostModal(a: Article) {
     const fi = feedIdeaOf(a);
     const suggestedTags: string[] = [];
@@ -112,8 +263,6 @@ export default function LibraryPage() {
     setPostTagsInput(suggestedTags.slice(0, 5).join(", "));
     setPostPublish(true);
     setPostStatus({ state: "idle" });
-    // 初期状態: note 拡張は常時ON / 外部宛先は「有効 かつ プロンプト設定済み」のものだけON
-    // プロンプト未設定の宛先は投稿スキップされるため最初からチェックを外しておく
     const init = new Set<string>(["note"]);
     destinations
       .filter((d) => d.enabled && isPromptReady(d))
@@ -189,7 +338,6 @@ export default function LibraryPage() {
     const messages: string[] = [];
     let hasError = false;
 
-    // 1) 外部宛先への並列投稿（API ベース、サーバー側で実行）
     if (destIds.length > 0) {
       try {
         const res = await fetch("/api/multipost", {
@@ -224,7 +372,6 @@ export default function LibraryPage() {
       }
     }
 
-    // 2) note 拡張への送信（クライアント側、Chrome拡張経由）
     if (noteSelected) {
       const res: NotePostResult = await postToNote({
         title: postModalArticle.bestTitle,
@@ -239,7 +386,6 @@ export default function LibraryPage() {
             ? "✅ note: 公開ボタン押下まで送信"
             : "✅ note: 下書きに入力完了",
         );
-        // 既存の投稿レコード機能と互換性のため articles.posted_at を更新
         try {
           await fetch("/api/articles/posted", {
             method: "POST",
@@ -253,7 +399,6 @@ export default function LibraryPage() {
       }
     }
 
-    // ローカル state 更新（posted_at をフロントにも反映）
     const articleId = postModalArticle.id;
     const nowIso = new Date().toISOString();
     setArticles((prev) => {
@@ -270,6 +415,7 @@ export default function LibraryPage() {
     });
   }
 
+  // ---------- 画像 / 派生 / コピー / 未生成サイト用生成 ----------
   async function generateImage(articleId: string) {
     setImageStatus({ state: "loading", message: "Nano Banana で生成中（約10〜20秒）..." });
     const controller = new AbortController();
@@ -284,7 +430,6 @@ export default function LibraryPage() {
       clearTimeout(timeout);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "失敗");
-      // articles 配列内の該当記事の imagePath を更新
       setArticles((prev) => {
         const next = prev.map((a) =>
           a.id === articleId ? { ...a, imagePath: data.imagePath as string } : a,
@@ -331,141 +476,75 @@ export default function LibraryPage() {
     }
   }
 
-  useEffect(() => {
-    // ?id=xxx で来た場合（投稿レコード等から）はそれを active に設定
-    const urlId =
-      typeof window !== "undefined"
-        ? new URLSearchParams(window.location.search).get("id")
-        : null;
-    fetch("/api/articles")
-      .then((r) => r.json())
-      .then((d) => {
-        const next: Article[] = d.articles ?? [];
-        setArticles(next);
-        setCache(CACHE_KEY, next);
-        if (urlId && next.some((a) => a.id === urlId)) {
-          setActive(urlId);
-        } else if (next.length > 0 && (!active || !next.some((a) => a.id === active))) {
-          setActive(next[0].id);
-        }
-      })
-      .finally(() => setInitialLoaded(true));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   function copy(text: string, label: string) {
     navigator.clipboard.writeText(text);
     setCopied(label);
     setTimeout(() => setCopied(null), 1400);
   }
 
-  const themeCounts = useMemo(() => {
-    const m = new Map<ThemeId, number>();
-    for (const a of articles) {
-      const t = feedIdeaOf(a)?.themeId;
-      if (!t) continue;
-      m.set(t, (m.get(t) ?? 0) + 1);
-    }
-    return m;
-  }, [articles]);
-
-  const sourceCounts = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const a of articles) {
-      const p = feedIdeaOf(a)?.voice?.platform?.trim();
-      if (!p) continue;
-      m.set(p, (m.get(p) ?? 0) + 1);
-    }
-    return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  }, [articles]);
-
-  const keywordCounts = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const a of articles) {
-      const k = feedIdeaOf(a)?.customLabel?.trim();
-      if (!k) continue;
-      m.set(k, (m.get(k) ?? 0) + 1);
-    }
-    return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  }, [articles]);
-
-  const filteredArticles = useMemo(() => {
-    if (filter === "all") return articles;
-    return articles.filter((a) => {
-      const fi = feedIdeaOf(a);
-      if (!fi) return false;
-      if (filter.startsWith("theme:")) return fi.themeId === filter.slice(6);
-      if (filter.startsWith("source:")) return (fi.voice?.platform ?? "") === filter.slice(7);
-      if (filter.startsWith("keyword:")) return (fi.customLabel ?? "") === filter.slice(8);
-      return true;
+  // 未生成サイト用に記事を生成 (現在の KW × 選択中サイト)
+  async function generateArticleForSite() {
+    if (!currentGroup || !selectedDestinationId) return;
+    // 元ネタの idea (この KW グループの最初の記事から拝借)
+    const baseArticle = currentGroup.articles[0];
+    if (!baseArticle) return;
+    setGenerateForSiteState({
+      state: "loading",
+      message: "このサイト用に生成中（約30〜60秒）...",
     });
-  }, [articles, filter]);
-
-  function selectGroup(g: GroupBy) {
-    setGroupBy(g);
-    setFilter("all");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 180_000);
+    try {
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          idea: baseArticle.idea,
+          destinationId: selectedDestinationId,
+          targetKeywordId: (baseArticle.idea as FeedIdea)?.targetKeywordId,
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error ?? `生成失敗 (${res.status})`);
+      }
+      const newArticle: Article = data.article;
+      setArticles((prev) => {
+        const next = [newArticle, ...prev];
+        setCache(CACHE_KEY, next);
+        return next;
+      });
+      setGenerateForSiteState({ state: "idle" });
+    } catch (e) {
+      clearTimeout(timeout);
+      const msg =
+        e instanceof Error
+          ? e.name === "AbortError"
+            ? "180秒経過してもサーバーから応答がありませんでした"
+            : e.message
+          : "生成失敗";
+      setGenerateForSiteState({ state: "error", message: msg });
+      setTimeout(() => setGenerateForSiteState({ state: "idle" }), 8000);
+    }
   }
 
-  const current = articles.find((a) => a.id === active);
-  const currentFeed = current ? feedIdeaOf(current) : null;
+  // 選択 KW で未生成のサイト数
+  const ungeneratedSiteCount = useMemo(() => {
+    if (!currentGroup) return 0;
+    const generated = new Set(
+      currentGroup.articles
+        .map((a) => a.destinationId)
+        .filter((x): x is string => !!x),
+    );
+    return siteTabs.filter((d) => !generated.has(d.id)).length;
+  }, [currentGroup, siteTabs]);
 
+  // ---------- レンダリング ----------
   return (
     <>
-      <PageHeader title="ライブラリ">
-        {initialLoaded && articles.length > 0 && (
-          <FilterBar>
-            <div className="flex items-center justify-between gap-4 flex-wrap">
-              <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
-                <GroupTab active={groupBy === "source"} onClick={() => selectGroup("source")}>
-                  公式サイト別 <span className="opacity-60 ml-0.5">{sourceCounts.length}</span>
-                </GroupTab>
-                <GroupTab active={groupBy === "keyword"} onClick={() => selectGroup("keyword")}>
-                  キーワード別 <span className="opacity-60 ml-0.5">{keywordCounts.length}</span>
-                </GroupTab>
-              </div>
-              <div className="text-[11px] font-mono text-[color:var(--fg-muted)]">
-                {articles.length} ARTICLES
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <FilterPill active={filter === "all"} onClick={() => setFilter("all")}>
-                すべて <span className="opacity-60 ml-1">{articles.length}</span>
-              </FilterPill>
-              <span className="mx-1 w-px h-5 bg-[var(--border-subtle)]" />
-              {groupBy === "source" &&
-                (sourceCounts.length === 0 ? (
-                  <span className="text-[12px] text-[color:var(--fg-muted)] italic">
-                    ネタ元情報を持つ記事がまだありません
-                  </span>
-                ) : (
-                  sourceCounts.map(([platform, count]) => {
-                    const v = `source:${platform}`;
-                    return (
-                      <FilterPill key={platform} active={filter === v} onClick={() => setFilter(v)}>
-                        {platform} <span className="opacity-60 ml-1">{count}</span>
-                      </FilterPill>
-                    );
-                  })
-                ))}
-              {groupBy === "keyword" &&
-                (keywordCounts.length === 0 ? (
-                  <span className="text-[12px] text-[color:var(--fg-muted)] italic">
-                    キーワード経由で生成された記事がまだありません
-                  </span>
-                ) : (
-                  keywordCounts.map(([kw, count]) => {
-                    const v = `keyword:${kw}`;
-                    return (
-                      <FilterPill key={kw} active={filter === v} onClick={() => setFilter(v)}>
-                        {kw} <span className="opacity-60 ml-1">{count}</span>
-                      </FilterPill>
-                    );
-                  })
-                ))}
-            </div>
-          </FilterBar>
-        )}
-      </PageHeader>
+      <PageHeader title="ライブラリ" />
 
       {!initialLoaded ? (
         <div className="card p-10">
@@ -475,69 +554,83 @@ export default function LibraryPage() {
         <EmptyLibraryCta />
       ) : (
         <>
-          <div className="grid md:grid-cols-[320px_1fr] gap-6">
-            <aside className="space-y-2">
-              <div className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-3 px-2">
-                {filteredArticles.length} / {articles.length} ARTICLES
-              </div>
-              {filteredArticles.length === 0 ? (
+          {/* フィルター行: ジャンル + KW検索 */}
+          <div className="flex items-center gap-3 flex-wrap mb-4">
+            <div className="flex items-center gap-2">
+              <label className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)]">
+                GENRE
+              </label>
+              <select
+                value={genreFilter}
+                onChange={(e) => setGenreFilter(e.target.value)}
+                className="text-[13px] px-3 py-1.5 rounded-lg border border-[var(--border-card)] bg-white"
+              >
+                <option value="all">すべて ({articles.length})</option>
+                {allGenres.map(([id, count]) => (
+                  <option key={id} value={id}>
+                    {THEME_LABEL[id] ?? id} ({count})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+              <label className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)]">
+                KW
+              </label>
+              <input
+                type="text"
+                value={kwSearch}
+                onChange={(e) => setKwSearch(e.target.value)}
+                placeholder="キーワードで絞り込み..."
+                className="flex-1 text-[13px] px-3 py-1.5 rounded-lg border border-[var(--border-card)] bg-white"
+              />
+            </div>
+            <div className="text-[11px] font-mono text-[color:var(--fg-muted)]">
+              {keywordGroups.length} KW / {articles.length} ARTICLES
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-[280px_1fr] gap-5">
+            {/* ---------- 左カラム: KW一覧 ---------- */}
+            <aside className="space-y-1.5">
+              {keywordGroups.length === 0 ? (
                 <div className="text-[12px] text-[color:var(--fg-muted)] italic px-2 py-4">
-                  該当記事なし
+                  該当KWなし
                 </div>
               ) : (
-                filteredArticles.map((a) => {
-                  const isActive = active === a.id;
-                  const fi = feedIdeaOf(a);
+                keywordGroups.map((g) => {
+                  const isActive = selectedKwKey === g.key;
+                  const generatedCount = new Set(
+                    g.articles
+                      .map((a) => a.destinationId)
+                      .filter((x): x is string => !!x),
+                  ).size;
                   return (
                     <button
-                      key={a.id}
-                      onClick={() => setActive(a.id)}
+                      key={g.key}
+                      onClick={() => setSelectedKwKey(g.key)}
                       className={`w-full text-left p-3 rounded-xl transition-all border ${
                         isActive
                           ? "bg-white border-[color:var(--accent)] shadow-sm"
                           : "bg-white border-[var(--border-card)] hover:border-gray-400"
                       }`}
                     >
-                      {a.imagePath ? (
-                        <img
-                          src={a.imagePath}
-                          alt={a.imageAltText ?? a.bestTitle}
-                          className="w-full aspect-video object-cover rounded-xl mb-2.5"
-                        />
-                      ) : (
-                        <div className="w-full aspect-video rounded-lg mb-2.5 flex items-center justify-center text-[9px] tracking-widest text-[color:var(--fg-muted)] bg-gray-50 border border-[var(--border-subtle)]">
-                          NO IMAGE
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[13px] font-medium leading-snug tracking-tight line-clamp-2">
+                            {g.label}
+                          </div>
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {g.themeId && THEME_LABEL[g.themeId] && (
+                              <span className="px-1.5 py-0.5 rounded bg-gray-100 text-[9.5px] text-[color:var(--fg-secondary)]">
+                                {THEME_LABEL[g.themeId]}
+                              </span>
+                            )}
+                            <span className="px-1.5 py-0.5 rounded bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] text-[9.5px]">
+                              {generatedCount}/{siteTabs.length} サイト
+                            </span>
+                          </div>
                         </div>
-                      )}
-                      <h3 className="font-medium text-[13px] line-clamp-2 leading-snug tracking-tight">
-                        {a.bestTitle}
-                      </h3>
-                      {fi && (
-                        <div className="flex flex-wrap gap-1 mt-1.5">
-                          {fi.themeId && THEME_LABEL[fi.themeId] && (
-                            <span className="px-1.5 py-0.5 rounded bg-gray-100 text-[9.5px] text-[color:var(--fg-secondary)]">
-                              {THEME_LABEL[fi.themeId]}
-                            </span>
-                          )}
-                          {fi.voice?.platform && (
-                            <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 text-[9.5px]">
-                              {fi.voice.platform}
-                            </span>
-                          )}
-                          {fi.customLabel && (
-                            <span className="px-1.5 py-0.5 rounded bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] text-[9.5px] truncate max-w-[180px]">
-                              🔥 {fi.customLabel}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                      <div className="text-[10px] font-mono text-[color:var(--fg-muted)] mt-1.5">
-                        {new Date(a.createdAt).toLocaleString("ja-JP", {
-                          month: "2-digit",
-                          day: "2-digit",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
                       </div>
                     </button>
                   );
@@ -545,139 +638,252 @@ export default function LibraryPage() {
               )}
             </aside>
 
-            {current && (
-              <article className="card p-8">
-                {current.imagePath && (
-                  <img
-                    src={current.imagePath}
-                    alt={current.imageAltText ?? current.bestTitle}
-                    className="w-full rounded-xl mb-6"
-                  />
-                )}
-
-                <div className="inline-flex items-center gap-2 mb-3">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[color:var(--accent)]" />
-                  <span className="text-[11px] font-mono tracking-[0.25em] text-[color:var(--accent-dark)]">
-                    ARTICLE
-                  </span>
+            {/* ---------- 右カラム: サイトタブ + 記事プレビュー ---------- */}
+            <section className="space-y-4">
+              {!currentGroup ? (
+                <div className="card p-12 text-center text-[color:var(--fg-muted)]">
+                  ← 左から KW を選んでください
                 </div>
-                <h2 className="text-[26px] font-semibold tracking-tight leading-tight mb-2">
-                  {current.bestTitle}
-                </h2>
-                <p className="text-[13px] text-[color:var(--fg-secondary)] mb-4">
-                  {current.bestTitleReason}
-                </p>
+              ) : (
+                <>
+                  {/* KWヘッダー */}
+                  <div className="card p-4">
+                    <div className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-1">
+                      KEYWORD
+                    </div>
+                    <h2 className="text-[18px] font-semibold tracking-tight">
+                      {currentGroup.label}
+                    </h2>
+                    <div className="text-[12px] text-[color:var(--fg-secondary)] mt-1">
+                      {currentGroup.articles.length} 記事 ・
+                      未生成: {ungeneratedSiteCount} サイト
+                    </div>
+                  </div>
 
-                {currentFeed && (
-                  <div className="flex flex-wrap items-center gap-1.5 mb-6 text-[11px]">
-                    {currentFeed.themeId && THEME_LABEL[currentFeed.themeId] && (
-                      <span className="px-2 py-0.5 rounded-full bg-gray-100 text-[color:var(--fg-secondary)]">
-                        テーマ: {THEME_LABEL[currentFeed.themeId]}
-                      </span>
-                    )}
-                    {currentFeed.voice?.platform && (
-                      <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800">
-                        ネタ元: {currentFeed.voice.platform}
-                      </span>
-                    )}
-                    {currentFeed.customLabel && (
-                      <span className="px-2 py-0.5 rounded-full bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)]">
-                        🔥 {currentFeed.customLabel}
-                      </span>
+                  {/* サイトタブ */}
+                  <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] overflow-x-auto">
+                    {siteTabs.length === 0 ? (
+                      <div className="text-[12px] text-[color:var(--fg-muted)] italic py-3 px-2">
+                        投稿先未登録。{" "}
+                        <Link href="/settings" className="underline">
+                          設定 → 投稿先
+                        </Link>{" "}
+                        から追加
+                      </div>
+                    ) : (
+                      siteTabs.map((d) => {
+                        const isActive = selectedDestinationId === d.id;
+                        const hasArticle = currentGroup.articles.some(
+                          (a) => a.destinationId === d.id,
+                        );
+                        return (
+                          <button
+                            key={d.id}
+                            onClick={() => setSelectedDestinationId(d.id)}
+                            className={`flex items-center gap-1.5 px-3 py-2 -mb-px border-b-2 text-[12px] whitespace-nowrap ${
+                              isActive
+                                ? "border-[color:var(--accent)] text-[color:var(--accent-dark)] font-medium"
+                                : "border-transparent text-[color:var(--fg-secondary)] hover:text-[color:var(--fg-primary)]"
+                            }`}
+                          >
+                            <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
+                              {PLATFORM_LABELS[d.platform as Platform] ?? d.platform}
+                            </span>
+                            <span>{d.label}</span>
+                            {hasArticle ? (
+                              <span className="text-green-600 text-[10px]">✓</span>
+                            ) : (
+                              <span className="text-[color:var(--fg-muted)] text-[10px]">○</span>
+                            )}
+                          </button>
+                        );
+                      })
                     )}
                   </div>
-                )}
 
-                <div className="flex flex-wrap gap-2 mb-3">
-                  <button
-                    onClick={() => openPostModal(current)}
-                    className="btn-primary"
-                    title="note + 登録済み外部ブログにマルチポストする"
-                  >
-                    📤 マルチポスト
-                  </button>
-                  <button
-                    onClick={() => copy(current.bestTitle, "title")}
-                    className="btn-ghost"
-                  >
-                    {copied === "title" ? "✓ コピー完了" : "タイトルをコピー"}
-                  </button>
-                  <button
-                    onClick={() => copy(current.bodyMarkdown, "body")}
-                    className="btn-ghost"
-                  >
-                    {copied === "body" ? "✓ コピー完了" : "本文をコピー"}
-                  </button>
-                  {current.imagePath && (
-                    <a href={current.imagePath} download className="btn-ghost">
-                      画像DL
-                    </a>
+                  {/* タブ内コンテンツ: 該当 article or 未生成 */}
+                  {currentArticle ? (
+                    <article className="card p-7">
+                      {currentArticle.imagePath && (
+                        <img
+                          src={currentArticle.imagePath}
+                          alt={currentArticle.imageAltText ?? currentArticle.bestTitle}
+                          className="w-full rounded-xl mb-5"
+                        />
+                      )}
+
+                      <div className="inline-flex items-center gap-2 mb-3">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[color:var(--accent)]" />
+                        <span className="text-[11px] font-mono tracking-[0.25em] text-[color:var(--accent-dark)]">
+                          ARTICLE
+                        </span>
+                        {currentArticle.postedAt && (
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-green-50 text-green-700">
+                            ✓ 投稿済 (
+                            {new Date(currentArticle.postedAt).toLocaleString("ja-JP", {
+                              month: "2-digit",
+                              day: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                            )
+                          </span>
+                        )}
+                      </div>
+                      <h2 className="text-[24px] font-semibold tracking-tight leading-tight mb-2">
+                        {currentArticle.bestTitle}
+                      </h2>
+                      <p className="text-[13px] text-[color:var(--fg-secondary)] mb-4">
+                        {currentArticle.bestTitleReason}
+                      </p>
+
+                      {currentFeed && (
+                        <div className="flex flex-wrap items-center gap-1.5 mb-5 text-[11px]">
+                          {currentFeed.themeId && THEME_LABEL[currentFeed.themeId] && (
+                            <span className="px-2 py-0.5 rounded-full bg-gray-100 text-[color:var(--fg-secondary)]">
+                              テーマ: {THEME_LABEL[currentFeed.themeId]}
+                            </span>
+                          )}
+                          {currentFeed.voice?.platform && (
+                            <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800">
+                              ネタ元: {currentFeed.voice.platform}
+                            </span>
+                          )}
+                          <span className="px-2 py-0.5 rounded-full bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] font-mono">
+                            🕒 {new Date(currentArticle.createdAt).toLocaleString("ja-JP", {
+                              month: "2-digit",
+                              day: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        <button
+                          onClick={() => openPostModal(currentArticle)}
+                          className="btn-primary"
+                          title="note + 登録済み外部ブログにマルチポストする"
+                        >
+                          📤 マルチポスト
+                        </button>
+                        <button
+                          onClick={() => copy(currentArticle.bestTitle, "title")}
+                          className="btn-ghost"
+                        >
+                          {copied === "title" ? "✓ コピー完了" : "タイトルをコピー"}
+                        </button>
+                        <button
+                          onClick={() => copy(currentArticle.bodyMarkdown, "body")}
+                          className="btn-ghost"
+                        >
+                          {copied === "body" ? "✓ コピー完了" : "本文をコピー"}
+                        </button>
+                        {currentArticle.imagePath && (
+                          <a href={currentArticle.imagePath} download className="btn-ghost">
+                            画像DL
+                          </a>
+                        )}
+                        <button
+                          onClick={() => generateImage(currentArticle.id)}
+                          disabled={imageStatus.state === "loading"}
+                          className="btn-ghost"
+                          title="Nano Banana (Gemini 2.5 Flash Image) で見出し画像を生成（約6円/枚）"
+                        >
+                          {imageStatus.state === "loading"
+                            ? "🎨 生成中..."
+                            : currentArticle.imagePath
+                              ? "🔄 画像を再生成"
+                              : "🎨 見出し画像を生成"}
+                        </button>
+                        <button
+                          onClick={() => generateDerivative(currentArticle.id)}
+                          disabled={derivativeStatus.state === "loading"}
+                          className="btn-ghost"
+                          title="この記事を起点に切り口違いの派生ネタ5件をフィードに追加"
+                        >
+                          {derivativeStatus.state === "loading"
+                            ? "🔍 派生案を探索中..."
+                            : "↳ このテーマで派生案"}
+                        </button>
+                      </div>
+                      {imageStatus.message && (
+                        <div
+                          className={`mb-3 text-[12px] px-4 py-2 rounded-lg ${
+                            imageStatus.state === "error"
+                              ? "bg-red-50 text-red-700 border border-red-100"
+                              : imageStatus.state === "done"
+                                ? "bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)]"
+                                : "bg-amber-50 text-amber-800"
+                          }`}
+                        >
+                          {imageStatus.message}
+                        </div>
+                      )}
+                      {derivativeStatus.message && (
+                        <div
+                          className={`mb-5 text-[12px] px-4 py-2 rounded-lg ${
+                            derivativeStatus.state === "error"
+                              ? "bg-red-50 text-red-700 border border-red-100"
+                              : derivativeStatus.state === "done"
+                                ? "bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)]"
+                                : "bg-amber-50 text-amber-800"
+                          }`}
+                        >
+                          {derivativeStatus.message}
+                          {derivativeStatus.state === "done" && (
+                            <Link href="/" className="ml-2 underline">
+                              フィードを見る →
+                            </Link>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="hairline mb-5" />
+
+                      <div className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-3">
+                        MARKDOWN
+                      </div>
+                      <pre className="p-5 rounded-xl bg-gray-50 border border-[var(--border-subtle)] text-[14px] leading-[1.85] whitespace-pre-wrap font-sans">
+                        {currentArticle.bodyMarkdown}
+                      </pre>
+                    </article>
+                  ) : (
+                    /* 未生成スロット */
+                    <div className="card p-10 text-center">
+                      <div className="text-4xl mb-3 opacity-40">📝</div>
+                      <p className="text-[14px] text-[color:var(--fg-secondary)] mb-1">
+                        このサイト用にはまだ生成されていません
+                      </p>
+                      <p className="text-[12px] text-[color:var(--fg-muted)] mb-5">
+                        同じネタでも destination ごとにプロンプトが違うため、サイト別に専用記事を生成できます
+                      </p>
+                      <button
+                        onClick={generateArticleForSite}
+                        disabled={generateForSiteState.state === "loading"}
+                        className="btn-primary"
+                      >
+                        {generateForSiteState.state === "loading"
+                          ? "🤖 生成中..."
+                          : "✨ このサイト用に生成"}
+                      </button>
+                      {generateForSiteState.message && (
+                        <div
+                          className={`mt-4 text-[12px] px-4 py-2 rounded-lg inline-block ${
+                            generateForSiteState.state === "error"
+                              ? "bg-red-50 text-red-700 border border-red-100"
+                              : "bg-amber-50 text-amber-800"
+                          }`}
+                        >
+                          {generateForSiteState.message}
+                        </div>
+                      )}
+                    </div>
                   )}
-                  <button
-                    onClick={() => generateImage(current.id)}
-                    disabled={imageStatus.state === "loading"}
-                    className="btn-ghost"
-                    title="Nano Banana (Gemini 2.5 Flash Image) で見出し画像を生成（約6円/枚）"
-                  >
-                    {imageStatus.state === "loading"
-                      ? "🎨 生成中..."
-                      : current.imagePath
-                        ? "🔄 画像を再生成"
-                        : "🎨 見出し画像を生成"}
-                  </button>
-                  <button
-                    onClick={() => generateDerivative(current.id)}
-                    disabled={derivativeStatus.state === "loading"}
-                    className="btn-ghost"
-                    title="この記事を起点に切り口違いの派生ネタ5件をフィードに追加"
-                  >
-                    {derivativeStatus.state === "loading"
-                      ? "🔍 派生案を探索中..."
-                      : "↳ このテーマで派生案"}
-                  </button>
-                </div>
-                {imageStatus.message && (
-                  <div
-                    className={`mb-3 text-[12px] px-4 py-2 rounded-lg ${
-                      imageStatus.state === "error"
-                        ? "bg-red-50 text-red-700 border border-red-100"
-                        : imageStatus.state === "done"
-                          ? "bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)]"
-                          : "bg-amber-50 text-amber-800"
-                    }`}
-                  >
-                    {imageStatus.message}
-                  </div>
-                )}
-                {derivativeStatus.message && (
-                  <div
-                    className={`mb-6 text-[12px] px-4 py-2 rounded-lg ${
-                      derivativeStatus.state === "error"
-                        ? "bg-red-50 text-red-700 border border-red-100"
-                        : derivativeStatus.state === "done"
-                          ? "bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)]"
-                          : "bg-amber-50 text-amber-800"
-                    }`}
-                  >
-                    {derivativeStatus.message}
-                    {derivativeStatus.state === "done" && (
-                      <Link href="/" className="ml-2 underline">
-                        フィードを見る →
-                      </Link>
-                    )}
-                  </div>
-                )}
-
-                <div className="hairline mb-6" />
-
-                <div className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-3">
-                  MARKDOWN
-                </div>
-                <pre className="p-6 rounded-xl bg-gray-50 border border-[var(--border-subtle)] text-[14px] leading-[1.85] whitespace-pre-wrap font-sans">
-                  {current.bodyMarkdown}
-                </pre>
-              </article>
-            )}
+                </>
+              )}
+            </section>
           </div>
         </>
       )}
@@ -895,4 +1101,3 @@ export default function LibraryPage() {
     </>
   );
 }
-

@@ -18,6 +18,7 @@ type ArticleRow = {
   image_alt_text: string | null;
   image_path: string | null;
   posted_at: string | null;
+  destination_id: string | null;
 };
 
 function rowToArticle(r: ArticleRow): Article {
@@ -33,6 +34,7 @@ function rowToArticle(r: ArticleRow): Article {
     imageAltText: r.image_alt_text ?? undefined,
     imagePath: r.image_path ?? undefined,
     postedAt: r.posted_at ?? undefined,
+    destinationId: r.destination_id ?? undefined,
   };
 }
 
@@ -40,7 +42,7 @@ export async function loadArticles(projectId: string): Promise<Article[]> {
   const rows = await sql<ArticleRow[]>`
     select id, created_at, idea, best_title, title_candidates,
            best_title_reason, body_markdown, image_prompt_subject,
-           image_alt_text, image_path, posted_at
+           image_alt_text, image_path, posted_at, destination_id
     from articles
     where project_id = ${projectId}
     order by created_at desc
@@ -57,7 +59,7 @@ export async function saveArticle(
     insert into articles (
       id, project_id, user_id, created_at, idea, best_title, title_candidates,
       best_title_reason, body_markdown, image_prompt_subject,
-      image_alt_text, image_path, posted_at
+      image_alt_text, image_path, posted_at, destination_id
     ) values (
       ${article.id},
       ${projectId},
@@ -71,7 +73,8 @@ export async function saveArticle(
       ${article.imagePromptSubject ?? ""},
       ${article.imageAltText ?? null},
       ${article.imagePath ?? null},
-      ${article.postedAt ?? null}
+      ${article.postedAt ?? null},
+      ${article.destinationId ?? null}
     )
     on conflict (id) do update set
       idea = excluded.idea,
@@ -82,7 +85,8 @@ export async function saveArticle(
       image_prompt_subject = excluded.image_prompt_subject,
       image_alt_text = excluded.image_alt_text,
       image_path = excluded.image_path,
-      posted_at = excluded.posted_at
+      posted_at = excluded.posted_at,
+      destination_id = excluded.destination_id
   `;
 }
 
@@ -136,7 +140,7 @@ export async function updateArticleContent(
   const rows = await sql<ArticleRow[]>`
     select id, created_at, idea, best_title, title_candidates,
            best_title_reason, body_markdown, image_prompt_subject,
-           image_alt_text, image_path, posted_at
+           image_alt_text, image_path, posted_at, destination_id
       from articles
      where id = ${articleId} and project_id = ${projectId}
      limit 1

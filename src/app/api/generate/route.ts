@@ -228,6 +228,7 @@ export async function POST(req: NextRequest) {
         bodyMarkdown: body,
         imagePromptSubject: (parsed.image_prompt_subject as string) ?? "",
         imageAltText: (parsed.image_alt_text as string) ?? "",
+        destinationId, // どのサイト用に生成された記事かを保存
       };
 
       await saveArticle(ctx.projectId, ctx.userId, article);

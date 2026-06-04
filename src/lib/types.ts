@@ -187,4 +187,7 @@ export type Article = {
   imageAltText?: string;
   imagePath?: string;
   postedAt?: string;
+  // どの投稿先 destination 用に生成された記事か。同じKWでもサイトごとに別記事を持てる。
+  // 既存記事は note destination にバックフィル済み (migration 0015)。
+  destinationId?: string;
 };
