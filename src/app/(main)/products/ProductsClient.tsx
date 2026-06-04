@@ -7,7 +7,13 @@ import PageHeader from "@/components/PageHeader";
 import { FilterBar, GroupTab } from "@/components/FilterBar";
 import { useGeneration } from "@/components/GenerationProvider";
 import { getCache, setCache } from "@/lib/clientCache";
-import type { FeedIdea } from "@/lib/types";
+import type { Article, FeedIdea } from "@/lib/types";
+import {
+  PLATFORM_LABELS,
+  getPlatformFaviconUrl,
+  type Platform,
+  type PostingDestinationRow,
+} from "@/lib/posters/types";
 
 const CACHE_SUBJECT = "products:subject";
 const CACHE_RESULT = "products:result";
@@ -100,8 +106,12 @@ export default function ProductsClient() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [loadingHistoryId, setLoadingHistoryId] = useState<string | null>(null);
-  // タブ: 新規スカウト / 履歴一覧
-  const [tab, setTab] = useState<"new" | "history">("new");
+  // タブ: 新規スカウト / 履歴一覧 / 採用KW (記事生成済み KW)
+  const [tab, setTab] = useState<"new" | "history" | "adopted">("new");
+  // 採用KW タブ用: scout 由来 (customLabel = "🛒 ..." or destinationId あり) の articles
+  const [adoptedArticles, setAdoptedArticles] = useState<Article[]>([]);
+  const [adoptedLoading, setAdoptedLoading] = useState(false);
+  const [destinations, setDestinations] = useState<PostingDestinationRow[]>([]);
   // 履歴ジャンルフィルタ ("" = すべて表示)
   const [historyCategoryFilter, setHistoryCategoryFilter] = useState<string>("");
   const [backfilling, setBackfilling] = useState(false);
@@ -138,15 +148,38 @@ export default function ProductsClient() {
     refreshHistory();
   }, []);
 
-  // 履歴タブ時のみ body のスクロールを止める。これでページ全体がスクロールせず
+  // 履歴 / 採用KW タブ時のみ body のスクロールを止める。これでページ全体がスクロールせず
   // カラム内 overflow-y-auto と sticky ヘッダがちゃんと機能する
   useEffect(() => {
-    if (tab !== "history") return;
+    if (tab !== "history" && tab !== "adopted") return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prev;
     };
+  }, [tab]);
+
+  // 採用KW タブ表示時に articles + destinations をロード
+  useEffect(() => {
+    if (tab !== "adopted") return;
+    setAdoptedLoading(true);
+    Promise.all([
+      fetch("/api/articles").then((r) => r.json()),
+      fetch("/api/destinations").then((r) => r.json()),
+    ])
+      .then(([articlesData, destsData]) => {
+        const all: Article[] = articlesData.articles ?? [];
+        // scout 由来 = idea.customLabel が "🛒 " で始まる、または destinationId が紐付いていて
+        //  amazon系 idea (themeId が "custom" 等) のもの。amazon_affiliate プロジェクト想定。
+        const scoutOnly = all.filter((a) => {
+          const cl = (a.idea as FeedIdea)?.customLabel?.trim();
+          return cl?.startsWith("🛒") ?? false;
+        });
+        setAdoptedArticles(scoutOnly);
+        setDestinations(destsData.destinations ?? []);
+      })
+      .catch(() => {})
+      .finally(() => setAdoptedLoading(false));
   }, [tab]);
 
   async function loadHistory(id: string) {
@@ -431,6 +464,12 @@ export default function ProductsClient() {
                 <span className="ml-1.5 text-[10px] opacity-70">({history.length})</span>
               )}
             </GroupTab>
+            <GroupTab active={tab === "adopted"} onClick={() => setTab("adopted")}>
+              採用KW
+              {adoptedArticles.length > 0 && (
+                <span className="ml-1.5 text-[10px] opacity-70">({adoptedArticles.length})</span>
+              )}
+            </GroupTab>
           </div>
         </FilterBar>
       </PageHeader>
@@ -441,7 +480,7 @@ export default function ProductsClient() {
           同じ画面端まで 2カラムを広げる */}
       <div
         className={
-          tab === "history"
+          tab === "history" || tab === "adopted"
             ? "md:sticky md:top-0 md:h-[calc(100vh-140px)] md:overflow-hidden md:-mt-8 -mt-6 -mx-4 md:-mx-8 px-2 md:px-4"
             : "max-w-3xl space-y-5"
         }
@@ -815,6 +854,99 @@ export default function ProductsClient() {
             <span className="text-[11px] text-[color:var(--fg-muted)]">
               1〜2分かかる場合があります
             </span>
+          </div>
+        )}
+
+        {/* 採用KW タブ: scout 由来 (idea.customLabel が "🛒 *") で記事生成された article 一覧。
+            カラム内スクロール (KWスカウト履歴と同じパターン) で 1カラムにカードを並べる */}
+        {tab === "adopted" && (
+          <div className="flex flex-col md:h-full min-h-0">
+            <div className="shrink-0 bg-white border-b border-[var(--border-subtle)] h-[60px] flex items-center justify-between">
+              <div className="text-[12px] text-[color:var(--fg-secondary)]">
+                記事生成済みの KW: <strong>{adoptedArticles.length}</strong> 件
+              </div>
+              <div className="text-[10px] text-[color:var(--fg-muted)] font-mono">
+                KW スカウト → 記事生成 を実行したもの
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto pr-2 mt-3 min-h-0">
+              {adoptedLoading ? (
+                <div className="text-[12px] text-[color:var(--fg-muted)] py-4">読み込み中…</div>
+              ) : adoptedArticles.length === 0 ? (
+                <div className="p-8 rounded-lg border border-dashed border-[var(--border-card)] text-center">
+                  <p className="text-[13px] text-[color:var(--fg-secondary)]">
+                    採用KWはまだありません
+                  </p>
+                  <p className="text-[11px] text-[color:var(--fg-muted)] mt-1">
+                    「スカウト履歴」タブの候補カードから ✍記事生成 を押すと、ここに表示されます
+                  </p>
+                </div>
+              ) : (
+                <ul className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {adoptedArticles.map((a) => {
+                    const fi = a.idea as FeedIdea;
+                    const kw = fi?.customLabel?.replace(/^🛒\s*/, "") ?? a.idea.title;
+                    const dest = destinations.find((d) => d.id === a.destinationId);
+                    const platform = dest?.platform as Platform | undefined;
+                    return (
+                      <li
+                        key={a.id}
+                        className="p-4 rounded-xl border border-[var(--border-card)] bg-white hover:border-gray-400 transition flex flex-col gap-2.5"
+                      >
+                        <div>
+                          <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-1">
+                            KEYWORD
+                          </div>
+                          <div className="text-[14px] font-semibold leading-snug line-clamp-2">
+                            {kw}
+                          </div>
+                        </div>
+                        <div className="text-[12px] text-[color:var(--fg-secondary)] line-clamp-2">
+                          {a.bestTitle}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                          {platform && (
+                            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={getPlatformFaviconUrl(platform)}
+                                alt=""
+                                className="w-3 h-3 rounded-sm"
+                                loading="lazy"
+                              />
+                              {PLATFORM_LABELS[platform] ?? platform}
+                            </span>
+                          )}
+                          {a.postedAt ? (
+                            <span className="px-1.5 py-0.5 rounded bg-green-50 text-green-700">
+                              ✓ 投稿済
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">
+                              ⏳ 未投稿
+                            </span>
+                          )}
+                          <span className="font-mono text-[color:var(--fg-muted)] ml-auto">
+                            {new Date(a.createdAt).toLocaleString("ja-JP", {
+                              month: "2-digit",
+                              day: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        </div>
+                        <Link
+                          href={`/library?id=${a.id}`}
+                          className="text-center text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-black text-white hover:bg-gray-800 transition"
+                        >
+                          📖 記事を見る
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
           </div>
         )}
 
