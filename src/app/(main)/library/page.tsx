@@ -758,25 +758,10 @@ export default function LibraryPage() {
                 </div>
               ) : (
                 <>
-                  {/* 固定ヘッダ (KWラベル + サイトタブ) — h-[60px] は左と同じだが
-                      タブも入れたいので最低限の高さに留めず flex で詰める */}
+                  {/* 固定ヘッダ: サイトタブ + ボタン群 + メタバッジ。
+                      合計高さを左カラムのフィルター (h-[60px]+h-[40px]=100px) に揃える */}
                   <div className="shrink-0 bg-white border-b border-[var(--border-subtle)]">
-                    {/* KWラベル */}
-                    <div className="h-[60px] flex items-center gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)] leading-tight">
-                          KEYWORD ・ {currentGroup.articles.length}記事 / 未生成 {ungeneratedSiteCount}サイト
-                        </div>
-                        <div
-                          className="font-semibold text-[14px] text-[color:var(--fg-primary)] truncate leading-tight mt-0.5"
-                          title={currentGroup.label}
-                        >
-                          {currentGroup.label}
-                        </div>
-                      </div>
-                    </div>
-                    {/* サイトタブ (GroupTab と同じ下線スタイル) — 高さ 40px に固定、
-                        左カラムのフィルター下段 (h-[40px]) と境界線位置を揃える */}
+                    {/* サイトタブ h-[40px] (上段) */}
                     <div className="h-[40px] flex items-center flex-wrap -mb-px">
                       {siteTabs.length === 0 ? (
                         <div className="text-[12px] text-[color:var(--fg-muted)] italic py-3 px-2">
@@ -823,13 +808,11 @@ export default function LibraryPage() {
                         })
                       )}
                     </div>
-                  </div>
-
-                  {/* 固定領域: アクションボタン + メタバッジ (currentArticle ある時だけ表示)。
-                       スクロール領域の外に出すことで、本文を下スクロールしてもボタンが見える */}
-                  {currentArticle && (
-                    <div className="shrink-0 card p-4 mt-3">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
+                    {/* ボタン群 + メタバッジ (下段、h-[60px])。
+                        この shrink-0 親要素の border-b が
+                        左カラム上ヘッダの border-b と同じ Y位置に揃う */}
+                    {currentArticle && (
+                      <div className="h-[60px] flex flex-wrap items-center justify-between gap-3">
                         <div className="flex flex-wrap gap-2">
                           <button
                             onClick={() => openPostModal(currentArticle)}
@@ -898,8 +881,8 @@ export default function LibraryPage() {
                           </div>
                         )}
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
 
                   {/* スクロール領域: 該当 article or 未生成 (画像から下) */}
                   <div className="flex-1 overflow-y-auto pr-1 mt-3 min-h-0">
