@@ -611,27 +611,32 @@ export default function LibraryPage() {
           <div className="grid grid-cols-1 md:grid-cols-[300px_1fr] gap-4 md:h-full">
             {/* ---------- 左カラム: フィルター + KW一覧 ---------- */}
             <aside className="flex flex-col md:h-full min-h-0">
-              {/* フィルター行 (旧上部 FilterBar から移動): ジャンルプルダウン + KW検索 */}
-              <div className="shrink-0 bg-white border-b border-[var(--border-subtle)] py-2 space-y-2">
-                <select
-                  value={genreFilter}
-                  onChange={(e) => setGenreFilter(e.target.value)}
-                  className="w-full text-[12px] px-3 py-1.5 rounded-lg border border-[var(--border-card)] bg-white"
-                >
-                  <option value="all">ジャンル: すべて ({articles.length})</option>
-                  {allGenres.map(([id, count]) => (
-                    <option key={id} value={id}>
-                      {THEME_LABEL[id] ?? id} ({count})
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="text"
-                  value={kwSearch}
-                  onChange={(e) => setKwSearch(e.target.value)}
-                  placeholder="🔍 キーワードで絞り込み..."
-                  className="w-full text-[12px] px-3 py-1.5 rounded-lg border border-[var(--border-card)] bg-white"
-                />
+              {/* フィルター: 右カラム上部ヘッダ (KWラベル h-[60px] + サイトタブ h-[40px] = 100px)
+                  と境界線の Y 位置が揃うよう2段構成にする */}
+              <div className="shrink-0 bg-white border-b border-[var(--border-subtle)]">
+                <div className="h-[60px] flex items-center">
+                  <select
+                    value={genreFilter}
+                    onChange={(e) => setGenreFilter(e.target.value)}
+                    className="w-full text-[12px] px-3 py-1.5 rounded-lg border border-[var(--border-card)] bg-white"
+                  >
+                    <option value="all">ジャンル: すべて ({articles.length})</option>
+                    {allGenres.map(([id, count]) => (
+                      <option key={id} value={id}>
+                        {THEME_LABEL[id] ?? id} ({count})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="h-[40px] flex items-center">
+                  <input
+                    type="text"
+                    value={kwSearch}
+                    onChange={(e) => setKwSearch(e.target.value)}
+                    placeholder="🔍 キーワードで絞り込み..."
+                    className="w-full h-[28px] text-[12px] px-3 rounded-lg border border-[var(--border-card)] bg-white"
+                  />
+                </div>
               </div>
               <ul className="flex-1 overflow-y-auto space-y-1.5 mt-2 pr-1 min-h-0">
               {keywordGroups.length === 0 ? (
@@ -704,9 +709,9 @@ export default function LibraryPage() {
                         </div>
                       </div>
                     </div>
-                    {/* サイトタブ (GroupTab と同じ下線スタイル) — プラットフォーム名のみ表示、
-                        サイト数が増えたら flex-wrap で自然に折り返す */}
-                    <div className="flex items-center flex-wrap -mb-px">
+                    {/* サイトタブ (GroupTab と同じ下線スタイル) — 高さ 40px に固定、
+                        左カラムのフィルター下段 (h-[40px]) と境界線位置を揃える */}
+                    <div className="h-[40px] flex items-center flex-wrap -mb-px">
                       {siteTabs.length === 0 ? (
                         <div className="text-[12px] text-[color:var(--fg-muted)] italic py-3 px-2">
                           投稿先未登録。{" "}
