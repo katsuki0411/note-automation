@@ -593,21 +593,16 @@ export default function LibraryPage() {
       ) : articles.length === 0 ? (
         <EmptyLibraryCta />
       ) : (
-        // KWスカウト履歴と同じ「画面いっぱい広げてカラム内スクロール」パターン:
-        // PageHeader (sticky z-20) の直下に sticky で張り付け、main の左右 padding を打ち消し、
-        // 縦は viewport 高さから余白を引いた分だけ確保 → grid の各カラムが overflow-y-auto で独立スクロール
-        <div className="md:sticky md:top-0 md:h-[calc(100vh-140px)] md:overflow-hidden md:-mt-8 -mt-6 -mx-4 md:-mx-8 px-2 md:px-4">
-          <div className="grid grid-cols-1 md:grid-cols-[300px_1fr] gap-4 md:h-full">
-            {/* ---------- 左カラム: KW一覧 (固定ヘッダ + スクロール領域) ---------- */}
-            <aside className="flex flex-col md:h-full min-h-0">
-              {/* 固定ヘッダ (KWスカウト履歴と高さ揃え) */}
-              <div className="shrink-0 bg-white border-b border-[var(--border-subtle)] h-[60px] flex items-center">
-                <div className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)]">
-                  {keywordGroups.length} KW
-                </div>
+        // ページ全体は通常スクロール。右カラム (記事プレビュー) だけを sticky で
+        // viewport に張り付け、内部だけスクロールさせる。左カラム (KW一覧) は
+        // ページに沿ってそのまま流れる。
+        <div className="grid grid-cols-1 md:grid-cols-[300px_1fr] gap-4 items-start">
+            {/* ---------- 左カラム: KW一覧 (ページと一緒にスクロール) ---------- */}
+            <aside>
+              <div className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-2 px-1">
+                {keywordGroups.length} KW
               </div>
-              {/* スクロール領域 */}
-              <ul className="flex-1 overflow-y-auto space-y-1.5 mt-2 pr-1 min-h-0">
+              <ul className="space-y-1.5">
               {keywordGroups.length === 0 ? (
                 <li className="text-[12px] text-[color:var(--fg-muted)] italic px-2 py-4">
                   該当KWなし
@@ -651,8 +646,10 @@ export default function LibraryPage() {
               </ul>
             </aside>
 
-            {/* ---------- 右カラム: サイトタブ + 記事プレビュー (固定ヘッダ + スクロール領域) ---------- */}
-            <section className="min-w-0 flex flex-col md:h-full min-h-0">
+            {/* ---------- 右カラム: サイトタブ + 記事プレビュー
+                 md:sticky + h:calc(100vh - ヘッダ余白) で viewport に張り付き、
+                 内部の overflow-y-auto 領域だけがスクロールする ---------- */}
+            <section className="min-w-0 md:sticky md:top-[140px] flex flex-col md:h-[calc(100vh-160px)] min-h-0">
               {!currentGroup ? (
                 <div className="m-auto card p-12 text-center text-[color:var(--fg-muted)]">
                   ← 左から KW を選んでください
@@ -903,7 +900,6 @@ export default function LibraryPage() {
                 </>
               )}
             </section>
-          </div>
         </div>
       )}
 
