@@ -673,8 +673,9 @@ export default function LibraryPage() {
                         </div>
                       </div>
                     </div>
-                    {/* サイトタブ (GroupTab と同じ下線スタイルで統一) */}
-                    <div className="flex items-center gap-0 overflow-x-auto -mb-px">
+                    {/* サイトタブ (GroupTab と同じ下線スタイル) — プラットフォーム名のみ表示、
+                        サイト数が増えたら flex-wrap で自然に折り返す */}
+                    <div className="flex items-center flex-wrap -mb-px">
                       {siteTabs.length === 0 ? (
                         <div className="text-[12px] text-[color:var(--fg-muted)] italic py-3 px-2">
                           投稿先未登録。{" "}
@@ -693,16 +694,16 @@ export default function LibraryPage() {
                             <button
                               key={d.id}
                               onClick={() => setSelectedDestinationId(d.id)}
-                              className={`px-4 py-2 text-[13px] font-semibold border-b-2 transition flex items-center gap-1.5 whitespace-nowrap ${
+                              title={d.label}
+                              className={`px-4 py-2 text-[13px] font-semibold border-b-2 transition flex items-center gap-1.5 ${
                                 isActive
                                   ? "border-[color:var(--accent)] text-[color:var(--fg-primary)]"
                                   : "border-transparent text-[color:var(--fg-muted)] hover:text-[color:var(--fg-secondary)]"
                               }`}
                             >
-                              <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
+                              <span>
                                 {PLATFORM_LABELS[d.platform as Platform] ?? d.platform}
                               </span>
-                              <span>{d.label}</span>
                               {hasArticle ? (
                                 <span className="text-green-600 text-[10px]">✓</span>
                               ) : (
