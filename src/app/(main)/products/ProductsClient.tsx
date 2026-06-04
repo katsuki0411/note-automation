@@ -885,7 +885,10 @@ export default function ProductsClient() {
                 <ul className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                   {adoptedArticles.map((a) => {
                     const fi = a.idea as FeedIdea;
-                    const kw = fi?.customLabel?.replace(/^🛒\s*/, "") ?? a.idea.title;
+                    // KW 本体 = idea.title (スカウト時に取得した本来のキーワード)
+                    // スカウト元の商品名 (subject) は customLabel の "🛒 ..." から復元
+                    const kw = a.idea.title;
+                    const sourceSubject = fi?.customLabel?.replace(/^🛒\s*/, "")?.trim();
                     const dest = destinations.find((d) => d.id === a.destinationId);
                     const platform = dest?.platform as Platform | undefined;
                     return (
@@ -900,9 +903,11 @@ export default function ProductsClient() {
                           <div className="text-[14px] font-semibold leading-snug line-clamp-2">
                             {kw}
                           </div>
-                        </div>
-                        <div className="text-[12px] text-[color:var(--fg-secondary)] line-clamp-2">
-                          {a.bestTitle}
+                          {sourceSubject && (
+                            <div className="text-[10px] text-[color:var(--fg-muted)] mt-1">
+                              🛒 {sourceSubject}
+                            </div>
+                          )}
                         </div>
                         <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
                           {platform && (

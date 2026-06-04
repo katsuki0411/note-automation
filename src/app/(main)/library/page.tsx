@@ -61,14 +61,15 @@ function isPromptReady(d: PostingDestinationRow): boolean {
   );
 }
 
-// KW のグルーピングキー。同じネタ (idea) なら destination 違いでも同じ KW として束ねる
+// KW のグルーピングキー。同じネタ (idea) なら destination 違いでも同じ KW として束ねる。
+// 表示する「キーワード」は a.idea.title (スカウト時に得た KW 本体)。
+// customLabel ("🛒 商品名") はスカウト元の subject であって KW ではないので使わない。
 function keywordKeyOf(a: Article): string {
   const fi = feedIdeaOf(a);
   return fi?.targetKeywordId ?? a.idea?.title ?? a.id;
 }
 function keywordLabelOf(a: Article): string {
-  const fi = feedIdeaOf(a);
-  return fi?.customLabel?.trim() || a.idea?.title || "(無題)";
+  return a.idea?.title?.trim() || "(無題)";
 }
 
 type KeywordGroup = {
@@ -745,7 +746,7 @@ export default function LibraryPage() {
                       <div className="inline-flex items-center gap-2 mb-3">
                         <span className="w-1.5 h-1.5 rounded-full bg-[color:var(--accent)]" />
                         <span className="text-[11px] font-mono tracking-[0.25em] text-[color:var(--accent-dark)]">
-                          ARTICLE
+                          KEYWORD
                         </span>
                         {currentArticle.postedAt && (
                           <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-green-50 text-green-700">
@@ -760,12 +761,23 @@ export default function LibraryPage() {
                           </span>
                         )}
                       </div>
-                      <h2 className="text-[24px] font-semibold tracking-tight leading-tight mb-2">
-                        {currentArticle.bestTitle}
+                      {/* 主軸 = KW (= idea.title)。記事タイトルは補助情報として下に小さく表示 */}
+                      <h2 className="text-[24px] font-semibold tracking-tight leading-tight mb-3">
+                        {currentArticle.idea.title}
                       </h2>
-                      <p className="text-[13px] text-[color:var(--fg-secondary)] mb-4">
-                        {currentArticle.bestTitleReason}
-                      </p>
+                      <div className="mb-4 pl-3 border-l-2 border-[var(--border-subtle)]">
+                        <div className="text-[10px] font-mono tracking-widest text-[color:var(--fg-muted)] mb-1">
+                          ARTICLE TITLE
+                        </div>
+                        <div className="text-[15px] text-[color:var(--fg-primary)] font-medium leading-snug">
+                          {currentArticle.bestTitle}
+                        </div>
+                        {currentArticle.bestTitleReason && (
+                          <p className="text-[12px] text-[color:var(--fg-secondary)] mt-1">
+                            {currentArticle.bestTitleReason}
+                          </p>
+                        )}
+                      </div>
 
                       {currentFeed && (
                         <div className="flex flex-wrap items-center gap-1.5 mb-5 text-[11px]">
