@@ -807,13 +807,13 @@ export default function LibraryPage() {
                           <button
                             type="button"
                             onClick={() => copy(currentArticle.bestTitle, "title")}
-                            className={`shrink-0 text-[11px] px-2.5 py-1 rounded-md border transition ${
+                            className={`shrink-0 text-[11px] font-semibold px-3 py-1 rounded-md transition shadow-sm ${
                               copied === "title"
-                                ? "bg-green-50 border-green-200 text-green-700"
-                                : "bg-white border-[var(--border-card)] text-[color:var(--fg-secondary)] hover:bg-gray-50"
+                                ? "bg-emerald-600 text-white"
+                                : "bg-[color:var(--accent)] text-white hover:opacity-85"
                             }`}
                           >
-                            {copied === "title" ? "✓ コピー完了!" : "コピー"}
+                            {copied === "title" ? "✓ コピー完了!" : "📋 コピー"}
                           </button>
                         </div>
                         {currentArticle.bestTitleReason && (
@@ -932,13 +932,13 @@ export default function LibraryPage() {
                         <button
                           type="button"
                           onClick={() => copy(currentArticle.bodyMarkdown, "body")}
-                          className={`text-[11px] px-2.5 py-1 rounded-md border transition ${
+                          className={`text-[11px] font-semibold px-3 py-1 rounded-md transition shadow-sm ${
                             copied === "body"
-                              ? "bg-green-50 border-green-200 text-green-700"
-                              : "bg-white border-[var(--border-card)] text-[color:var(--fg-secondary)] hover:bg-gray-50"
+                              ? "bg-emerald-600 text-white"
+                              : "bg-[color:var(--accent)] text-white hover:opacity-85"
                           }`}
                         >
-                          {copied === "body" ? "✓ コピー完了!" : "コピー"}
+                          {copied === "body" ? "✓ コピー完了!" : "📋 コピー"}
                         </button>
                       </div>
                       <pre className="p-5 rounded-xl bg-gray-50 border border-[var(--border-subtle)] text-[14px] leading-[1.85] whitespace-pre-wrap font-sans">
