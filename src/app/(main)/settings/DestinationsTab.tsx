@@ -275,10 +275,7 @@ export default function DestinationsTab() {
   return (
     <div className="max-w-2xl space-y-5">
       <div>
-        <h2 className="section-title mb-1">投稿先</h2>
-        <p className="text-[13px] text-[color:var(--fg-secondary)] leading-relaxed">
-          マルチポスト対象の外部ブログを登録します。note は project ごとに自動で1個用意されています。
-        </p>
+        <h2 className="section-title">投稿先</h2>
       </div>
 
       {flash && (

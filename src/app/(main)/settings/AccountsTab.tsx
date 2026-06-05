@@ -120,13 +120,7 @@ export default function AccountsTab() {
   return (
     <div className="max-w-2xl space-y-5">
       <div>
-        <h2 className="section-title mb-1">アカウント管理</h2>
-        <p className="text-[13px] text-[color:var(--fg-secondary)] leading-relaxed">
-          スタッフ用ログインを発行できます。発行されたアカウントは
-          <span className="font-semibold mx-1">マスターの全プロジェクトに editor として自動追加</span>
-          され、記事生成・スカウト・設定変更等のほぼ全ての操作が可能になります。
-          (プロジェクト削除・サブアカウント管理はマスターのみ)
-        </p>
+        <h2 className="section-title">アカウント管理</h2>
       </div>
 
       {/* マスター情報 */}

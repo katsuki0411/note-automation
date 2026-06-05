@@ -278,14 +278,7 @@ export default function IntegrationsTab() {
   return (
     <div className="max-w-3xl space-y-4">
       <div>
-        <h2 className="section-title mb-1">API連携</h2>
-        <p className="text-[13px] text-[color:var(--fg-secondary)] leading-relaxed">
-          外部 API キーやアフィリエイトIDを保存します。
-          <span className="text-[color:var(--accent-dark)] font-semibold mx-1">プロジェクト単位</span>
-          は現プロジェクトに紐づき、
-          <span className="text-[color:var(--accent-dark)] font-semibold mx-1">ユーザー単位</span>
-          はログインユーザー全体で共有されます。
-        </p>
+        <h2 className="section-title">API連携</h2>
         {loading && (
           <p className="text-[11px] text-[color:var(--fg-muted)] mt-1">⏳ 設定読込中…</p>
         )}

@@ -74,10 +74,7 @@ export default function SettingsPage() {
       {tab === "model" && (
         <div className="max-w-2xl space-y-4">
           <div>
-            <h2 className="section-title mb-1">記事生成モデル</h2>
-            <p className="text-[13px] text-[color:var(--fg-secondary)] leading-relaxed">
-              記事本文の生成に使うAIモデルを選択します。設定はこのブラウザにのみ保存されます。
-            </p>
+            <h2 className="section-title">記事生成モデル</h2>
           </div>
 
           <div className="space-y-2" role="radiogroup" aria-label="記事生成モデル">
