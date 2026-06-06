@@ -13,16 +13,6 @@ const CACHE_SUBJECT = "products:subject";
 const CACHE_RESULT = "products:result";
 const CACHE_IDEIZED = "products:ideized";
 
-type AIScores = {
-  authority: number;
-  intentGap: number;
-  blogRoom: number;
-  llmoAffinity: number;
-  mediaMix: number;
-  overall: number;
-  rationale: string;
-};
-
 type DestinationStatus = {
   destinationId: string;
   platform: string;
@@ -48,7 +38,6 @@ type ScoutCandidate = {
   };
   totalScanned: number;
   topUrls: string[];
-  ai?: AIScores;
   destinationStatus?: DestinationStatus[];
 };
 
@@ -789,23 +778,6 @@ export default function ProductsClient() {
                                       </span>
                                     )}
                                   </div>
-                                </div>
-                              )}
-                              {c.ai && (
-                                <div className="mt-2 p-2 rounded bg-purple-50 border border-purple-100">
-                                  <div className="flex items-center gap-2 flex-wrap text-[10px]">
-                                    <span className="font-mono text-purple-700 font-semibold">
-                                      🤖 AI 総合 {c.ai.overall}
-                                    </span>
-                                    <span className="text-[color:var(--fg-muted)]">
-                                      権威 {c.ai.authority} / intent欠 {c.ai.intentGap} / blog余地 {c.ai.blogRoom} / LLMO {c.ai.llmoAffinity} / mediaMix {c.ai.mediaMix}
-                                    </span>
-                                  </div>
-                                  {c.ai.rationale && (
-                                    <div className="text-[10px] text-[color:var(--fg-secondary)] mt-1 leading-snug">
-                                      💡 {c.ai.rationale}
-                                    </div>
-                                  )}
                                 </div>
                               )}
                               {c.destinationStatus && c.destinationStatus.length > 0 && (

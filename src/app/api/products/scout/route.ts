@@ -12,16 +12,18 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 // POST /api/products/scout
-// body: { subject: string, useAI?: boolean (default true) }
-// → 関連KWを生成 → 各KWの Brave 競合判定 + Gemini 五軸評価
-// → 各 destination の platform が上位30件にすでに存在するか判定
+// body: { subject: string }
+// → 関連KWを生成 → 各KWの DataForSEO 競合判定 (固定ドメイン分類のみ)
+// → 各 destination の platform が上位N件にすでに存在するか判定
 // → opportunityScore 降順で返す
+//
+// 2026-06-06: Gemini 五軸評価を撤去。今後、客観 API データのみで決定論的に
+//   スコアリングする方針 (Step 0 = 評価軸なし状態)。
 export async function POST(req: NextRequest) {
   return withProjectContext(async (ctx) => {
     try {
-      const { subject, useAI = true } = (await req.json().catch(() => ({}))) as {
+      const { subject } = (await req.json().catch(() => ({}))) as {
         subject?: string;
-        useAI?: boolean;
       };
       if (!subject?.trim()) {
         return Response.json({ error: "subject が必要です" }, { status: 400 });
@@ -33,10 +35,10 @@ export async function POST(req: NextRequest) {
       // Step 1: 関連KW生成 (intent付き) + ジャンル推定
       const { keywords: expanded, category } = await expandKeywords(subject);
 
-      // Step 2: 各KWの競合判定 (Brave検索 + 任意で Gemini 五軸評価)
+      // Step 2: 各KWの競合判定 (DataForSEO 上位10件 → 固定ドメイン分類)
       const competitions = await analyzeKeywords(
         expanded.map((e) => ({ kw: e.kw, intent: e.intent })),
-        { concurrency: 3, useAI },
+        { concurrency: 3 },
       );
 
       // expanded と competitions をマージ
@@ -82,16 +84,11 @@ export async function POST(req: NextRequest) {
           topUrls: c.topUrls,
           platformOccupancy: c.platformOccupancy,
           destinationStatus,
-          ai: c.ai,
         };
       });
 
-      // 優先ソート: AI overall があれば優先、なければ opportunityScore で
-      merged.sort((a, b) => {
-        const sa = a.ai?.overall ?? a.opportunityScore;
-        const sb = b.ai?.overall ?? b.opportunityScore;
-        return sb - sa;
-      });
+      // 優先ソート: opportunityScore 降順
+      merged.sort((a, b) => b.opportunityScore - a.opportunityScore);
 
       // 履歴に保存 (失敗しても結果返却は止めない)
       let historyId: string | undefined;
