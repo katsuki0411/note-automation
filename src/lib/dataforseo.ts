@@ -196,3 +196,386 @@ export async function fetchSerpBatch(
   }
   return results;
 }
+
+// =========================================================
+// DataForSEO Labs API クライアント拡張 (P1 / 2026-06-07)
+// 拡張プラン B' (Gemini×4 + DFS×4) で使う3エンドポイント追加:
+//   1. Bulk Keyword Difficulty Live    — 100KW一発で KD のみ取得 (¥1.7/100KW)
+//   2. Keyword Overview Live           — SV/CPC/KD/Intent/Trend/serp_info/avg_backlinks
+//   3. SERP Organic Live Advanced      — PAA/KP/AI Overview/Featured Snippet/Shopping
+// =========================================================
+
+const LOCATION_JP = 2392;
+const LANGUAGE_JP = "ja";
+
+/** 1KW の KD のみ (Bulk 用) */
+export type BulkKdItem = { kw: string; kd: number | null };
+
+/** Keyword Overview の正規化済み出力 */
+export type KeywordOverviewItem = {
+  kw: string;
+  searchVolume: number | null;
+  cpc: number | null;
+  competition: number | null;        // 0.0 - 1.0
+  competitionLevel: string | null;   // LOW / MEDIUM / HIGH
+  keywordDifficulty: number | null;  // 0-100
+  searchIntent: string | null;       // informational/navigational/commercial/transactional
+  // 月次SV履歴 (季節性判定用)
+  monthlySearches: Array<{ year: number; month: number; searchVolume: number }>;
+  // 上位ページの平均被リンク (主リンク)
+  avgBacklinksMain: number | null;
+  avgBacklinksReferringDomains: number | null;
+  // SERP に出る要素タイプ (intent合致判定用)
+  serpItemTypes: string[];
+};
+
+/** SERP Advanced の 1 item (organic/feature 含む生型) */
+export type SerpAdvancedItem = {
+  type: string;
+  rank?: number;
+  url?: string;
+  title?: string;
+  description?: string;
+  raw: Record<string, unknown>;
+};
+
+/** AI Overview の引用元 (LLMO 評価用) */
+export type AiOverviewReference = {
+  url: string;
+  title?: string;
+  domain?: string;
+  source?: string;
+};
+
+/** SERP Advanced の正規化済み出力 (機械判定用に features 集約) */
+export type SerpAdvancedResponse = {
+  kw: string;
+  items: SerpAdvancedItem[];
+  features: {
+    hasAiOverview: boolean;
+    hasFeaturedSnippet: boolean;
+    hasKnowledgePanel: boolean;
+    hasPaa: boolean;
+    hasShopping: boolean;
+    hasTopStories: boolean;
+    hasVideo: boolean;
+    hasImage: boolean;
+  };
+  aiOverviewReferences: AiOverviewReference[];
+  paaQuestions: string[];
+  source: "live" | "mock";
+};
+
+// ---------- Mock ----------
+
+function mockBulkKd(kws: string[]): BulkKdItem[] {
+  return kws.map((kw) => {
+    let h = 0;
+    for (let i = 0; i < kw.length; i++) h = (h * 31 + kw.charCodeAt(i)) | 0;
+    return { kw, kd: Math.abs(h) % 80 }; // 0-79
+  });
+}
+
+function mockKeywordOverview(kws: string[]): KeywordOverviewItem[] {
+  return kws.map((kw) => {
+    let h = 0;
+    for (let i = 0; i < kw.length; i++) h = (h * 31 + kw.charCodeAt(i)) | 0;
+    h = Math.abs(h);
+    const sv = 100 + (h % 50) * 200;
+    const monthly: Array<{ year: number; month: number; searchVolume: number }> = [];
+    const now = new Date();
+    for (let m = 0; m < 12; m++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - m, 1);
+      monthly.push({
+        year: d.getFullYear(),
+        month: d.getMonth() + 1,
+        searchVolume: Math.round(sv * (0.7 + ((h >> m) % 60) / 100)),
+      });
+    }
+    return {
+      kw,
+      searchVolume: sv,
+      cpc: ((h >> 4) % 200) / 10,
+      competition: ((h >> 2) % 100) / 100,
+      competitionLevel: (["LOW", "MEDIUM", "HIGH"] as const)[h % 3],
+      keywordDifficulty: h % 80,
+      searchIntent: (["informational", "commercial", "transactional"] as const)[h % 3],
+      monthlySearches: monthly,
+      avgBacklinksMain: (h >> 6) % 1000,
+      avgBacklinksReferringDomains: (h >> 8) % 500,
+      serpItemTypes: ["organic", "people_also_ask"],
+    };
+  });
+}
+
+function mockSerpAdvanced(kw: string): SerpAdvancedResponse {
+  const basic = mockSerp(kw);
+  return {
+    kw,
+    items: basic.results.map((r) => ({
+      type: "organic",
+      rank: r.rank,
+      url: r.url,
+      title: r.title,
+      description: r.description,
+      raw: r as unknown as Record<string, unknown>,
+    })),
+    features: {
+      hasAiOverview: false,
+      hasFeaturedSnippet: false,
+      hasKnowledgePanel: false,
+      hasPaa: true,
+      hasShopping: false,
+      hasTopStories: false,
+      hasVideo: false,
+      hasImage: false,
+    },
+    aiOverviewReferences: [],
+    paaQuestions: [`${kw} とは`, `${kw} の使い方`, `${kw} の選び方`],
+    source: "mock",
+  };
+}
+
+// ---------- Live API ----------
+
+/**
+ * Bulk Keyword Difficulty Live — 100KWまで一発で KD のみ取得。
+ * 用途: スカウト初期段で大量KWを安価にスクリーニング ($0.011/100KW)。
+ */
+export async function bulkKeywordDifficulty(
+  kws: string[],
+  opts: { locationCode?: number; languageCode?: string } = {},
+): Promise<BulkKdItem[]> {
+  if (process.env.DATAFORSEO_USE_MOCK === "true") {
+    return mockBulkKd(kws);
+  }
+  const creds = envCredentials();
+  if (!creds) {
+    throw new Error("DataForSEO 認証情報が未設定 (env)");
+  }
+  const body = [
+    {
+      keywords: kws,
+      location_code: opts.locationCode ?? LOCATION_JP,
+      language_code: opts.languageCode ?? LANGUAGE_JP,
+    },
+  ];
+  const res = await fetch(
+    `${BASE}/dataforseo_labs/google/bulk_keyword_difficulty/live`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: authHeader(creds.login, creds.password),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`DataForSEO Bulk KD error: ${res.status} ${await res.text()}`);
+  }
+  const data = (await res.json()) as {
+    tasks?: Array<{
+      result?: Array<{
+        items?: Array<{ keyword?: string; keyword_difficulty?: number | null }>;
+      }>;
+    }>;
+  };
+  const items = data.tasks?.[0]?.result?.[0]?.items ?? [];
+  return items.map((it) => ({
+    kw: it.keyword ?? "",
+    kd: typeof it.keyword_difficulty === "number" ? it.keyword_difficulty : null,
+  }));
+}
+
+/**
+ * Keyword Overview Live — 1KW あたり SV/CPC/KD/Intent/Trend/serp_info/avg_backlinks
+ * を一発取得。最大1000KW/req ($0.0101/KW)。
+ */
+export async function keywordOverview(
+  kws: string[],
+  opts: { locationCode?: number; languageCode?: string } = {},
+): Promise<KeywordOverviewItem[]> {
+  if (process.env.DATAFORSEO_USE_MOCK === "true") {
+    return mockKeywordOverview(kws);
+  }
+  const creds = envCredentials();
+  if (!creds) {
+    throw new Error("DataForSEO 認証情報が未設定 (env)");
+  }
+  const body = [
+    {
+      keywords: kws,
+      location_code: opts.locationCode ?? LOCATION_JP,
+      language_code: opts.languageCode ?? LANGUAGE_JP,
+      include_serp_info: true,
+    },
+  ];
+  const res = await fetch(
+    `${BASE}/dataforseo_labs/google/keyword_overview/live`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: authHeader(creds.login, creds.password),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`DataForSEO Keyword Overview error: ${res.status} ${await res.text()}`);
+  }
+  type Raw = {
+    keyword?: string;
+    keyword_info?: {
+      search_volume?: number | null;
+      cpc?: number | null;
+      competition?: number | null;
+      competition_level?: string | null;
+      monthly_searches?: Array<{ year: number; month: number; search_volume: number }>;
+    };
+    keyword_properties?: { keyword_difficulty?: number | null };
+    search_intent_info?: { main_intent?: string | null };
+    avg_backlinks_info?: {
+      backlinks?: number | null;
+      referring_domains?: number | null;
+    };
+    serp_info?: { item_types?: string[] };
+  };
+  const data = (await res.json()) as {
+    tasks?: Array<{ result?: Array<{ items?: Raw[] }> }>;
+  };
+  const items = data.tasks?.[0]?.result?.[0]?.items ?? [];
+  return items.map((it) => ({
+    kw: it.keyword ?? "",
+    searchVolume: it.keyword_info?.search_volume ?? null,
+    cpc: it.keyword_info?.cpc ?? null,
+    competition: it.keyword_info?.competition ?? null,
+    competitionLevel: it.keyword_info?.competition_level ?? null,
+    keywordDifficulty: it.keyword_properties?.keyword_difficulty ?? null,
+    searchIntent: it.search_intent_info?.main_intent ?? null,
+    monthlySearches: (it.keyword_info?.monthly_searches ?? []).map((m) => ({
+      year: m.year,
+      month: m.month,
+      searchVolume: m.search_volume,
+    })),
+    avgBacklinksMain: it.avg_backlinks_info?.backlinks ?? null,
+    avgBacklinksReferringDomains: it.avg_backlinks_info?.referring_domains ?? null,
+    serpItemTypes: it.serp_info?.item_types ?? [],
+  }));
+}
+
+/**
+ * SERP Organic Live Advanced — 上位N件 + 全 SERP feature。
+ * AI Overview 含む。$0.002/req (+ AI Overview tracking で +$0.0006/req)。
+ */
+export async function fetchSerpAdvanced(
+  kw: string,
+  opts: {
+    depth?: number;
+    locationCode?: number;
+    languageCode?: string;
+    includeAiOverview?: boolean;
+  } = {},
+): Promise<SerpAdvancedResponse> {
+  if (process.env.DATAFORSEO_USE_MOCK === "true") {
+    return mockSerpAdvanced(kw);
+  }
+  const creds = envCredentials();
+  if (!creds) {
+    throw new Error("DataForSEO 認証情報が未設定 (env)");
+  }
+  const body = [
+    {
+      keyword: kw,
+      location_code: opts.locationCode ?? LOCATION_JP,
+      language_code: opts.languageCode ?? LANGUAGE_JP,
+      device: "desktop",
+      depth: opts.depth ?? 10,
+      // AI Overview と PAA を確実に拾う
+      people_also_ask_click_depth: 2,
+      load_async_ai_overview: opts.includeAiOverview ?? true,
+    },
+  ];
+  const res = await fetch(`${BASE}/serp/google/organic/live/advanced`, {
+    method: "POST",
+    headers: {
+      Authorization: authHeader(creds.login, creds.password),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(`DataForSEO SERP Advanced error: ${res.status} ${await res.text()}`);
+  }
+  type RawItem = {
+    type?: string;
+    rank_absolute?: number;
+    url?: string;
+    title?: string;
+    description?: string;
+    items?: unknown[];           // ai_overview の references / paa の expanded など
+    references?: Array<{ url?: string; title?: string; domain?: string; source?: string }>;
+    [k: string]: unknown;
+  };
+  const data = (await res.json()) as {
+    tasks?: Array<{ result?: Array<{ items?: RawItem[] }> }>;
+  };
+  const rawItems: RawItem[] = data.tasks?.[0]?.result?.[0]?.items ?? [];
+
+  const items: SerpAdvancedItem[] = rawItems.map((it) => ({
+    type: it.type ?? "unknown",
+    rank: it.rank_absolute,
+    url: it.url,
+    title: it.title,
+    description: it.description,
+    raw: it as Record<string, unknown>,
+  }));
+
+  // feature 集計
+  const hasType = (t: string) => items.some((i) => i.type === t);
+  const features = {
+    hasAiOverview: hasType("ai_overview"),
+    hasFeaturedSnippet: hasType("featured_snippet"),
+    hasKnowledgePanel: hasType("knowledge_graph") || hasType("knowledge_panel"),
+    hasPaa: hasType("people_also_ask"),
+    hasShopping: hasType("shopping") || hasType("popular_products"),
+    hasTopStories: hasType("top_stories"),
+    hasVideo: hasType("video"),
+    hasImage: hasType("images"),
+  };
+
+  // AI Overview の references を抽出
+  const aiOverviewItem = rawItems.find((it) => it.type === "ai_overview");
+  const aiOverviewReferences: AiOverviewReference[] = [];
+  if (aiOverviewItem?.references && Array.isArray(aiOverviewItem.references)) {
+    for (const r of aiOverviewItem.references) {
+      if (r.url) {
+        aiOverviewReferences.push({
+          url: r.url,
+          title: r.title,
+          domain: r.domain,
+          source: r.source,
+        });
+      }
+    }
+  }
+
+  // PAA 質問抽出
+  const paaItem = rawItems.find((it) => it.type === "people_also_ask");
+  const paaQuestions: string[] = [];
+  if (paaItem?.items && Array.isArray(paaItem.items)) {
+    for (const q of paaItem.items as Array<{ title?: string }>) {
+      if (q.title) paaQuestions.push(q.title);
+    }
+  }
+
+  return {
+    kw,
+    items,
+    features,
+    aiOverviewReferences,
+    paaQuestions,
+    source: "live",
+  };
+}
