@@ -32,35 +32,43 @@ export type ExpandKeywordsResult = {
   category: ScoutCategory; // subject のジャンル推定
 };
 
-const EXPAND_PROMPT = (subject: string) => `
+// 2026-06-07: 30件 → 100件に拡張。 拡張プラン B' のスカウト初期段で「広く取って
+// DFS Bulk KD で安く絞る」ためにバッターボックスを大きく取る方針。
+// Phase 5 で「設定画面でユーザー編集可能」にする予定。
+const EXPAND_PROMPT = (subject: string, excludeKws: string[]) => `
 あなたはアフィリエイトSEOのキーワードリサーチャーです。
 
 # ミッション
 以下のお題 (商品名 / カテゴリ / フリーKW のいずれか) から:
-1. 実際に Google や ChatGPT で検索されそうな関連キーワードを **25〜30個** 抽出
+1. 実際に Google や ChatGPT で検索されそうな関連キーワードを **80〜100個** 抽出
 2. このお題が属するジャンルを以下から1つ選ぶ:
    ${SCOUT_CATEGORIES.join(" / ")}
 
-後段の二段分析 (Brave→Ahrefs) で上澄みを絞るための「広めの母数」を作るのが狙いです。
+後段のフロー (DFS Bulk KD で安価スクリーニング → Keyword Overview で精査) で
+上澄みを絞るための「広めの母数」を作るのが狙いです。
 
 # お題
 ${subject}
 
+# 抽出方針 (MTG 2026-06-07 決定)
+- **商標入りKWを必ず含める** (商品名 + 周辺KW)
+- **購入直前のKW (CVキーワード)** を中核に置く
+   - 例: "○○ 価格", "○○ 最安", "○○ amazon", "○○ 買い方", "○○ 在庫"
+- 「ユーザーが対象商品を検索する時、購入直前のKW」を必ず想定
+- 同じ意味の言い換えを重複させない
+
 # 抽出ルール
 - 単一語ではなく **2〜4語の複合フレーズ** を中心に
-- アフィリエイトで成果が出やすい intent (比較 / 購入意欲 / 解決) を意識
-- 「○○ おすすめ」「○○ 比較」「○○ 違い」「○○ 寝るとき」「○○ デメリット」「○○ 安い」など多様な切り口
-- 商品名そのものより、**ユーザーが事前に検索する周辺KW** を重視
-- 30件出すために無理にこじつけず、本当に検索されそうなフレーズだけにする (質 > 数)。
-  本当に思いつかない場合は 20件程度で止めてOK。
-- 同じ意味の言い換えを重複させない (「○○ いつから」「○○ 何歳から」は片方でOK)
+- 「○○ おすすめ」「○○ 比較」「○○ 違い」「○○ いつから」「○○ デメリット」「○○ 安い」など多様な切り口
+- 100件出すために無理にこじつけず、本当に検索されそうなフレーズだけにする (質 > 数)
 - intent は以下から選ぶ:
   - info     : 情報収集
   - how-to   : やり方
   - comparison: 比較・違い
   - trouble  : 悩み解決
   - review   : レビュー
-  - purchase : 購入直前 (「価格」「最安」「中古」など)
+  - purchase : 購入直前 (「価格」「最安」「中古」など) ← 最優先で多く出す
+${excludeKws.length > 0 ? `\n# 除外KW (以下のKWは結果に含めないこと)\n${excludeKws.map((k) => `- ${k}`).join("\n")}` : ""}
 
 # 出力形式 (JSON オブジェクトのみ、前後の説明文禁止)
 {
@@ -122,18 +130,28 @@ function clampIntent(v: unknown): ExpandedKeyword["intent"] {
     : "info";
 }
 
-export async function expandKeywords(subject: string): Promise<ExpandKeywordsResult> {
+export type ExpandKeywordsOptions = {
+  excludeKws?: string[]; // 結果に含めないKW (プロジェクト単位の除外リスト)
+  maxKeywords?: number;  // 取得上限 (デフォルト100)
+};
+
+export async function expandKeywords(
+  subject: string,
+  opts: ExpandKeywordsOptions = {},
+): Promise<ExpandKeywordsResult> {
   const trimmed = subject.trim();
   if (!trimmed) throw new Error("subject が空です");
+  const excludeKws = opts.excludeKws ?? [];
+  const maxKeywords = opts.maxKeywords ?? 100;
 
   const ai = gemini();
   const response = await ai.models.generateContent({
     model: MODELS.research,
-    contents: EXPAND_PROMPT(trimmed),
+    contents: EXPAND_PROMPT(trimmed, excludeKws),
     config: {
       temperature: 0.85,
-      // 25-30件分のフィールドが入るのでトークンを増やす (1件 ~100 tokens で安全側)
-      maxOutputTokens: 6000,
+      // 100件 × 1件あたり ~150 tokens で 15,000、安全側に余裕を持たせて 20,000
+      maxOutputTokens: 20000,
     },
   });
   const text = response.text ?? "";
@@ -153,6 +171,7 @@ export async function expandKeywords(subject: string): Promise<ExpandKeywordsRes
     rawCategory = obj.category;
   }
 
+  const excludedSet = new Set(excludeKws.map((k) => k.trim().toLowerCase()));
   const keywords = rawKeywords
     .filter((r) => r?.kw && r.kw.trim())
     .map((r) => ({
@@ -160,7 +179,9 @@ export async function expandKeywords(subject: string): Promise<ExpandKeywordsRes
       intent: clampIntent(r.intent),
       reason: r.reason ?? "",
     }))
-    .slice(0, 30);
+    // Gemini が除外指示を無視した時の念のためフィルタ
+    .filter((r) => !excludedSet.has(r.kw.toLowerCase()))
+    .slice(0, maxKeywords);
 
   return {
     keywords,

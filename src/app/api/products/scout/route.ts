@@ -2,8 +2,8 @@ import { NextRequest } from "next/server";
 import type { JSONValue } from "postgres";
 import { withProjectContext } from "@/lib/auth";
 import { sql } from "@/lib/db";
-import { expandKeywords } from "@/lib/keywordExpander";
-import { analyzeKeywords, type CompetitionResult } from "@/lib/competitionAnalyzer";
+import { runScoutPipeline } from "@/lib/scoutPipeline";
+import { detectPlatformOccupancy } from "@/lib/platformDomain";
 import { loadDestinations } from "@/lib/destinations";
 import { PLATFORM_LABELS, type Platform } from "@/lib/posters/types";
 
@@ -12,83 +12,64 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 // POST /api/products/scout
-// body: { subject: string }
-// → 関連KWを生成 → 各KWの DataForSEO 競合判定 (固定ドメイン分類のみ)
-// → 各 destination の platform が上位N件にすでに存在するか判定
-// → opportunityScore 降順で返す
+// body: { subject: string, config?: ScoutPipelineConfig }
+// → 8段パイプライン (Gemini×4 + DFS×4) を実行して採用優先順位付きで返す
 //
-// 2026-06-06: Gemini 五軸評価を撤去。今後、客観 API データのみで決定論的に
-//   スコアリングする方針 (Step 0 = 評価軸なし状態)。
+// 2026-06-07: 旧 analyzeKeywords 経由から scoutPipeline 8段パイプラインに置換。
+//   評価の客観化・確からしさ向上が目的 (拡張プラン B')。
 export async function POST(req: NextRequest) {
   return withProjectContext(async (ctx) => {
     try {
-      const { subject } = (await req.json().catch(() => ({}))) as {
+      const { subject, config } = (await req.json().catch(() => ({}))) as {
         subject?: string;
+        // ScoutPipelineConfig はサーバ側で安全に使えるサブセットだけ受け付ける
+        // (Gemini プロンプト関数は P5 で別途設定画面から差替)
+        config?: {
+          kwCandidateCount?: number;
+          kdMaxStage3?: number;
+          minSvStage5?: number;
+          minCpcStage5?: number;
+          maxFinalCount?: number;
+          excludeKws?: string[];
+        };
       };
       if (!subject?.trim()) {
         return Response.json({ error: "subject が必要です" }, { status: 400 });
       }
 
-      // 現プロジェクトの enabled な destination 一覧 (UI でバッジ表示に使う)
+      // 現プロジェクトの enabled な destination 一覧 (destinationStatus 用)
       const destinations = (await loadDestinations(ctx.projectId)).filter((d) => d.enabled);
 
-      // Step 1: 関連KW生成 (intent付き) + ジャンル推定
-      const { keywords: expanded, category } = await expandKeywords(subject);
+      // メイン: 8段パイプライン
+      const result = await runScoutPipeline(subject, config ?? {});
 
-      // Step 2: 各KWの競合判定 (DataForSEO 上位10件 → 固定ドメイン分類)
-      const competitions = await analyzeKeywords(
-        expanded.map((e) => ({ kw: e.kw, intent: e.intent })),
-        { concurrency: 3 },
-      );
-
-      // expanded と competitions をマージ
-      const merged = expanded.map((e, i) => {
-        const c: CompetitionResult = competitions[i] ?? {
-          kw: e.kw,
-          totalScanned: 0,
-          buckets: { big_ec: 0, big_media: 0, individual_blog: 0, other: 0 },
-          seoDifficulty: "medium",
-          opportunityScore: 50,
-          rationale: "分析未実施",
-          topUrls: [],
-          platformOccupancy: {},
-        };
-        // 各 destination ごとに「その platform が上位30件に既に存在するか」+「プロンプト設定済か」を判定
+      // 各候補に destinationStatus を付与
+      // (occupied 情報は参考表示として残す。同ドメイン排除スキップは2026-06-07撤廃済)
+      const candidatesWithDest = result.candidates.map((c) => {
+        const platformOccupancy = detectPlatformOccupancy(c.serpTopUrls);
         const destinationStatus = destinations.map((d) => {
           const platform = d.platform as Platform;
-          const hits = c.platformOccupancy[platform] ?? 0;
-          // prompt_config に何か文字列値が入っていれば設定済とみなす
+          const hits = platformOccupancy[platform] ?? 0;
           const pc = d.prompt_config as Record<string, unknown> | null | undefined;
-          const promptReady = !!pc && Object.values(pc).some(
-            (v) => typeof v === "string" && v.trim().length > 0,
-          );
+          const promptReady =
+            !!pc &&
+            Object.values(pc).some((v) => typeof v === "string" && v.trim().length > 0);
           return {
             destinationId: d.id,
             platform,
             label: d.label,
             platformLabel: PLATFORM_LABELS[platform] ?? platform,
-            occupied: hits > 0, // true = 既に競合あり / false = 未投稿の隙間あり
-            hits, // 上位30件中の該当 platform の記事数
-            promptReady, // true = 記事生成可 / false = プロンプト未設定で生成不可
+            occupied: hits > 0,
+            hits,
+            promptReady,
           };
         });
         return {
-          kw: c.kw,
-          intent: e.intent,
-          reason: e.reason,
-          seoDifficulty: c.seoDifficulty,
-          opportunityScore: c.opportunityScore,
-          rationale: c.rationale,
-          buckets: c.buckets,
-          totalScanned: c.totalScanned,
-          topUrls: c.topUrls,
-          platformOccupancy: c.platformOccupancy,
+          ...c,
+          platformOccupancy,
           destinationStatus,
         };
       });
-
-      // 優先ソート: opportunityScore 降順
-      merged.sort((a, b) => b.opportunityScore - a.opportunityScore);
 
       // 履歴に保存 (失敗しても結果返却は止めない)
       let historyId: string | undefined;
@@ -99,9 +80,9 @@ export async function POST(req: NextRequest) {
             ${ctx.projectId},
             ${ctx.userId},
             ${subject},
-            ${category},
-            ${merged.length},
-            ${sql.json(merged as unknown as JSONValue)}
+            ${result.category},
+            ${candidatesWithDest.length},
+            ${sql.json(candidatesWithDest as unknown as JSONValue)}
           )
           returning id
         `;
@@ -112,9 +93,10 @@ export async function POST(req: NextRequest) {
 
       return Response.json({
         subject,
-        category,
-        candidateCount: merged.length,
-        candidates: merged,
+        category: result.category,
+        stats: result.stats,
+        candidateCount: candidatesWithDest.length,
+        candidates: candidatesWithDest,
         historyId,
       });
     } catch (e) {

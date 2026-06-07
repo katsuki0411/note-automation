@@ -23,28 +23,73 @@ type DestinationStatus = {
   promptReady?: boolean; // true = プロンプト設定済で記事生成可 / false = プロンプト未設定
 };
 
+// 拡張プラン B' / 8段パイプライン出力に対応。
+// 旧フィールド (seoDifficulty 等) は履歴の後方互換のため optional 残置。
 type ScoutCandidate = {
   kw: string;
   intent: string;
   reason: string;
-  seoDifficulty: "easy" | "medium" | "hard";
-  opportunityScore: number;
-  rationale: string;
-  buckets: {
+
+  // DFS Bulk KD + Keyword Overview から (P2 で追加)
+  kd?: number | null;
+  searchVolume?: number | null;
+  cpc?: number | null;
+  competition?: number | null;
+  competitionLevel?: string | null;
+  searchIntent?: string | null;
+  monthlySearches?: Array<{ year: number; month: number; searchVolume: number }>;
+  avgBacklinksMain?: number | null;
+  avgBacklinksReferringDomains?: number | null;
+  serpItemTypes?: string[];
+
+  // DFS SERP Advanced から
+  serpFeatures?: {
+    hasAiOverview: boolean;
+    hasFeaturedSnippet: boolean;
+    hasKnowledgePanel: boolean;
+    hasPaa: boolean;
+    hasShopping: boolean;
+    hasTopStories: boolean;
+    hasVideo: boolean;
+    hasImage: boolean;
+  };
+  serpTopUrls?: string[];
+  aiOverviewReferences?: Array<{ url: string; title?: string; domain?: string; source?: string }>;
+  paaQuestions?: string[];
+
+  // Gemini #4 最終判定
+  finalScore?: number;
+  decision?: "adopt" | "borderline" | "reject";
+
+  // 既存フィールド (旧履歴互換 / destination 表示用)
+  rationale?: string;
+  seoDifficulty?: "easy" | "medium" | "hard";
+  opportunityScore?: number;
+  buckets?: {
     big_ec: number;
     big_media: number;
     individual_blog: number;
     other: number;
   };
-  totalScanned: number;
-  topUrls: string[];
+  totalScanned?: number;
+  topUrls?: string[];
+  platformOccupancy?: Record<string, number>;
   destinationStatus?: DestinationStatus[];
+};
+
+type ScoutStats = {
+  stage1Generated: number;
+  stage3PassedKd: number;
+  stage5PassedMetrics: number;
+  finalCount: number;
+  adoptedCount: number;
 };
 
 type ScoutResponse = {
   subject: string;
   candidateCount: number;
   candidates: ScoutCandidate[];
+  stats?: ScoutStats;
   historyId?: string;
 };
 
@@ -56,7 +101,8 @@ type HistoryItem = {
   created_at: string;
 };
 
-const DIFF_BADGE: Record<ScoutCandidate["seoDifficulty"], { text: string; cls: string }> = {
+// 旧履歴互換用バッジ (新パイプラインでは seoDifficulty 自体が無いので decision バッジを使う)
+const DIFF_BADGE: Record<"easy" | "medium" | "hard", { text: string; cls: string }> = {
   easy: { text: "◎ 易", cls: "bg-green-100 text-green-700" },
   medium: { text: "△ 中", cls: "bg-yellow-100 text-yellow-700" },
   hard: { text: "✕ 難", cls: "bg-red-100 text-red-700" },
@@ -705,9 +751,27 @@ export default function ProductsClient() {
                   <div className="flex-1 overflow-y-auto pr-2 mt-2 min-h-0">
                   <ul className="space-y-2">
                     {result.candidates.map((c, i) => {
-                      const diff = DIFF_BADGE[c.seoDifficulty];
                       const isOpen = expanded.has(i);
                       const isIdeized = ideized.has(c.kw);
+                      // decision バッジ (P4 / 拡張プラン B' の最終判定)
+                      const decisionBadge = c.decision === "adopt"
+                        ? { text: "✓ 採用", cls: "bg-emerald-100 text-emerald-700 font-semibold" }
+                        : c.decision === "reject"
+                          ? { text: "✕ 却下", cls: "bg-red-100 text-red-700" }
+                          : c.decision === "borderline"
+                            ? { text: "△ 要検討", cls: "bg-yellow-100 text-yellow-700" }
+                            : null;
+                      // SERP feature の有効なものだけ抽出
+                      const activeFeatures: string[] = [];
+                      if (c.serpFeatures) {
+                        if (c.serpFeatures.hasAiOverview) activeFeatures.push("AI Overview");
+                        if (c.serpFeatures.hasFeaturedSnippet) activeFeatures.push("FS");
+                        if (c.serpFeatures.hasKnowledgePanel) activeFeatures.push("KP");
+                        if (c.serpFeatures.hasPaa) activeFeatures.push("PAA");
+                        if (c.serpFeatures.hasShopping) activeFeatures.push("Shopping");
+                        if (c.serpFeatures.hasTopStories) activeFeatures.push("News");
+                        if (c.serpFeatures.hasVideo) activeFeatures.push("Video");
+                      }
                       return (
                         <li
                           key={i}
@@ -716,15 +780,25 @@ export default function ProductsClient() {
                           <div className="flex items-start gap-3">
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap mb-1">
-                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${diff.cls}`}>
-                                  {diff.text}
-                                </span>
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
-                                  機会 {c.opportunityScore}
-                                </span>
+                                {decisionBadge && (
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${decisionBadge.cls}`}>
+                                    {decisionBadge.text}
+                                  </span>
+                                )}
+                                {typeof c.finalScore === "number" && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] font-mono">
+                                    総合 {c.finalScore}
+                                  </span>
+                                )}
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">
                                   {INTENT_LABEL[c.intent] ?? c.intent}
                                 </span>
+                                {/* 互換: 旧履歴の seoDifficulty バッジ */}
+                                {c.seoDifficulty && (
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${DIFF_BADGE[c.seoDifficulty].cls}`}>
+                                    {DIFF_BADGE[c.seoDifficulty].text}
+                                  </span>
+                                )}
                               </div>
                               <div className="text-[14px] font-semibold text-[color:var(--fg-primary)]">
                                 {c.kw}
@@ -732,19 +806,83 @@ export default function ProductsClient() {
                               <div className="text-[11px] text-[color:var(--fg-muted)] mt-0.5">
                                 {c.reason}
                               </div>
-                              <div className="text-[11px] text-[color:var(--fg-secondary)] mt-1.5 leading-snug">
-                                📊 {c.rationale}
-                              </div>
-                              <div className="text-[10px] text-[color:var(--fg-muted)] mt-1">
-                                上位{c.totalScanned}件:
-                                EC {c.buckets.big_ec} / 比較メディア {c.buckets.big_media} /
-                                個人ブログ {c.buckets.individual_blog} / その他 {c.buckets.other}
-                              </div>
+                              {/* 客観指標 (DFS / 拡張プラン B') */}
+                              {(typeof c.kd === "number" || typeof c.searchVolume === "number" || typeof c.cpc === "number") && (
+                                <div className="mt-1.5 flex items-center gap-2 flex-wrap text-[10.5px]">
+                                  {typeof c.kd === "number" && (
+                                    <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
+                                      KD <strong>{c.kd}</strong>
+                                    </span>
+                                  )}
+                                  {typeof c.searchVolume === "number" && (
+                                    <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
+                                      月Vol <strong>{c.searchVolume.toLocaleString("ja-JP")}</strong>
+                                    </span>
+                                  )}
+                                  {typeof c.cpc === "number" && (
+                                    <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
+                                      CPC <strong>${c.cpc.toFixed(2)}</strong>
+                                    </span>
+                                  )}
+                                  {c.competitionLevel && (
+                                    <span className="px-1.5 py-0.5 rounded bg-gray-50 text-gray-600">
+                                      競合 {c.competitionLevel}
+                                    </span>
+                                  )}
+                                  {c.searchIntent && (
+                                    <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700">
+                                      DFS Intent: {c.searchIntent}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                              {/* SERP features */}
+                              {activeFeatures.length > 0 && (
+                                <div className="mt-1.5 flex items-center gap-1.5 flex-wrap text-[10px]">
+                                  <span className="text-[color:var(--fg-muted)]">SERP:</span>
+                                  {activeFeatures.map((f) => (
+                                    <span
+                                      key={f}
+                                      className={`px-1.5 py-0.5 rounded ${
+                                        f === "AI Overview"
+                                          ? "bg-fuchsia-50 text-fuchsia-700 font-semibold"
+                                          : "bg-slate-100 text-slate-700"
+                                      }`}
+                                    >
+                                      {f}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              {/* AI Overview 引用元 */}
+                              {c.aiOverviewReferences && c.aiOverviewReferences.length > 0 && (
+                                <div className="mt-1.5 text-[10px] text-[color:var(--fg-secondary)]">
+                                  <span className="text-fuchsia-700 font-semibold">🤖 AI Overview引用:</span>{" "}
+                                  {c.aiOverviewReferences
+                                    .slice(0, 5)
+                                    .map((r) => r.domain ?? new URL(r.url).hostname)
+                                    .join(" / ")}
+                                </div>
+                              )}
+                              {/* 最終 rationale (Gemini #4) */}
+                              {c.rationale && (
+                                <div className="text-[11px] text-[color:var(--fg-secondary)] mt-1.5 leading-snug p-2 rounded bg-amber-50/40 border border-amber-100">
+                                  💡 {c.rationale}
+                                </div>
+                              )}
+                              {/* 互換: 旧履歴の上位ドメイン分類 */}
+                              {c.buckets && (
+                                <div className="text-[10px] text-[color:var(--fg-muted)] mt-1">
+                                  上位{c.totalScanned ?? 0}件: EC {c.buckets.big_ec} / 比較メディア {c.buckets.big_media} /
+                                  個人ブログ {c.buckets.individual_blog} / その他 {c.buckets.other}
+                                </div>
+                              )}
+                              {/* 旧 Ahrefs 精査結果 (履歴互換、当面残置) */}
                               {ahrefsMetrics[c.kw] && (
                                 <div className="mt-2 p-2 rounded bg-orange-50 border border-orange-100">
                                   <div className="flex items-center gap-2 flex-wrap text-[10px]">
                                     <span className="font-mono text-orange-700 font-semibold">
-                                      🔬 Ahrefs
+                                      🔬 Ahrefs (履歴)
                                     </span>
                                     {ahrefsMetrics[c.kw].kd !== null && (
                                       <span className="text-[color:var(--fg-secondary)]">
@@ -790,15 +928,20 @@ export default function ProductsClient() {
                                   })}
                                 </div>
                               )}
-                              {isOpen && c.topUrls.length > 0 && (
-                                <ul className="mt-2 space-y-0.5 pl-4">
-                                  {c.topUrls.map((u, j) => (
-                                    <li key={j} className="text-[10px] text-[color:var(--fg-muted)] truncate">
-                                      {j + 1}. <a href={u} target="_blank" rel="noreferrer" className="hover:underline">{u}</a>
-                                    </li>
-                                  ))}
-                                </ul>
-                              )}
+                              {isOpen && (() => {
+                                // 新パイプラインは serpTopUrls、旧履歴は topUrls
+                                const urls = c.serpTopUrls ?? c.topUrls ?? [];
+                                if (urls.length === 0) return null;
+                                return (
+                                  <ul className="mt-2 space-y-0.5 pl-4">
+                                    {urls.map((u, j) => (
+                                      <li key={j} className="text-[10px] text-[color:var(--fg-muted)] truncate">
+                                        {j + 1}. <a href={u} target="_blank" rel="noreferrer" className="hover:underline">{u}</a>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                );
+                              })()}
                             </div>
                             <div className="flex flex-col gap-1 shrink-0">
                               <button
