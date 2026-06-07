@@ -409,23 +409,23 @@ export default function ProductsClient() {
   // ネタ化 + 記事生成キュー投入 (1ボタンで連続実行)
   // destinationStatus を見て:
   //   1. プロンプト未設定の destination は除外 (記事生成不可)
-  //   2. 占有あり (= 競合あり) も避ける、なければ占有あり強行
-  //   3. note 優先、なければ最初の候補
-  // 結果を「note: OK / はてな: プロンプトなし → スキップ」のような形でユーザーに見せる
+  //   2. note 優先、なければ最初の promptReady 候補
+  // 2026-06-07: 「同ドメイン排除」(occupied による生成スキップ) を撤廃。
+  //   上位に同ドメインの既存記事があっても投稿は進める方針に変更。
+  //   destinationStatus.occupied / hits は「参考情報」として残し、summary
+  //   にも引き続き表示するが、生成ターゲット選択ロジックからは外す。
   async function generateFromCandidate(c: ScoutCandidate) {
     let targetDestId: string | undefined;
 
     if (c.destinationStatus && c.destinationStatus.length > 0) {
-      // プロンプト設定済 + 未占有の destination が「OK 候補」
       const promptReadyList = c.destinationStatus.filter((s) => s.promptReady);
-      const okCandidates = promptReadyList.filter((s) => !s.occupied);
 
-      // ユーザー向けに各 destination の状態を集計表示
+      // ユーザー向けに各 destination の状態を集計表示 (occupied は参考扱い)
       const summary = c.destinationStatus
         .map((s) => {
           if (!s.promptReady) return `❌ ${s.platformLabel}: プロンプトなし → スキップ`;
-          if (s.occupied) return `⚠ ${s.platformLabel}: 競合${s.hits}件 (上位10位)`;
-          return `✅ ${s.platformLabel}: OK (記事生成候補)`;
+          if (s.occupied) return `✅ ${s.platformLabel}: OK (参考: 上位${s.hits}件に競合あり)`;
+          return `✅ ${s.platformLabel}: OK`;
         })
         .join("\n");
 
@@ -436,30 +436,14 @@ export default function ProductsClient() {
         return;
       }
 
-      if (okCandidates.length === 0) {
-        // プロンプトはあるが全て競合あり → 確認の上で強行
-        const preferred =
-          promptReadyList.find((s) => s.platform === "note") ?? promptReadyList[0];
-        if (
-          !confirm(
-            `${summary}\n\nプロンプト設定済の投稿先は全て競合ありです。それでも「${preferred.platformLabel}」で記事生成しますか?`,
-          )
-        ) {
-          return;
-        }
-        targetDestId = preferred.destinationId;
-      } else {
-        // note 優先、なければ最初の OK 候補
-        const preferred =
-          okCandidates.find((s) => s.platform === "note") ?? okCandidates[0];
-        targetDestId = preferred.destinationId;
+      // note 優先、なければ最初の promptReady 候補
+      const preferred =
+        promptReadyList.find((s) => s.platform === "note") ?? promptReadyList[0];
+      targetDestId = preferred.destinationId;
 
-        // プロンプトなしでスキップされる destination があれば軽くお知らせ
-        if (promptReadyList.length < c.destinationStatus.length) {
-          // alert を出すと毎回確認させて煩いので、生成は進めつつ、コンソール記録 + フラッシュ表示
-          // (アラート出したい場合は下の confirm に変える)
-          console.info(`[generate] selected ${preferred.platformLabel}\n${summary}`);
-        }
+      // プロンプトなしでスキップされる destination があれば console に記録
+      if (promptReadyList.length < c.destinationStatus.length) {
+        console.info(`[generate] selected ${preferred.platformLabel}\n${summary}`);
       }
     }
 
