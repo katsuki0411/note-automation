@@ -6,9 +6,9 @@ import { FilterBar, GroupTab } from "@/components/FilterBar";
 import DestinationsTab from "./DestinationsTab";
 import IntegrationsTab from "./IntegrationsTab";
 import AccountsTab from "./AccountsTab";
-import ScoutConfigTab from "./ScoutConfigTab";
+// ScoutConfigTab は 2026-06-09 に KWスカウト 配下の「スカウト設定」タブに移動した
+// (シェアコンポーネントとして ProductsClient.tsx から import される)
 // ArticleGenConfigTab は 2026-06-09 にライブラリ配下の「記事生成プロンプト」タブに移動した
-// (シェアコンポーネントとして library/page.tsx から import される)
 import {
   ARTICLE_MODEL_OPTIONS,
   DEFAULT_ARTICLE_MODEL,
@@ -19,7 +19,7 @@ import {
 
 // 「自分の記事URL」タブは 2026-06-02 廃止。各 destination の編集フォーム内
 // 「自分の記事URL (任意)」欄に統合した (DestinationsTab 参照)。
-type Tab = "destinations" | "scout" | "model" | "integrations" | "accounts";
+type Tab = "destinations" | "model" | "integrations" | "accounts";
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>("destinations");
@@ -57,9 +57,6 @@ export default function SettingsPage() {
             <GroupTab active={tab === "destinations"} onClick={() => setTab("destinations")}>
               投稿先
             </GroupTab>
-            <GroupTab active={tab === "scout"} onClick={() => setTab("scout")}>
-              スカウト
-            </GroupTab>
             <GroupTab active={tab === "model"} onClick={() => setTab("model")}>
               記事生成モデル
             </GroupTab>
@@ -74,7 +71,6 @@ export default function SettingsPage() {
       </PageHeader>
 
       {tab === "destinations" && <DestinationsTab />}
-      {tab === "scout" && <ScoutConfigTab />}
       {tab === "integrations" && <IntegrationsTab />}
       {tab === "accounts" && <AccountsTab />}
 

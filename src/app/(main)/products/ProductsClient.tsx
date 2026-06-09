@@ -8,6 +8,12 @@ import { FilterBar, GroupTab } from "@/components/FilterBar";
 import { useGeneration } from "@/components/GenerationProvider";
 import { getCache, setCache } from "@/lib/clientCache";
 import type { Article, FeedIdea, FeedState } from "@/lib/types";
+import {
+  PLATFORM_LABELS,
+  getPlatformFaviconUrl,
+  type Platform,
+} from "@/lib/posters/types";
+import ScoutConfigTab from "../settings/ScoutConfigTab";
 
 const CACHE_SUBJECT = "products:subject";
 const CACHE_RESULT = "products:result";
@@ -136,7 +142,7 @@ export default function ProductsClient() {
   const [historyLoading, setHistoryLoading] = useState(true);
   const [loadingHistoryId, setLoadingHistoryId] = useState<string | null>(null);
   // タブ: 新規スカウト / 履歴一覧 / 保留KW (ネタ化のみ実行された未記事化 KW)
-  const [tab, setTab] = useState<"new" | "history" | "pending">("new");
+  const [tab, setTab] = useState<"new" | "history" | "adopted" | "pending" | "config">("new");
   // 保留KW タブ用
   const [pendingIdeas, setPendingIdeas] = useState<FeedIdea[]>([]);
   const [pendingArticles, setPendingArticles] = useState<Article[]>([]);
@@ -181,7 +187,7 @@ export default function ProductsClient() {
 
   // 履歴 / 保留KW タブ時のみ body のスクロールを止める
   useEffect(() => {
-    if (tab !== "history" && tab !== "pending") return;
+    if (tab !== "history" && tab !== "pending" && tab !== "adopted") return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
@@ -227,6 +233,28 @@ export default function ProductsClient() {
       (i) => i.customLabel?.startsWith("🛒") && !adoptedIdeaIds.has(i.id),
     ).length;
   }, [pendingIdeas, pendingArticles]);
+
+  // 採用KW タブ用: scout 由来 (idea.customLabel "🛒 *") の article 一覧
+  // (ライブラリから 2026-06-09 に移動)
+  const adoptedArticles = useMemo<Article[]>(() => {
+    return pendingArticles.filter((a) => {
+      const cl = (a.idea as FeedIdea)?.customLabel?.trim();
+      return cl?.startsWith("🛒") ?? false;
+    });
+  }, [pendingArticles]);
+  const adoptedCount = adoptedArticles.length;
+
+  // 採用KWタブ用 destinations (platform バッジ表示用)
+  const [destinationsForAdopted, setDestinationsForAdopted] = useState<
+    { id: string; platform: string; label: string }[]
+  >([]);
+  useEffect(() => {
+    if (tab !== "adopted") return;
+    fetch("/api/destinations")
+      .then((r) => r.json())
+      .then((d) => setDestinationsForAdopted(d.destinations ?? []))
+      .catch(() => {});
+  }, [tab]);
 
   // 保留KW から記事生成キュー投入
   async function generateFromPendingIdea(idea: FeedIdea) {
@@ -523,7 +551,7 @@ export default function ProductsClient() {
     <>
       <PageHeader title="KWスカウト">
         <FilterBar>
-          <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
+          <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px overflow-x-auto">
             <GroupTab active={tab === "new"} onClick={() => setTab("new")}>
               新規スカウト
             </GroupTab>
@@ -533,11 +561,20 @@ export default function ProductsClient() {
                 <span className="ml-1.5 text-[10px] opacity-70">({history.length})</span>
               )}
             </GroupTab>
+            <GroupTab active={tab === "adopted"} onClick={() => setTab("adopted")}>
+              採用KW
+              {adoptedCount > 0 && (
+                <span className="ml-1.5 text-[10px] opacity-70">({adoptedCount})</span>
+              )}
+            </GroupTab>
             <GroupTab active={tab === "pending"} onClick={() => setTab("pending")}>
               保留KW
               {pendingCount > 0 && (
                 <span className="ml-1.5 text-[10px] opacity-70">({pendingCount})</span>
               )}
+            </GroupTab>
+            <GroupTab active={tab === "config"} onClick={() => setTab("config")}>
+              スカウト設定
             </GroupTab>
           </div>
         </FilterBar>
@@ -549,9 +586,11 @@ export default function ProductsClient() {
           同じ画面端まで 2カラムを広げる */}
       <div
         className={
-          tab === "history" || tab === "pending"
+          tab === "history" || tab === "pending" || tab === "adopted"
             ? "md:sticky md:top-0 md:h-[calc(100vh-140px)] md:overflow-hidden md:-mt-8 -mt-6 -mx-4 md:-mx-8 px-2 md:px-4"
-            : "max-w-3xl space-y-5"
+            : tab === "config"
+              ? ""
+              : "max-w-3xl space-y-5"
         }
       >
         {tab === "new" && (
@@ -1104,6 +1143,101 @@ export default function ProductsClient() {
             </div>
           );
         })()}
+
+        {/* 採用KW タブ: 記事生成済の scout 由来 KW を横一列リストで表示 */}
+        {tab === "adopted" && (
+          <div className="flex flex-col md:h-full min-h-0">
+            <div className="shrink-0 bg-white border-b border-[var(--border-subtle)] h-[60px] flex items-center justify-between">
+              <div className="text-[12px] text-[color:var(--fg-secondary)]">
+                記事生成済みの KW: <strong>{adoptedCount}</strong> 件
+              </div>
+              <div className="text-[10px] text-[color:var(--fg-muted)] font-mono">
+                スカウト → 記事生成 を実行したもの (ライブラリの該当記事に飛べます)
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto pr-2 mt-3 min-h-0">
+              {adoptedArticles.length === 0 ? (
+                <div className="p-8 rounded-lg border border-dashed border-[var(--border-card)] text-center">
+                  <p className="text-[13px] text-[color:var(--fg-secondary)]">
+                    採用KWはまだありません
+                  </p>
+                  <p className="text-[11px] text-[color:var(--fg-muted)] mt-1">
+                    「スカウト履歴」タブの候補カードから ✍記事生成 を押すと、ここに表示されます
+                  </p>
+                </div>
+              ) : (
+                <ul className="space-y-1.5">
+                  {adoptedArticles.map((a) => {
+                    const fi = a.idea as FeedIdea;
+                    const kw = a.idea.title;
+                    const sourceSubject = fi?.customLabel?.replace(/^🛒\s*/, "")?.trim();
+                    const dest = destinationsForAdopted.find((d) => d.id === a.destinationId);
+                    const platform = dest?.platform as Platform | undefined;
+                    return (
+                      <li
+                        key={a.id}
+                        className="px-4 py-3 rounded-lg border border-[var(--border-card)] bg-white hover:border-gray-400 transition flex items-center gap-4"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[14px] font-semibold leading-tight truncate">
+                            {kw}
+                          </div>
+                          {sourceSubject && (
+                            <div className="text-[10px] text-[color:var(--fg-muted)] mt-0.5 truncate">
+                              🛒 {sourceSubject}
+                            </div>
+                          )}
+                        </div>
+                        {platform ? (
+                          <span className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 text-gray-700 text-[10.5px] w-[120px]">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={getPlatformFaviconUrl(platform)}
+                              alt=""
+                              className="w-3 h-3 rounded-sm"
+                              loading="lazy"
+                            />
+                            <span className="truncate">
+                              {PLATFORM_LABELS[platform] ?? platform}
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="shrink-0 w-[120px]" />
+                        )}
+                        {a.postedAt ? (
+                          <span className="shrink-0 px-1.5 py-0.5 rounded bg-green-50 text-green-700 text-[10.5px] w-[60px] text-center">
+                            ✓ 投稿済
+                          </span>
+                        ) : (
+                          <span className="shrink-0 px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[10.5px] w-[60px] text-center">
+                            ⏳ 未投稿
+                          </span>
+                        )}
+                        <span className="shrink-0 text-[10.5px] font-mono text-[color:var(--fg-muted)] w-[90px] text-right">
+                          {new Date(a.createdAt).toLocaleString("ja-JP", {
+                            month: "2-digit",
+                            day: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                        <Link
+                          href={`/library?id=${a.id}`}
+                          className="shrink-0 text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-black text-white hover:bg-gray-800 transition"
+                        >
+                          📖 記事を見る
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* スカウト設定 タブ: 旧 設定 → スカウト の中身を流用 */}
+        {tab === "config" && <ScoutConfigTab />}
 
       </div>
     </>

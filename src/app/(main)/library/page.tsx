@@ -23,7 +23,7 @@ const SELECTED_KW_CACHE_KEY = "library:selectedKw";
 const SELECTED_DEST_CACHE_KEY = "library:selectedDest";
 const TAB_CACHE_KEY = "library:tab";
 
-type LibraryTab = "adopted" | "articles" | "prompts";
+type LibraryTab = "articles" | "prompts";
 
 // project.kind に応じて空状態の文言とリンク先を切替
 function EmptyLibraryCta() {
@@ -294,14 +294,6 @@ export default function LibraryPage() {
   }, [currentGroup, selectedDestinationId]);
 
   const currentFeed = currentArticle ? feedIdeaOf(currentArticle) : null;
-
-  // 採用KW タブ用: scout 由来 (idea.customLabel が "🛒 *") の article 一覧
-  const adoptedArticles = useMemo<Article[]>(() => {
-    return articles.filter((a) => {
-      const cl = (a.idea as FeedIdea)?.customLabel?.trim();
-      return cl?.startsWith("🛒") ?? false;
-    });
-  }, [articles]);
 
   // ---------- マルチポストモーダル制御 ----------
   function openPostModal(a: Article) {
@@ -650,12 +642,6 @@ export default function LibraryPage() {
       <PageHeader title="ライブラリ">
         <FilterBar>
           <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
-            <GroupTab active={tab === "adopted"} onClick={() => setTab("adopted")}>
-              採用KW
-              {adoptedArticles.length > 0 && (
-                <span className="ml-1.5 text-[10px] opacity-70">({adoptedArticles.length})</span>
-              )}
-            </GroupTab>
             <GroupTab active={tab === "articles"} onClick={() => setTab("articles")}>
               生成記事
               {articles.length > 0 && (
@@ -1143,113 +1129,7 @@ export default function LibraryPage() {
             </section>
           </div>
         </div>
-      ) : (
-        // 「採用KW」タブ: scout 由来 (idea.customLabel が "🛒 *") の article 一覧
-        <div className="md:sticky md:top-0 md:h-[calc(100vh-140px)] md:overflow-hidden md:-mt-8 -mt-6 -mx-4 md:-mx-8 px-2 md:px-4">
-          <div className="flex flex-col md:h-full min-h-0">
-            <div className="shrink-0 bg-white border-b border-[var(--border-subtle)] h-[60px] flex items-center justify-between">
-              <div className="text-[12px] text-[color:var(--fg-secondary)]">
-                記事生成済みの KW: <strong>{adoptedArticles.length}</strong> 件
-              </div>
-              <div className="text-[10px] text-[color:var(--fg-muted)] font-mono">
-                KWスカウト → 記事生成 を実行したもの
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto pr-2 mt-3 min-h-0">
-              {adoptedArticles.length === 0 ? (
-                <div className="p-8 rounded-lg border border-dashed border-[var(--border-card)] text-center">
-                  <p className="text-[13px] text-[color:var(--fg-secondary)]">
-                    採用KWはまだありません
-                  </p>
-                  <p className="text-[11px] text-[color:var(--fg-muted)] mt-1">
-                    「KWスカウト → スカウト履歴」の候補カードから ✍記事生成 を押すと、ここに表示されます
-                  </p>
-                </div>
-              ) : (
-                <ul className="space-y-1.5">
-                  {adoptedArticles.map((a) => {
-                    const fi = a.idea as FeedIdea;
-                    const kw = a.idea.title;
-                    const sourceSubject = fi?.customLabel?.replace(/^🛒\s*/, "")?.trim();
-                    const dest = destinations.find((d) => d.id === a.destinationId);
-                    const platform = dest?.platform as Platform | undefined;
-                    return (
-                      <li
-                        key={a.id}
-                        className="px-4 py-3 rounded-lg border border-[var(--border-card)] bg-white hover:border-gray-400 transition flex items-center gap-4"
-                      >
-                        {/* KW (主、可変幅) + 補助の subject */}
-                        <div className="flex-1 min-w-0">
-                          <div className="text-[14px] font-semibold leading-tight truncate">
-                            {kw}
-                          </div>
-                          {sourceSubject && (
-                            <div className="text-[10px] text-[color:var(--fg-muted)] mt-0.5 truncate">
-                              🛒 {sourceSubject}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* platform バッジ (固定幅) */}
-                        {platform ? (
-                          <span className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 text-gray-700 text-[10.5px] w-[120px]">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={getPlatformFaviconUrl(platform)}
-                              alt=""
-                              className="w-3 h-3 rounded-sm"
-                              loading="lazy"
-                            />
-                            <span className="truncate">
-                              {PLATFORM_LABELS[platform] ?? platform}
-                            </span>
-                          </span>
-                        ) : (
-                          <span className="shrink-0 w-[120px]" />
-                        )}
-
-                        {/* 投稿状況 */}
-                        {a.postedAt ? (
-                          <span className="shrink-0 px-1.5 py-0.5 rounded bg-green-50 text-green-700 text-[10.5px] w-[60px] text-center">
-                            ✓ 投稿済
-                          </span>
-                        ) : (
-                          <span className="shrink-0 px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[10.5px] w-[60px] text-center">
-                            ⏳ 未投稿
-                          </span>
-                        )}
-
-                        {/* 日時 */}
-                        <span className="shrink-0 text-[10.5px] font-mono text-[color:var(--fg-muted)] w-[90px] text-right">
-                          {new Date(a.createdAt).toLocaleString("ja-JP", {
-                            month: "2-digit",
-                            day: "2-digit",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
-
-                        {/* 記事を見るボタン */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedKwKey(keywordKeyOf(a));
-                            if (a.destinationId) setSelectedDestinationId(a.destinationId);
-                            setTab("articles");
-                          }}
-                          className="shrink-0 text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-black text-white hover:bg-gray-800 transition"
-                        >
-                          📖 記事を見る
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      ) : null}
 
       {postModalArticle && (
         <div
