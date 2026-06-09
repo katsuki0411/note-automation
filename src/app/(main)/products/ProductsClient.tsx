@@ -1349,6 +1349,10 @@ function StagePipelineView({
     };
   }, [stage, adopted, rejected]);
 
+  // KD=0 の件数 (Backlinks 未契約等で取得失敗している可能性のサイン)
+  const kdZeroCount = [...passed, ...failed].filter((it) => it.kd === 0).length;
+  const kdTotalCount = [...passed, ...failed].filter((it) => typeof it.kd === "number").length;
+
   return (
     <div className="space-y-3">
       <div className="text-[11px] text-[color:var(--fg-secondary)] px-1">
@@ -1362,6 +1366,14 @@ function StagePipelineView({
           </>
         )}
       </div>
+
+      {/* KD=0 が多い場合は警告 (DFS Backlinks 未契約の疑い) */}
+      {kdZeroCount > 0 && kdTotalCount > 0 && kdZeroCount / kdTotalCount >= 0.5 && (
+        <div className="text-[10px] text-orange-700 bg-orange-50 border border-orange-200 rounded px-2 py-1.5">
+          ⚠ KD=0 が {kdZeroCount}/{kdTotalCount}件。DataForSEO Backlinks 未契約のため
+          KD が正しく取得できていない可能性があります (タスク #107 で調査中)。
+        </div>
+      )}
 
       {passed.length > 0 && (
         <StageItemList items={passed} variant="pass" />
@@ -1394,7 +1406,29 @@ function StageItemList({ items, variant }: { items: StageItem[]; variant: "pass"
             </div>
             <div className="text-[10px] text-[color:var(--fg-muted)] mt-0.5 flex flex-wrap gap-x-2">
               {it.intent && <span>intent={it.intent}</span>}
-              {typeof it.kd === "number" && <span>KD={it.kd}</span>}
+              {/* KD は常に表示 (null / undefined のときは「-」 / 取得失敗の可能性を併記) */}
+              <span
+                className={
+                  it.kd === 0
+                    ? "text-orange-600"
+                    : typeof it.kd === "number" && it.kd > 30
+                      ? "text-red-600"
+                      : typeof it.kd === "number"
+                        ? "text-emerald-700"
+                        : ""
+                }
+                title={
+                  it.kd === 0
+                    ? "KD=0 は取得失敗の可能性 (DFS Backlinks 未契約)"
+                    : typeof it.kd === "number" && it.kd > 30
+                      ? "KD>30 = 上位表示困難"
+                      : typeof it.kd === "number"
+                        ? "KD≤30 = 狙い目"
+                        : "未取得"
+                }
+              >
+                KD={typeof it.kd === "number" ? it.kd : "-"}
+              </span>
               {typeof it.searchVolume === "number" && (
                 <span>SV={it.searchVolume.toLocaleString("ja-JP")}</span>
               )}
