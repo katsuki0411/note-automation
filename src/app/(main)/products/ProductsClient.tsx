@@ -797,14 +797,28 @@ export default function ProductsClient() {
                         {result.subject}
                       </div>
                     </div>
-                    {/* パイプライン段階タブ (各段階の通過件数) */}
-                    {result.stats && (
+                    {/* パイプライン段階タブ (各段階の通過件数)
+                     * stats が DB 保存外 (過去履歴) でも candidates / rejectedCandidates
+                     * から導出した値で表示する。 */}
+                    {(() => {
+                      const rej = result.rejectedCandidates ?? [];
+                      const cand = result.candidates ?? [];
+                      const stats = result.stats ?? {
+                        stage1Generated: cand.length + rej.length,
+                        stage3PassedKd:
+                          cand.length +
+                          rej.filter((r) => r.stage === "stage5_metric_rejected").length,
+                        stage5PassedMetrics: cand.length,
+                        finalCount: cand.length,
+                        adoptedCount: cand.filter((c) => c.decision === "adopt").length,
+                      };
+                      return (
                       <div className="shrink-0 flex items-center gap-1">
                         {([
-                          { s: 1 as const, label: `① ${result.stats.stage1Generated}`, title: "Gemini #1 が生成した KW 全件" },
-                          { s: 3 as const, label: `② ${result.stats.stage3PassedKd}`, title: "Stage 3 KD閾値+Gemini #2 を通過した KW" },
-                          { s: 5 as const, label: `③ ${result.stats.stage5PassedMetrics}`, title: "Stage 5 数値+Gemini #3 を通過した KW" },
-                          { s: 7 as const, label: `④ ${result.stats.adoptedCount}`, title: "Stage 7 最終採用された KW" },
+                          { s: 1 as const, label: `① ${stats.stage1Generated}`, title: "Gemini #1 が生成した KW 全件" },
+                          { s: 3 as const, label: `② ${stats.stage3PassedKd}`, title: "Stage 3 KD閾値+Gemini #2 を通過した KW" },
+                          { s: 5 as const, label: `③ ${stats.stage5PassedMetrics}`, title: "Stage 5 数値+Gemini #3 を通過した KW" },
+                          { s: 7 as const, label: `④ ${stats.adoptedCount}`, title: "Stage 7 最終採用された KW" },
                         ]).map(({ s, label, title }) => (
                           <button
                             key={s}
@@ -821,7 +835,8 @@ export default function ProductsClient() {
                           </button>
                         ))}
                       </div>
-                    )}
+                      );
+                    })()}
                   </div>
                   {/* スクロール領域 (この部分だけスクロールバー表示) */}
                   <div className="flex-1 overflow-y-auto pr-2 mt-2 min-h-0">
