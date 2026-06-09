@@ -149,24 +149,21 @@ const INTEGRATION_DEFS: IntegrationDef[] = [
       },
     ],
   },
-  {
-    scope: "user",
-    kind: "ahrefs",
-    title: "Ahrefs API",
-    description:
-      "KD (キーワード難易度) / 検索Vol / CPC / DR / 被リンク取得。Lite プラン以上で API token 発行可。月10,000 units (= 約200 query) なので「上澄み KW のピンポイント精査」用。",
-    badge: "ユーザー単位",
-    envFallbackNote: "未設定なら .env.local の AHREFS_API_TOKEN を使用",
-    fields: [
-      {
-        key: "api_token",
-        label: "API トークン",
-        type: "password",
-        placeholder: "Ahrefs Dashboard → API → Token",
-        hint: "https://ahrefs.com/api → Generate token で発行",
-      },
-    ],
-  },
+  // Ahrefs エントリは 2026-06-09 に UI 非表示化。
+  // (DataForSEO 一本化方針のため。将来併用に戻す場合はこのブロックを復活)
+  // {
+  //   scope: "user",
+  //   kind: "ahrefs",
+  //   title: "Ahrefs API",
+  //   description: "...",
+  //   badge: "ユーザー単位",
+  //   envFallbackNote: "未設定なら .env.local の AHREFS_API_TOKEN を使用",
+  //   fields: [
+  //     { key: "api_token", label: "API トークン", type: "password",
+  //       placeholder: "Ahrefs Dashboard → API → Token",
+  //       hint: "https://ahrefs.com/api → Generate token で発行" },
+  //   ],
+  // },
   {
     scope: "user",
     kind: "dataforseo",

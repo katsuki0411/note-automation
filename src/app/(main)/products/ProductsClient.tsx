@@ -910,31 +910,8 @@ export default function ProductsClient() {
                                   個人ブログ {c.buckets.individual_blog} / その他 {c.buckets.other}
                                 </div>
                               )}
-                              {/* 旧 Ahrefs 精査結果 (履歴互換、当面残置) */}
-                              {ahrefsMetrics[c.kw] && (
-                                <div className="mt-2 p-2 rounded bg-orange-50 border border-orange-100">
-                                  <div className="flex items-center gap-2 flex-wrap text-[10px]">
-                                    <span className="font-mono text-orange-700 font-semibold">
-                                      🔬 Ahrefs (履歴)
-                                    </span>
-                                    {ahrefsMetrics[c.kw].kd !== null && (
-                                      <span className="text-[color:var(--fg-secondary)]">
-                                        KD <strong>{ahrefsMetrics[c.kw].kd}</strong>
-                                      </span>
-                                    )}
-                                    {ahrefsMetrics[c.kw].vol !== null && (
-                                      <span className="text-[color:var(--fg-secondary)]">
-                                        月Vol <strong>{ahrefsMetrics[c.kw].vol?.toLocaleString("ja-JP")}</strong>
-                                      </span>
-                                    )}
-                                    {ahrefsMetrics[c.kw].cpc !== null && (
-                                      <span className="text-[color:var(--fg-secondary)]">
-                                        CPC <strong>${ahrefsMetrics[c.kw].cpc?.toFixed(2)}</strong>
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                              )}
+                              {/* Ahrefs 精査結果 UI は 2026-06-09 に非表示化。
+                                  ahrefsMetrics state は保持 (再表示するときの復旧用) */}
                               {c.destinationStatus && c.destinationStatus.length > 0 && (
                                 <div className="mt-2 flex items-center gap-1.5 flex-wrap">
                                   <span className="text-[10px] text-[color:var(--fg-muted)] mr-1">投稿先:</span>
@@ -984,15 +961,9 @@ export default function ProductsClient() {
                               >
                                 {isOpen ? "閉じる" : "URL"}
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => refineKw(c.kw)}
-                                disabled={refining.has(c.kw)}
-                                className="text-[10px] px-2 py-1 rounded whitespace-nowrap bg-orange-50 text-orange-700 hover:bg-orange-100 disabled:opacity-50 disabled:cursor-wait"
-                                title="Ahrefs で KD/検索Vol/CPC を取得 (50 units 消費)"
-                              >
-                                {refining.has(c.kw) ? "⏳" : ahrefsMetrics[c.kw] ? "🔬 再精査" : "🔬 Ahrefs精査"}
-                              </button>
+                              {/* 🔬 Ahrefs 精査ボタンは 2026-06-09 に UI 非表示化。
+                                  Ahrefs 併用方針を再開する場合はここを復活。
+                                  ロジック (refineKw / lib/ahrefs.ts) はコード上残置 */}
                               <button
                                 type="button"
                                 onClick={() => ideize(c)}
