@@ -172,6 +172,9 @@ export default function ProductsClient() {
     Record<string, { kd: number | null; vol: number | null; cpc: number | null }>
   >({});
   const [refining, setRefining] = useState<Set<string>>(new Set());
+  // パイプライン段階タブ (① Gemini #1 100件 / ② Stage3 KD通過 / ③ Stage5 数値通過 / ④ Stage7 最終採用)
+  // デフォルトは ④ (採用候補リスト) で現状動作維持
+  const [pipelineStage, setPipelineStage] = useState<1 | 3 | 5 | 7>(7);
 
   // ベストセラー画面 → 「この商品でスカウト」遷移時に q クエリで subject 上書き
   useEffect(() => {
@@ -782,7 +785,7 @@ export default function ProductsClient() {
               ) : (
                 <>
                   {/* 固定タイトル (左の絞り込みヘッダと同じ h-[60px] で揃える) */}
-                  <div className="shrink-0 bg-white border-b border-[var(--border-subtle)] h-[60px] flex items-center">
+                  <div className="shrink-0 bg-white border-b border-[var(--border-subtle)] h-[60px] flex items-center justify-between gap-3 px-1">
                     <div className="min-w-0">
                       <div className="text-[10px] text-[color:var(--fg-muted)] leading-tight">
                         スカウト結果 {result.candidateCount} 件 (機会スコア降順)
@@ -794,71 +797,44 @@ export default function ProductsClient() {
                         {result.subject}
                       </div>
                     </div>
+                    {/* パイプライン段階タブ (各段階の通過件数) */}
+                    {result.stats && (
+                      <div className="shrink-0 flex items-center gap-1">
+                        {([
+                          { s: 1 as const, label: `① ${result.stats.stage1Generated}`, title: "Gemini #1 が生成した KW 全件" },
+                          { s: 3 as const, label: `② ${result.stats.stage3PassedKd}`, title: "Stage 3 KD閾値+Gemini #2 を通過した KW" },
+                          { s: 5 as const, label: `③ ${result.stats.stage5PassedMetrics}`, title: "Stage 5 数値+Gemini #3 を通過した KW" },
+                          { s: 7 as const, label: `④ ${result.stats.adoptedCount}`, title: "Stage 7 最終採用された KW" },
+                        ]).map(({ s, label, title }) => (
+                          <button
+                            key={s}
+                            type="button"
+                            onClick={() => setPipelineStage(s)}
+                            title={title}
+                            className={`text-[10px] px-2 py-1 rounded-full transition-colors ${
+                              pipelineStage === s
+                                ? "bg-[color:var(--accent)] text-white font-semibold shadow-sm"
+                                : "bg-white text-[color:var(--fg-secondary)] border border-[var(--border-card)] hover:bg-[color:var(--accent-soft)]/40"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   {/* スクロール領域 (この部分だけスクロールバー表示) */}
                   <div className="flex-1 overflow-y-auto pr-2 mt-2 min-h-0">
-                  {/* 絞り込み統計バナー (Stage 1〜7 の通過件数を見せる) */}
-                  {result.stats && (
-                    <div className="mb-3 p-3 rounded-lg bg-[color:var(--accent-soft)]/40 border border-[color:var(--accent)]/20 text-[11px]">
-                      <div className="font-semibold mb-1 text-[color:var(--accent-dark)]">
-                        🔄 8段パイプライン 絞り込み過程
-                      </div>
-                      <div className="text-[color:var(--fg-secondary)] leading-relaxed">
-                        Gemini #1 で <strong>{result.stats.stage1Generated}件</strong> 生成
-                        {" → "}
-                        Stage 3 で <strong>{result.stats.stage3PassedKd}件</strong> KD 通過
-                        {" → "}
-                        Stage 5 で <strong>{result.stats.stage5PassedMetrics}件</strong> 数値 通過
-                        {" → "}
-                        Stage 7 で <strong>{result.stats.adoptedCount}件</strong> 採用 / borderline {result.stats.finalCount - result.stats.adoptedCount}件
-                      </div>
-                    </div>
+                  {/* === パイプライン段階別ビュー ① / ② / ③ === */}
+                  {pipelineStage !== 7 && (
+                    <StagePipelineView
+                      stage={pipelineStage}
+                      adopted={result.candidates}
+                      rejected={result.rejectedCandidates ?? []}
+                    />
                   )}
-                  {/* 落選候補一覧 (折りたたみ) */}
-                  {result.rejectedCandidates && result.rejectedCandidates.length > 0 && (
-                    <details className="mb-3 rounded-lg border border-[var(--border-subtle)] bg-gray-50/40">
-                      <summary className="cursor-pointer px-3 py-2 text-[11px] font-semibold text-[color:var(--fg-secondary)]">
-                        ❌ 落選候補を見る ({result.rejectedCandidates.length}件) - なぜ採用されなかったか
-                      </summary>
-                      <ul className="px-3 pb-3 space-y-1.5 max-h-[400px] overflow-y-auto">
-                        {result.rejectedCandidates.map((r, idx) => {
-                          const stageBadge =
-                            r.stage === "stage3_kd_rejected"
-                              ? { text: "Stage 2: KD超過", cls: "bg-red-50 text-red-700" }
-                              : r.stage === "stage3_filter_rejected"
-                                ? { text: "Stage 3: Gemini除外", cls: "bg-orange-50 text-orange-700" }
-                                : r.stage === "stage5_metric_rejected"
-                                  ? { text: "Stage 5: 数値NG", cls: "bg-yellow-50 text-yellow-700" }
-                                  : { text: r.stage, cls: "bg-gray-100 text-gray-700" };
-                          return (
-                            <li
-                              key={idx}
-                              className="text-[11px] flex items-start gap-2 p-1.5 rounded bg-white"
-                            >
-                              <span className={`shrink-0 text-[9.5px] px-1.5 py-0.5 rounded ${stageBadge.cls}`}>
-                                {stageBadge.text}
-                              </span>
-                              <div className="flex-1 min-w-0">
-                                <div className="font-mono truncate">{r.kw}</div>
-                                <div className="text-[9.5px] text-[color:var(--fg-muted)] mt-0.5">
-                                  {typeof r.kd === "number" && `KD=${r.kd} `}
-                                  {typeof r.searchVolume === "number" && `SV=${r.searchVolume.toLocaleString("ja-JP")} `}
-                                  {typeof r.cpc === "number" && `CPC=¥${Math.round(r.cpc * 150)} `}
-                                  {r.competitionLevel && `競合=${r.competitionLevel} `}
-                                  {r.searchIntent && `intent=${r.searchIntent} `}
-                                </div>
-                                {r.rejectionNote && (
-                                  <div className="text-[9.5px] text-[color:var(--fg-secondary)] mt-0.5">
-                                    💬 {r.rejectionNote}
-                                  </div>
-                                )}
-                              </div>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </details>
-                  )}
+                  {/* === ④ Stage 7 最終採用候補リスト (現状の詳細カード) === */}
+                  {pipelineStage === 7 && (
                   <ul className="space-y-2">
                     {result.candidates.map((c, i) => {
                       const isOpen = expanded.has(i);
@@ -1068,6 +1044,7 @@ export default function ProductsClient() {
                       );
                     })}
                   </ul>
+                  )}
                   <div className="text-[11px] text-[color:var(--fg-muted)] mt-3">
                     「保留」したKWは <button
                       type="button"
@@ -1283,5 +1260,161 @@ export default function ProductsClient() {
 
       </div>
     </>
+  );
+}
+
+// ============================================================
+// パイプライン段階別ビュー (タブ ①/②/③ で切替)
+// 各段階の「通過したKW (✓)」と「落選したKW (✗)」を一覧表示する。
+// ④ Stage7 は既存の候補カードリストをそのまま使うため、ここには来ない。
+// ============================================================
+type StageItem = {
+  kw: string;
+  intent: string;
+  reason: string;
+  kd?: number | null;
+  searchVolume?: number | null;
+  cpc?: number | null;
+  competitionLevel?: string | null;
+  searchIntent?: string | null;
+  rejectionNote?: string;
+  rejectedAtStage?: RejectedCandidate["stage"];
+};
+
+function StagePipelineView({
+  stage,
+  adopted,
+  rejected,
+}: {
+  stage: 1 | 3 | 5;
+  adopted: ScoutCandidate[];
+  rejected: RejectedCandidate[];
+}) {
+  // 各 stage で「通過」「落選」を分類
+  const { passed, failed, headline } = useMemo(() => {
+    const adoptedAsItems: StageItem[] = adopted.map((c) => ({
+      kw: c.kw,
+      intent: c.intent,
+      reason: c.reason,
+      kd: c.kd,
+      searchVolume: c.searchVolume,
+      cpc: c.cpc,
+    }));
+    const rejAsItems = (filterFn: (r: RejectedCandidate) => boolean): StageItem[] =>
+      rejected.filter(filterFn).map((r) => ({
+        kw: r.kw,
+        intent: r.intent,
+        reason: r.reason,
+        kd: r.kd,
+        searchVolume: r.searchVolume,
+        cpc: r.cpc,
+        competitionLevel: r.competitionLevel,
+        searchIntent: r.searchIntent,
+        rejectionNote: r.rejectionNote,
+        rejectedAtStage: r.stage,
+      }));
+
+    if (stage === 1) {
+      // Gemini #1 が生成した全件 (落選はまだ無い)
+      const all = [...adoptedAsItems, ...rejAsItems(() => true)];
+      return {
+        passed: all,
+        failed: [] as StageItem[],
+        headline: `Gemini #1 が生成した全候補 (${all.length}件)`,
+      };
+    }
+    if (stage === 3) {
+      // 通過: Stage5以降に進んだ全部 (= adopted + stage5_metric_rejected)
+      // 落選: Stage3で落ちた (kd超過 or Gemini除外)
+      const p = [
+        ...adoptedAsItems,
+        ...rejAsItems((r) => r.stage === "stage5_metric_rejected"),
+      ];
+      const f = rejAsItems(
+        (r) => r.stage === "stage3_kd_rejected" || r.stage === "stage3_filter_rejected",
+      );
+      return {
+        passed: p,
+        failed: f,
+        headline: `Stage 3 KD閾値 + Gemini #2 (重複/不適切排除)`,
+      };
+    }
+    // stage === 5
+    const p = adoptedAsItems;
+    const f = rejAsItems((r) => r.stage === "stage5_metric_rejected");
+    return {
+      passed: p,
+      failed: f,
+      headline: `Stage 5 数値 + Gemini #3 (SV/CPC/intent 評価)`,
+    };
+  }, [stage, adopted, rejected]);
+
+  return (
+    <div className="space-y-3">
+      <div className="text-[11px] text-[color:var(--fg-secondary)] px-1">
+        <span className="font-semibold text-[color:var(--accent-dark)]">{headline}</span>
+        {" — "}
+        <span className="text-emerald-700">✓ 通過 {passed.length}件</span>
+        {failed.length > 0 && (
+          <>
+            {" / "}
+            <span className="text-red-700">✗ 落選 {failed.length}件</span>
+          </>
+        )}
+      </div>
+
+      {passed.length > 0 && (
+        <StageItemList items={passed} variant="pass" />
+      )}
+      {failed.length > 0 && (
+        <StageItemList items={failed} variant="fail" />
+      )}
+    </div>
+  );
+}
+
+function StageItemList({ items, variant }: { items: StageItem[]; variant: "pass" | "fail" }) {
+  const headerBg =
+    variant === "pass"
+      ? "bg-emerald-50/60 border-emerald-200/60"
+      : "bg-red-50/60 border-red-200/60";
+  const icon = variant === "pass" ? "✓" : "✗";
+  const iconCls = variant === "pass" ? "text-emerald-700" : "text-red-600";
+  return (
+    <ul className={`space-y-1 rounded-lg border ${headerBg} p-2`}>
+      {items.map((it, idx) => (
+        <li
+          key={`${variant}-${idx}-${it.kw}`}
+          className="text-[11px] flex items-start gap-2 p-1.5 rounded bg-white"
+        >
+          <span className={`shrink-0 font-bold ${iconCls}`}>{icon}</span>
+          <div className="flex-1 min-w-0">
+            <div className="font-mono text-[12px] truncate text-[color:var(--fg-primary)]">
+              {it.kw}
+            </div>
+            <div className="text-[10px] text-[color:var(--fg-muted)] mt-0.5 flex flex-wrap gap-x-2">
+              {it.intent && <span>intent={it.intent}</span>}
+              {typeof it.kd === "number" && <span>KD={it.kd}</span>}
+              {typeof it.searchVolume === "number" && (
+                <span>SV={it.searchVolume.toLocaleString("ja-JP")}</span>
+              )}
+              {typeof it.cpc === "number" && <span>CPC=¥{Math.round(it.cpc * 150)}</span>}
+              {it.competitionLevel && <span>競合={it.competitionLevel}</span>}
+              {it.searchIntent && <span>dfs={it.searchIntent}</span>}
+            </div>
+            {variant === "pass" && it.reason && (
+              <div className="text-[10px] text-[color:var(--fg-secondary)] mt-0.5">
+                💡 {it.reason}
+              </div>
+            )}
+            {variant === "fail" && it.rejectionNote && (
+              <div className="text-[10px] text-[color:var(--fg-secondary)] mt-0.5">
+                💬 {it.rejectionNote}
+              </div>
+            )}
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
