@@ -11,8 +11,10 @@ import {
 import {
   DEFAULT_ARTICLE_MODEL,
   generateArticleJsonText,
+  generateArticleTextChain,
   isArticleModel,
 } from "@/lib/articleGen";
+import { loadArticleGenConfig } from "@/lib/projectConfigs";
 import type { FeedIdea, Keyword, ThemeId } from "@/lib/types";
 import { withProjectContext } from "@/lib/auth";
 import { sql } from "@/lib/db";
@@ -198,11 +200,51 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      const responseText = await generateArticleJsonText({
-        model: articleModel,
-        system: resolved.systemPrompt,
-        user: userPrompt,
-      });
+      // 3段プロンプトチェーン: article_gen_config.prompts が設定されていれば段階生成
+      //  (MTG 2026-06-07 決定: 「3回プロンプトに噛ませて、記事の精度をあげる」)
+      // 各段の動作:
+      //  - 1段目: prompts[0] を user prompt 末尾に付与 → text 出力 (中間)
+      //  - 2段目: 1段目出力 + prompts[1] → text 出力 (中間)
+      //  - 3段目: 2段目出力 + prompts[2] + 既存 userPrompt → JSON 出力 (最終 article)
+      // prompts のいずれも空 → 従来通り1段で JSON 生成
+      const articleGenConfig = await loadArticleGenConfig(ctx.projectId);
+      const chainPrompts = articleGenConfig.prompts ?? ["", "", ""];
+      const useChain = chainPrompts.some((p) => p && p.trim().length > 0);
+
+      let responseText: string;
+      if (useChain) {
+        let context = "";
+        // Stage 1 (空ならスキップ)
+        if (chainPrompts[0]?.trim()) {
+          context = await generateArticleTextChain({
+            model: articleModel,
+            system: resolved.systemPrompt,
+            user: `${userPrompt}\n\n# 1段目プロンプト\n${chainPrompts[0]}`,
+          });
+        }
+        // Stage 2 (空ならスキップ)
+        if (chainPrompts[1]?.trim()) {
+          context = await generateArticleTextChain({
+            model: articleModel,
+            system: resolved.systemPrompt,
+            user: `# 前段の出力\n${context || "(なし)"}\n\n# 2段目プロンプト\n${chainPrompts[1]}`,
+          });
+        }
+        // Stage 3 = 最終段。JSON 出力に切替。
+        // prompts[2] が空でも、context があれば JSON 化のため最終段を呼ぶ。
+        const stage3Hint = chainPrompts[2]?.trim() ?? "";
+        responseText = await generateArticleJsonText({
+          model: articleModel,
+          system: resolved.systemPrompt,
+          user: `# 前段までの出力\n${context || "(なし)"}\n${stage3Hint ? `\n# 3段目プロンプト\n${stage3Hint}\n` : ""}\n# 最終出力指示 (JSON フォーマットに従う)\n${userPrompt}`,
+        });
+      } else {
+        responseText = await generateArticleJsonText({
+          model: articleModel,
+          system: resolved.systemPrompt,
+          user: userPrompt,
+        });
+      }
       const parsed = extractJson(responseText);
 
       let body = (parsed.body_markdown as string) ?? "";

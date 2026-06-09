@@ -6,6 +6,7 @@ import { runScoutPipeline } from "@/lib/scoutPipeline";
 import { detectPlatformOccupancy } from "@/lib/platformDomain";
 import { loadDestinations } from "@/lib/destinations";
 import { PLATFORM_LABELS, type Platform } from "@/lib/posters/types";
+import { loadScoutConfig } from "@/lib/projectConfigs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,8 +41,20 @@ export async function POST(req: NextRequest) {
       // 現プロジェクトの enabled な destination 一覧 (destinationStatus 用)
       const destinations = (await loadDestinations(ctx.projectId)).filter((d) => d.enabled);
 
+      // プロジェクト設定 (除外KW / 閾値) を読み込んで、body.config と合体 (body 優先)
+      // プロンプト4段はカスタム保存できるが、scoutPipeline に流す変換は後続実装
+      const projectConfig = await loadScoutConfig(ctx.projectId);
+      const mergedConfig = {
+        kwCandidateCount: config?.kwCandidateCount ?? projectConfig.kwCandidateCount,
+        kdMaxStage3: config?.kdMaxStage3 ?? projectConfig.kdMaxStage3,
+        minSvStage5: config?.minSvStage5 ?? projectConfig.minSvStage5,
+        minCpcStage5: config?.minCpcStage5 ?? projectConfig.minCpcStage5,
+        maxFinalCount: config?.maxFinalCount ?? projectConfig.maxFinalCount,
+        excludeKws: config?.excludeKws ?? projectConfig.excludeKws,
+      };
+
       // メイン: 8段パイプライン
-      const result = await runScoutPipeline(subject, config ?? {});
+      const result = await runScoutPipeline(subject, mergedConfig);
 
       // 各候補に destinationStatus を付与
       // (occupied 情報は参考表示として残す。同ドメイン排除スキップは2026-06-07撤廃済)

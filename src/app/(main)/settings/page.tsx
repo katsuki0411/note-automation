@@ -6,6 +6,8 @@ import { FilterBar, GroupTab } from "@/components/FilterBar";
 import DestinationsTab from "./DestinationsTab";
 import IntegrationsTab from "./IntegrationsTab";
 import AccountsTab from "./AccountsTab";
+import ScoutConfigTab from "./ScoutConfigTab";
+import ArticleGenConfigTab from "./ArticleGenConfigTab";
 import {
   ARTICLE_MODEL_OPTIONS,
   DEFAULT_ARTICLE_MODEL,
@@ -16,7 +18,7 @@ import {
 
 // 「自分の記事URL」タブは 2026-06-02 廃止。各 destination の編集フォーム内
 // 「自分の記事URL (任意)」欄に統合した (DestinationsTab 参照)。
-type Tab = "destinations" | "model" | "integrations" | "accounts";
+type Tab = "destinations" | "scout" | "article-gen" | "model" | "integrations" | "accounts";
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>("destinations");
@@ -50,9 +52,15 @@ export default function SettingsPage() {
     <>
       <PageHeader title="設定">
         <FilterBar>
-          <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
+          <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px overflow-x-auto">
             <GroupTab active={tab === "destinations"} onClick={() => setTab("destinations")}>
               投稿先
+            </GroupTab>
+            <GroupTab active={tab === "scout"} onClick={() => setTab("scout")}>
+              スカウト
+            </GroupTab>
+            <GroupTab active={tab === "article-gen"} onClick={() => setTab("article-gen")}>
+              記事生成プロンプト
             </GroupTab>
             <GroupTab active={tab === "model"} onClick={() => setTab("model")}>
               記事生成モデル
@@ -68,6 +76,8 @@ export default function SettingsPage() {
       </PageHeader>
 
       {tab === "destinations" && <DestinationsTab />}
+      {tab === "scout" && <ScoutConfigTab />}
+      {tab === "article-gen" && <ArticleGenConfigTab />}
       {tab === "integrations" && <IntegrationsTab />}
       {tab === "accounts" && <AccountsTab />}
 

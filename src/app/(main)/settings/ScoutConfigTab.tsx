@@ -1,0 +1,243 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+type ScoutConfig = {
+  kwCandidateCount?: number;
+  maxFinalCount?: number;
+  kdMaxStage3?: number;
+  minSvStage5?: number;
+  minCpcStage5?: number;
+  excludeKws?: string[];
+  promptKwGen?: string;
+  promptStage3?: string;
+  promptStage5?: string;
+  promptFinal?: string;
+};
+
+const DEFAULTS: Required<Pick<ScoutConfig, "kwCandidateCount" | "maxFinalCount" | "kdMaxStage3" | "minSvStage5" | "minCpcStage5">> = {
+  kwCandidateCount: 100,
+  maxFinalCount: 10,
+  kdMaxStage3: 30,
+  minSvStage5: 100,
+  minCpcStage5: 0.2,
+};
+
+export default function ScoutConfigTab() {
+  const [config, setConfig] = useState<ScoutConfig>({});
+  const [excludeText, setExcludeText] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<{ kind: "idle" | "saved" | "error"; message?: string }>({ kind: "idle" });
+
+  useEffect(() => {
+    fetch("/api/projects/scout-config")
+      .then((r) => r.json())
+      .then((d) => {
+        const c: ScoutConfig = d.config ?? {};
+        setConfig(c);
+        setExcludeText((c.excludeKws ?? []).join("\n"));
+      })
+      .catch((e) => {
+        setStatus({ kind: "error", message: e instanceof Error ? e.message : "読込失敗" });
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    setStatus({ kind: "idle" });
+    try {
+      const excludeKws = excludeText
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const body: ScoutConfig = { ...config, excludeKws };
+      const res = await fetch("/api/projects/scout-config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "保存失敗");
+      setStatus({ kind: "saved", message: "保存しました" });
+      setTimeout(() => setStatus({ kind: "idle" }), 2500);
+    } catch (e) {
+      setStatus({ kind: "error", message: e instanceof Error ? e.message : "保存失敗" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="max-w-3xl space-y-6">
+      <div>
+        <h2 className="section-title">KWスカウト設定</h2>
+        {loading && (
+          <p className="text-[11px] text-[color:var(--fg-muted)] mt-1">⏳ 設定読込中…</p>
+        )}
+      </div>
+
+      {/* 件数 / 閾値 */}
+      <details className="rounded-xl border border-[var(--border-subtle)] bg-white" open>
+        <summary className="cursor-pointer px-4 py-3 font-semibold text-[13px]">
+          ⚙️ 件数 / 閾値 (拡張プラン B' のスコアリング基準)
+        </summary>
+        <div className="px-4 pb-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <NumberRow
+            label="Stage1: Gemini #1 KW候補生成数"
+            placeholder={String(DEFAULTS.kwCandidateCount)}
+            value={config.kwCandidateCount}
+            onChange={(v) => setConfig({ ...config, kwCandidateCount: v })}
+            hint="100件程度を推奨 (MTG決定)"
+          />
+          <NumberRow
+            label="Stage3: KD 閾値 (これ以下を通過)"
+            placeholder={String(DEFAULTS.kdMaxStage3)}
+            value={config.kdMaxStage3}
+            onChange={(v) => setConfig({ ...config, kdMaxStage3: v })}
+            hint="0〜100。低いほど狙いやすい (推奨: 30)"
+          />
+          <NumberRow
+            label="Stage5: SV 最低値 (月間検索数)"
+            placeholder={String(DEFAULTS.minSvStage5)}
+            value={config.minSvStage5}
+            onChange={(v) => setConfig({ ...config, minSvStage5: v })}
+            hint="これ以下のKWはCV見込薄として除外 (推奨: 100)"
+          />
+          <NumberRow
+            label="Stage5: CPC 最低値 (USD)"
+            placeholder={String(DEFAULTS.minCpcStage5)}
+            value={config.minCpcStage5}
+            onChange={(v) => setConfig({ ...config, minCpcStage5: v })}
+            step="0.01"
+            hint="広告出稿価値の低いKWを除外 (推奨: 0.2)"
+          />
+          <NumberRow
+            label="最終判定に回すKW上限"
+            placeholder={String(DEFAULTS.maxFinalCount)}
+            value={config.maxFinalCount}
+            onChange={(v) => setConfig({ ...config, maxFinalCount: v })}
+            hint="SERP Advanced を叩く件数 (推奨: 10)"
+          />
+        </div>
+      </details>
+
+      {/* 除外KW */}
+      <details className="rounded-xl border border-[var(--border-subtle)] bg-white" open>
+        <summary className="cursor-pointer px-4 py-3 font-semibold text-[13px]">
+          🚫 除外KW (1行に1KW、空行可)
+        </summary>
+        <div className="px-4 pb-4">
+          <textarea
+            value={excludeText}
+            onChange={(e) => setExcludeText(e.target.value)}
+            rows={8}
+            spellCheck={false}
+            className="w-full text-[13px] font-mono px-3 py-2 rounded-lg border border-[var(--border-card)] bg-white"
+            placeholder={"商品名 偽物\n無料\n競合の商標"}
+          />
+          <p className="text-[10px] text-[color:var(--fg-muted)] mt-1">
+            ここに書いたKWは Gemini #1 の出力からも、Stage1 後のフィルタでも除外されます。
+          </p>
+        </div>
+      </details>
+
+      {/* Gemini プロンプト4段 */}
+      <details className="rounded-xl border border-[var(--border-subtle)] bg-white">
+        <summary className="cursor-pointer px-4 py-3 font-semibold text-[13px]">
+          🤖 Gemini プロンプト 4段 (上級者向け / 空欄ならデフォルト使用)
+        </summary>
+        <div className="px-4 pb-4 space-y-3">
+          <PromptArea
+            label="Stage1: KW候補生成プロンプト (Gemini #1)"
+            value={config.promptKwGen ?? ""}
+            onChange={(v) => setConfig({ ...config, promptKwGen: v })}
+          />
+          <PromptArea
+            label="Stage3: KD閾値後の1次絞り込み (Gemini #2)"
+            value={config.promptStage3 ?? ""}
+            onChange={(v) => setConfig({ ...config, promptStage3: v })}
+          />
+          <PromptArea
+            label="Stage5: 数値後の2次絞り込み (Gemini #3)"
+            value={config.promptStage5 ?? ""}
+            onChange={(v) => setConfig({ ...config, promptStage5: v })}
+          />
+          <PromptArea
+            label="Stage7: 最終判定 (Gemini #4)"
+            value={config.promptFinal ?? ""}
+            onChange={(v) => setConfig({ ...config, promptFinal: v })}
+          />
+          <p className="text-[10px] text-[color:var(--fg-muted)]">
+            ※ プロンプトは保存可能ですが、Stage1 (KW生成) のみ現状の generation フローで効きます。
+            Stage3/5/7 への流し込みは別途実装予定。
+          </p>
+        </div>
+      </details>
+
+      {/* 保存 */}
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving || loading}
+          className="btn-accent disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          {saving ? "保存中..." : "💾 保存"}
+        </button>
+        {status.kind === "saved" && (
+          <span className="text-[12px] text-[color:var(--accent-dark)]">✓ {status.message}</span>
+        )}
+        {status.kind === "error" && (
+          <span className="text-[12px] text-red-700">❌ {status.message}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NumberRow(props: {
+  label: string;
+  placeholder: string;
+  value?: number;
+  onChange: (v: number | undefined) => void;
+  step?: string;
+  hint?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="text-[12px] font-medium text-[color:var(--fg-secondary)]">{props.label}</span>
+      <input
+        type="number"
+        value={props.value ?? ""}
+        placeholder={props.placeholder}
+        step={props.step ?? "1"}
+        onChange={(e) => {
+          const v = e.target.value;
+          props.onChange(v === "" ? undefined : Number(v));
+        }}
+        className="w-full mt-1 text-[13px] px-3 py-1.5 rounded-lg border border-[var(--border-card)] bg-white"
+      />
+      {props.hint && (
+        <span className="text-[10px] text-[color:var(--fg-muted)] block mt-0.5">{props.hint}</span>
+      )}
+    </label>
+  );
+}
+
+function PromptArea(props: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="block">
+      <span className="text-[12px] font-medium text-[color:var(--fg-secondary)]">{props.label}</span>
+      <textarea
+        value={props.value}
+        onChange={(e) => props.onChange(e.target.value)}
+        rows={6}
+        spellCheck={false}
+        className="w-full mt-1 text-[12px] font-mono leading-[1.6] px-3 py-2 rounded-lg border border-[var(--border-card)] bg-white"
+        placeholder="空欄ならデフォルトプロンプト使用"
+      />
+    </label>
+  );
+}
