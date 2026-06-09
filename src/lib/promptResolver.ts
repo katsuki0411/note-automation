@@ -2,9 +2,14 @@ import { ARTICLE_SYSTEM } from "./prompts";
 import type { PostingDestinationRow } from "./posters/types";
 import type { ProjectKind, ProjectPersonaConfig } from "./projects";
 
-// destination の prompt_config の構造定義 (UI のフォーム項目と1対1)。
-// 各項目はオプショナル。空オブジェクト {} の場合は fallback ロジックに従う。
+// destination の prompt_config の構造定義。
+// 2026-06-09 拡張: stages (3段プロンプトチェーン) を追加。
+// 既存の 10項目 (role/authorProfile/...) は後方互換のため残置 (UI からは編集できない)。
+// 優先度: stages > 旧10項目 > housewife-default > null
 export type DestinationPromptConfig = {
+  // 新: 3段プロンプトチェーン (destination 単位)
+  stages?: [string, string, string];
+  // 旧: 10項目構造化スキーマ (後方互換、UIからは編集不可)
   role?: string;
   authorProfile?: string;
   audience?: string;
@@ -17,6 +22,25 @@ export type DestinationPromptConfig = {
   customNotes?: string;
 };
 
+/**
+ * destination の prompt_config.stages から有効な3段プロンプトを取り出す。
+ * いずれかの段に文字列が入っていれば返す。全段空なら null。
+ */
+export function extractDestinationStages(
+  destination: PostingDestinationRow,
+): [string, string, string] | null {
+  const cfg = (destination.prompt_config ?? {}) as DestinationPromptConfig;
+  const stages = cfg.stages;
+  if (!Array.isArray(stages) || stages.length !== 3) return null;
+  const arr: [string, string, string] = [
+    typeof stages[0] === "string" ? stages[0] : "",
+    typeof stages[1] === "string" ? stages[1] : "",
+    typeof stages[2] === "string" ? stages[2] : "",
+  ];
+  if (arr.every((s) => !s.trim())) return null;
+  return arr;
+}
+
 export type ResolvedPrompt = {
   source: "custom" | "housewife-default";
   systemPrompt: string;
@@ -25,6 +49,11 @@ export type ResolvedPrompt = {
 export function isPromptConfigConfigured(cfg: unknown): boolean {
   if (!cfg || typeof cfg !== "object") return false;
   const c = cfg as DestinationPromptConfig;
+  // 新: stages のいずれかに有効値があれば configured
+  if (Array.isArray(c.stages) && c.stages.some((s) => typeof s === "string" && s.trim())) {
+    return true;
+  }
+  // 旧: 10項目のいずれかに有効値があれば configured (後方互換)
   return Boolean(
     c.role?.trim() ||
       c.authorProfile?.trim() ||

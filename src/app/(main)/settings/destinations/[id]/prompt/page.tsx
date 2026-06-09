@@ -25,9 +25,8 @@ export default async function DestinationPromptPage({
       destinationLabel={destination.label}
       platformLabel={platformLabel}
       initialPromptConfig={
-        (destination.prompt_config ?? {}) as Record<string, string>
+        (destination.prompt_config ?? {}) as Record<string, string | string[] | undefined>
       }
-      projectKind={(ctx as unknown as { kind?: string }).kind ?? null}
     />
   );
 }

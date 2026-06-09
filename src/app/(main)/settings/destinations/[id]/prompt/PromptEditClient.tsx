@@ -1,111 +1,30 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
-import { FilterBar, GroupTab } from "@/components/FilterBar";
 
-type FieldKey =
-  | "role"
-  | "authorProfile"
-  | "audience"
-  | "tone"
-  | "dos"
-  | "donts"
-  | "structure"
-  | "cta"
-  | "platformConstraints"
-  | "customNotes";
+// 2026-06-09: 10項目構造化UI から 3段プロンプトUI に置換。
+// destination 単位で「3段プロンプトチェーン」を編集する。
+// 1段目の出力 → 2段目の入力 → 2段目の出力 → 3段目の入力 → 最終投稿内容
+//
+// 既存 destination.prompt_config に格納されていた 10項目スキーマ
+// (role/authorProfile/audience/... など) は後方互換のため触らず残置し、
+// 新しい prompt_config.stages フィールドに 3段プロンプトを保存する。
+// /api/generate 側でも stages 優先 → 旧10項目フォールバック → project article_gen_config
+// の順に解決する設計 (B-5 で実装)。
 
-const FIELDS: { key: FieldKey; label: string; hint: string; placeholder: string; rows: number }[] = [
-  {
-    key: "role",
-    label: "役割",
-    hint: "AIに与える役割定義。「あなたは…のライターです」など",
-    placeholder: "例: あなたは個人開発エンジニア兼note ライターです。読者のIT知識に合わせて優しく書きます。",
-    rows: 3,
-  },
-  {
-    key: "authorProfile",
-    label: "著者プロフィール",
-    hint: "記事内で「この記事を書いた人」セクションに使う著者情報。Markdown 可",
-    placeholder: "例: **山田太郎** ｜ フリーランスエンジニア\n個人開発で...",
-    rows: 5,
-  },
-  {
-    key: "audience",
-    label: "ターゲット読者",
-    hint: "誰に向けて書くか。年齢層・属性・抱えてる悩み・ITレベルなど",
-    placeholder: "例: 30〜40代のフリーランス。本業の事業者で、効率化に興味あり、ChatGPTは使ったことある程度",
-    rows: 4,
-  },
-  {
-    key: "tone",
-    label: "文体・トーン",
-    hint: "敬体/常体、絵文字、結論の出し方、共感の重さなど",
-    placeholder: "例: 敬体・絵文字あり・結論先出し・「〜ですよね」など共感トーン",
-    rows: 3,
-  },
-  {
-    key: "dos",
-    label: "必須事項 (1項目1行)",
-    hint: "毎回必ず守るべきルール。例: TL;DR を冒頭に入れる、見出しを目次型にする等",
-    placeholder: "TL;DR を冒頭に入れる\nH2 / H3 の見出しを目次型にする\n末尾に FAQ Q&A を3問入れる",
-    rows: 6,
-  },
-  {
-    key: "donts",
-    label: "禁事項 (1項目1行)",
-    hint: "絶対やってはいけないこと。トーンや表現の NG リスト",
-    placeholder: "煽り表現を使わない\n専門用語をそのまま使わない (使うなら直後にカッコで補足)\nアフィリンクは記事冒頭に置かない",
-    rows: 6,
-  },
-  {
-    key: "structure",
-    label: "構造ルール",
-    hint: "見出し構成・文字数目安・テンプレート",
-    placeholder: "9章構成: 導入→既存ツール限界→解決策→実例→FAQ→まとめ→著者→CTA\n本文 3000-4000 文字\n見出し H2 / H3 のみ",
-    rows: 6,
-  },
-  {
-    key: "cta",
-    label: "CTA 指示",
-    hint: "末尾の Call To Action の方針。なし/控えめ/強め/具体的文言など",
-    placeholder: "例: 末尾に「相談歓迎」のメッセージを2行で。売り込み感NG",
-    rows: 4,
-  },
-  {
-    key: "platformConstraints",
-    label: "プラットフォーム固有制約",
-    hint: "投稿先サービス固有の制限・推奨フォーマット",
-    placeholder: "例: noteのタイトルは24文字以内。見出し画像は1280x670 推奨。本文先頭の段落 (150字) が抜粋",
-    rows: 4,
-  },
-  {
-    key: "customNotes",
-    label: "補足・自由メモ",
-    hint: "上記の項目に当てはまらない指示。優先度高めで AI に伝えたい補足",
-    placeholder: "例: 記事ごとに季節感を1箇所入れる / 引用ブロックは1記事に1〜2回まで",
-    rows: 5,
-  },
+const PLACEHOLDER = [
+  "1段目プロンプト: 例) この記事の骨組みを箇条書きで作ってください。読者は…",
+  "2段目プロンプト: 例) 上の骨組みを元に、本文を800〜1200字で書いてください。実体験を含めて…",
+  "3段目プロンプト: 例) 上の本文を、見出し / CTA / タグを整えた最終形にしてください。",
 ];
-
-function buildPreview(values: Record<FieldKey, string>): string {
-  const sections: string[] = [];
-  for (const f of FIELDS) {
-    const v = values[f.key]?.trim();
-    if (v) sections.push(`## ${f.label}\n${v}`);
-  }
-  return sections.length > 0 ? sections.join("\n\n") : "(まだ何も入力されていません)";
-}
 
 type Props = {
   destinationId: string;
   destinationLabel: string;
   platformLabel: string;
-  initialPromptConfig: Record<string, string>;
-  projectKind: string | null;
+  initialPromptConfig: Record<string, string | string[] | undefined>;
 };
 
 export default function PromptEditClient({
@@ -114,38 +33,55 @@ export default function PromptEditClient({
   platformLabel,
   initialPromptConfig,
 }: Props) {
-  const router = useRouter();
-  const [tab, setTab] = useState<"form" | "preview">("form");
-  const [values, setValues] = useState<Record<FieldKey, string>>(() => {
-    const init: Record<string, string> = {};
-    for (const f of FIELDS) {
-      init[f.key] = (initialPromptConfig?.[f.key] as string) ?? "";
+  // stages = [stage1, stage2, stage3]
+  const initialStages: [string, string, string] = (() => {
+    const s = initialPromptConfig?.stages;
+    if (Array.isArray(s) && s.length === 3) {
+      return [s[0] ?? "", s[1] ?? "", s[2] ?? ""] as [string, string, string];
     }
-    return init as Record<FieldKey, string>;
-  });
+    return ["", "", ""];
+  })();
+
+  const [stages, setStages] = useState<[string, string, string]>(initialStages);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+  const [status, setStatus] = useState<{ kind: "idle" | "saved" | "error"; message?: string }>({
+    kind: "idle",
+  });
 
-  const isConfigured = useMemo(
-    () => Object.values(values).some((v) => v.trim().length > 0),
-    [values],
-  );
+  // 旧10項目スキーマがあるかどうかを表示するためのフラグ
+  const [hasLegacyConfig, setHasLegacyConfig] = useState(false);
 
-  function update(key: FieldKey, v: string) {
-    setValues((s) => ({ ...s, [key]: v }));
-    setMessage(null);
-  }
+  useEffect(() => {
+    const keys = [
+      "role",
+      "authorProfile",
+      "audience",
+      "tone",
+      "dos",
+      "donts",
+      "structure",
+      "cta",
+      "platformConstraints",
+      "customNotes",
+    ];
+    const legacy = keys.some((k) => {
+      const v = initialPromptConfig?.[k];
+      return typeof v === "string" && v.trim().length > 0;
+    });
+    setHasLegacyConfig(legacy);
+  }, [initialPromptConfig]);
+
+  const activeCount = stages.filter((p) => p.trim().length > 0).length;
 
   async function save() {
     setSaving(true);
-    setMessage(null);
+    setStatus({ kind: "idle" });
     try {
-      // 空文字の項目は送らない (DB側を { } 寄りに保つ)
-      const promptConfig: Record<string, string> = {};
-      for (const f of FIELDS) {
-        const v = values[f.key].trim();
-        if (v) promptConfig[f.key] = v;
-      }
+      // 既存の prompt_config に stages を追加する形 (旧10項目は保持)
+      const promptConfig: Record<string, unknown> = {
+        ...initialPromptConfig,
+        stages,
+      };
       const res = await fetch(`/api/destinations/${destinationId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -153,9 +89,10 @@ export default function PromptEditClient({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "保存失敗");
-      setMessage({ kind: "success", text: "保存しました" });
+      setStatus({ kind: "saved", message: "保存しました" });
+      setTimeout(() => setStatus({ kind: "idle" }), 2500);
     } catch (e) {
-      setMessage({ kind: "error", text: e instanceof Error ? e.message : "保存失敗" });
+      setStatus({ kind: "error", message: e instanceof Error ? e.message : "保存失敗" });
     } finally {
       setSaving(false);
     }
@@ -165,38 +102,26 @@ export default function PromptEditClient({
     <>
       <PageHeader
         title={`${destinationLabel} のプロンプト編集`}
-        description={`プラットフォーム: ${platformLabel} / この投稿先で記事生成する時に使うシステムプロンプトを項目別に編集します。`}
-      >
-        <FilterBar>
-          <div className="flex items-center gap-1 border-b border-[var(--border-subtle)] -mb-px">
-            <GroupTab active={tab === "form"} onClick={() => setTab("form")}>
-              項目別フォーム
-            </GroupTab>
-            <GroupTab active={tab === "preview"} onClick={() => setTab("preview")}>
-              プレビュー
-            </GroupTab>
-          </div>
-        </FilterBar>
-      </PageHeader>
+        description={`プラットフォーム: ${platformLabel} / この投稿先で記事生成する時に使う「3段プロンプトチェーン」を編集します。`}
+      />
 
-      <div className="max-w-3xl space-y-5">
-        <div className="flex items-center justify-between gap-3">
+      <div className="max-w-6xl space-y-5">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
           <Link
             href="/settings"
             className="text-[12px] text-[color:var(--fg-muted)] hover:text-[color:var(--fg-primary)]"
           >
-            ← 設定に戻る
+            ← 設定 (投稿先) に戻る
           </Link>
           <div className="flex items-center gap-3">
-            {!isConfigured && (
-              <span className="text-[11px] text-orange-600">⚠ プロンプトが入っていません</span>
+            <span className="text-[11px] text-[color:var(--accent-dark)]">
+              現在: {activeCount === 0 ? "1段モード (空)" : `${activeCount}段チェーンモード`}
+            </span>
+            {status.kind === "saved" && (
+              <span className="text-[11px] text-[color:var(--accent-dark)]">✓ {status.message}</span>
             )}
-            {message && (
-              <span
-                className={`text-[11px] ${message.kind === "success" ? "text-[color:var(--accent-dark)]" : "text-red-600"}`}
-              >
-                {message.text}
-              </span>
+            {status.kind === "error" && (
+              <span className="text-[11px] text-red-700">❌ {status.message}</span>
             )}
             <button
               type="button"
@@ -204,45 +129,64 @@ export default function PromptEditClient({
               disabled={saving}
               className="btn-accent disabled:opacity-30 disabled:cursor-not-allowed"
             >
-              {saving ? "保存中…" : "保存"}
+              {saving ? "保存中…" : "💾 保存"}
             </button>
           </div>
         </div>
 
-        {tab === "form" ? (
-          <div className="space-y-5">
-            {FIELDS.map((f) => (
-              <div key={f.key} className="space-y-1.5">
-                <div className="flex items-baseline justify-between">
-                  <label htmlFor={f.key} className="text-[13px] font-semibold text-[color:var(--fg-primary)]">
-                    {f.label}
-                  </label>
-                  <span className="text-[10px] text-[color:var(--fg-muted)]">
-                    {values[f.key].trim().length > 0 ? `${values[f.key].length} 文字` : "未入力"}
-                  </span>
-                </div>
-                <p className="text-[11px] text-[color:var(--fg-muted)]">{f.hint}</p>
-                <textarea
-                  id={f.key}
-                  value={values[f.key]}
-                  onChange={(e) => update(f.key, e.target.value)}
-                  placeholder={f.placeholder}
-                  rows={f.rows}
-                  className="input-base w-full font-mono text-[12px] leading-relaxed"
-                />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="text-[12px] text-[color:var(--fg-secondary)]">
-              これが記事生成時に AI に渡される system プロンプトです（項目を連結して組み立て）。
-            </div>
-            <pre className="text-[12px] leading-relaxed p-4 rounded-lg border border-[var(--border-subtle)] bg-gray-50 whitespace-pre-wrap font-mono max-h-[600px] overflow-y-auto">
-              {buildPreview(values)}
-            </pre>
+        {hasLegacyConfig && (
+          <div className="text-[12px] text-amber-800 bg-amber-50 border border-amber-100 rounded-lg p-3">
+            ⚠ この投稿先には旧スキーマ (役割 / 著者プロフィール / ターゲット読者 等の10項目)
+            の設定が残っています。新規の 3段プロンプトを保存すると、生成時は 3段プロンプトが
+            優先されます (旧スキーマは保存データとしては残置)。
           </div>
         )}
+
+        {/* 3カラム構成 */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="flex flex-col rounded-xl border border-[var(--border-subtle)] bg-white"
+            >
+              <div className="px-3 py-2 border-b border-[var(--border-subtle)] flex items-center justify-between">
+                <span className="text-[11px] font-mono tracking-widest text-[color:var(--fg-muted)]">
+                  STAGE {i + 1}
+                </span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.5 rounded ${
+                    stages[i].trim().length > 0
+                      ? "bg-emerald-100 text-emerald-700"
+                      : "bg-gray-100 text-gray-500"
+                  }`}
+                >
+                  {stages[i].trim().length > 0 ? "有効" : "空 (スキップ)"}
+                </span>
+              </div>
+              <textarea
+                value={stages[i]}
+                onChange={(e) => {
+                  const next = [...stages] as [string, string, string];
+                  next[i] = e.target.value;
+                  setStages(next);
+                }}
+                rows={22}
+                spellCheck={false}
+                placeholder={PLACEHOLDER[i]}
+                className="flex-1 text-[12px] font-mono leading-[1.6] px-3 py-2 bg-white border-0 focus:outline-none focus:ring-2 focus:ring-[color:var(--accent)]/30 rounded-b-xl resize-y"
+              />
+            </div>
+          ))}
+        </div>
+
+        <div className="text-[11px] text-[color:var(--fg-muted)] leading-relaxed">
+          このプロンプトは{platformLabel}「{destinationLabel}」専用です。
+          記事生成時には destination のプロンプトが project 単位の
+          <Link href="/library" className="underline text-[color:var(--accent-dark)] mx-1">
+            ライブラリ → 記事生成プロンプト
+          </Link>
+          より優先されます。全段空欄なら project プロンプトを使い、両方空なら従来通り 1段生成。
+        </div>
       </div>
     </>
   );

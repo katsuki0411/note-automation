@@ -6,6 +6,7 @@ import { attachArticleToKeyword, loadKeywords } from "@/lib/keywords";
 import { getDestination } from "@/lib/destinations";
 import {
   resolveSystemPrompt,
+  extractDestinationStages,
   PROMPT_NOT_CONFIGURED_ERROR,
 } from "@/lib/promptResolver";
 import {
@@ -200,16 +201,21 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // 3段プロンプトチェーン: article_gen_config.prompts が設定されていれば段階生成
-      //  (MTG 2026-06-07 決定: 「3回プロンプトに噛ませて、記事の精度をあげる」)
-      // 各段の動作:
-      //  - 1段目: prompts[0] を user prompt 末尾に付与 → text 出力 (中間)
-      //  - 2段目: 1段目出力 + prompts[1] → text 出力 (中間)
-      //  - 3段目: 2段目出力 + prompts[2] + 既存 userPrompt → JSON 出力 (最終 article)
-      // prompts のいずれも空 → 従来通り1段で JSON 生成
+      // 3段プロンプトチェーン: destination 単位 → project 単位 → なし、の優先順位で決定
+      // (MTG 2026-06-07 決定 + 2026-06-09 destination 単位対応)
+      // 1. destination.prompt_config.stages が設定されていればそれを使う (媒体別最適化)
+      // 2. なければ project の article_gen_config.prompts を使う (全媒体共通)
+      // 3. 両方なければ従来通り 1段で JSON 生成
+      const destinationStages = extractDestinationStages(destination);
       const articleGenConfig = await loadArticleGenConfig(ctx.projectId);
-      const chainPrompts = articleGenConfig.prompts ?? ["", "", ""];
-      const useChain = chainPrompts.some((p) => p && p.trim().length > 0);
+      const projectStages = articleGenConfig.prompts ?? ["", "", ""];
+      const chainPrompts: [string, string, string] = destinationStages ?? projectStages;
+      const chainSource: "destination" | "project" | "none" = destinationStages
+        ? "destination"
+        : projectStages.some((p) => p && p.trim().length > 0)
+          ? "project"
+          : "none";
+      const useChain = chainSource !== "none";
 
       let responseText: string;
       if (useChain) {
@@ -283,6 +289,7 @@ export async function POST(req: NextRequest) {
         article,
         targetKeyword: targetKw,
         promptSource: resolved.source,
+        chainSource, // "destination" | "project" | "none" (どの3段プロンプトを使ったか)
       });
     } catch (e) {
       // Vercel runtime logs に詳細を残す (デフォルトの 500 ハンドラだと message が省略される)
