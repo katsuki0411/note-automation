@@ -91,10 +91,25 @@ type ScoutStats = {
   adoptedCount: number;
 };
 
+// Stage 1 で生成されたが Stage 3/5 で落選した KW (落選理由付き)
+type RejectedCandidate = {
+  kw: string;
+  intent: string;
+  reason: string;
+  stage: "stage3_kd_rejected" | "stage3_filter_rejected" | "stage5_metric_rejected" | "stage7_evaluated";
+  kd?: number | null;
+  searchVolume?: number | null;
+  cpc?: number | null;
+  competitionLevel?: string | null;
+  searchIntent?: string | null;
+  rejectionNote?: string;
+};
+
 type ScoutResponse = {
   subject: string;
   candidateCount: number;
   candidates: ScoutCandidate[];
+  rejectedCandidates?: RejectedCandidate[];
   stats?: ScoutStats;
   historyId?: string;
 };
@@ -782,6 +797,68 @@ export default function ProductsClient() {
                   </div>
                   {/* スクロール領域 (この部分だけスクロールバー表示) */}
                   <div className="flex-1 overflow-y-auto pr-2 mt-2 min-h-0">
+                  {/* 絞り込み統計バナー (Stage 1〜7 の通過件数を見せる) */}
+                  {result.stats && (
+                    <div className="mb-3 p-3 rounded-lg bg-[color:var(--accent-soft)]/40 border border-[color:var(--accent)]/20 text-[11px]">
+                      <div className="font-semibold mb-1 text-[color:var(--accent-dark)]">
+                        🔄 8段パイプライン 絞り込み過程
+                      </div>
+                      <div className="text-[color:var(--fg-secondary)] leading-relaxed">
+                        Gemini #1 で <strong>{result.stats.stage1Generated}件</strong> 生成
+                        {" → "}
+                        Stage 3 で <strong>{result.stats.stage3PassedKd}件</strong> KD 通過
+                        {" → "}
+                        Stage 5 で <strong>{result.stats.stage5PassedMetrics}件</strong> 数値 通過
+                        {" → "}
+                        Stage 7 で <strong>{result.stats.adoptedCount}件</strong> 採用 / borderline {result.stats.finalCount - result.stats.adoptedCount}件
+                      </div>
+                    </div>
+                  )}
+                  {/* 落選候補一覧 (折りたたみ) */}
+                  {result.rejectedCandidates && result.rejectedCandidates.length > 0 && (
+                    <details className="mb-3 rounded-lg border border-[var(--border-subtle)] bg-gray-50/40">
+                      <summary className="cursor-pointer px-3 py-2 text-[11px] font-semibold text-[color:var(--fg-secondary)]">
+                        ❌ 落選候補を見る ({result.rejectedCandidates.length}件) - なぜ採用されなかったか
+                      </summary>
+                      <ul className="px-3 pb-3 space-y-1.5 max-h-[400px] overflow-y-auto">
+                        {result.rejectedCandidates.map((r, idx) => {
+                          const stageBadge =
+                            r.stage === "stage3_kd_rejected"
+                              ? { text: "Stage 2: KD超過", cls: "bg-red-50 text-red-700" }
+                              : r.stage === "stage3_filter_rejected"
+                                ? { text: "Stage 3: Gemini除外", cls: "bg-orange-50 text-orange-700" }
+                                : r.stage === "stage5_metric_rejected"
+                                  ? { text: "Stage 5: 数値NG", cls: "bg-yellow-50 text-yellow-700" }
+                                  : { text: r.stage, cls: "bg-gray-100 text-gray-700" };
+                          return (
+                            <li
+                              key={idx}
+                              className="text-[11px] flex items-start gap-2 p-1.5 rounded bg-white"
+                            >
+                              <span className={`shrink-0 text-[9.5px] px-1.5 py-0.5 rounded ${stageBadge.cls}`}>
+                                {stageBadge.text}
+                              </span>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-mono truncate">{r.kw}</div>
+                                <div className="text-[9.5px] text-[color:var(--fg-muted)] mt-0.5">
+                                  {typeof r.kd === "number" && `KD=${r.kd} `}
+                                  {typeof r.searchVolume === "number" && `SV=${r.searchVolume.toLocaleString("ja-JP")} `}
+                                  {typeof r.cpc === "number" && `CPC=¥${Math.round(r.cpc * 150)} `}
+                                  {r.competitionLevel && `競合=${r.competitionLevel} `}
+                                  {r.searchIntent && `intent=${r.searchIntent} `}
+                                </div>
+                                {r.rejectionNote && (
+                                  <div className="text-[9.5px] text-[color:var(--fg-secondary)] mt-0.5">
+                                    💬 {r.rejectionNote}
+                                  </div>
+                                )}
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </details>
+                  )}
                   <ul className="space-y-2">
                     {result.candidates.map((c, i) => {
                       const isOpen = expanded.has(i);

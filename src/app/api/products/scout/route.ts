@@ -116,6 +116,8 @@ export async function POST(req: NextRequest) {
         stats: result.stats,
         candidateCount: candidatesWithDest.length,
         candidates: candidatesWithDest,
+        // Stage 1 で生成されたが Stage 3/5 で落選した KW (落選理由付き)
+        rejectedCandidates: result.rejectedCandidates,
         historyId,
       });
     } catch (e) {

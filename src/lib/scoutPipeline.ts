@@ -71,11 +71,38 @@ export type ScoutStageStats = {
   adoptedCount: number;        // decision="adopt" の数
 };
 
+// 各 KW がパイプラインのどこまで進んだかを示すステータス。
+// 「100件の母集団のどれが、なぜ落ちたか」を後から見せるため、
+// 全 KW について必ず1つ記録する。
+export type StageStatus =
+  | "stage3_kd_rejected"       // Stage 2 で KD>閾値 で落選
+  | "stage3_filter_rejected"   // Stage 3 で Gemini #2 が重複/不適切と判定して落選
+  | "stage5_metric_rejected"   // Stage 5 で Gemini #3 が数値で落選
+  | "stage7_evaluated";        // Stage 7 まで通過 (decision は別途 candidates 側に入る)
+
+export type ScoutAllCandidate = {
+  kw: string;
+  intent: ExpandedKeyword["intent"];
+  reason: string;
+  stage: StageStatus;
+  // 取得済みの分だけ入る (落選段階によって埋まる項目が違う)
+  kd?: number | null;
+  searchVolume?: number | null;
+  cpc?: number | null;
+  competitionLevel?: string | null;
+  searchIntent?: string | null;
+  // 落選理由 (Gemini が文字列で出した場合)
+  rejectionNote?: string;
+};
+
 export type ScoutPipelineResult = {
   subject: string;
   category: ScoutCategory;
   stats: ScoutStageStats;
   candidates: ScoutFinalCandidate[];
+  // Stage 1 で生成された全 KW + 各 KW のパイプライン到達状況。
+  // candidates に入っているKWはここには含めない (重複回避、UI 側でマージ表示)。
+  rejectedCandidates: ScoutAllCandidate[];
 };
 
 export type ScoutPipelineConfig = {
@@ -602,14 +629,36 @@ export async function runScoutPipeline(
       category,
       stats: { stage1Generated: 0, stage3PassedKd: 0, stage5PassedMetrics: 0, finalCount: 0, adoptedCount: 0 },
       candidates: [],
+      rejectedCandidates: [],
     };
   }
 
   // Stage 2: DFS #1  Bulk Keyword Difficulty
   const kdItems = await bulkKeywordDifficulty(expanded.map((k) => k.kw));
+  const kdMap = new Map(kdItems.map((k) => [k.kw, k.kd]));
 
   // Stage 3: Gemini #2  KD閾値 + 重複除外
   const stage3Pass = await stage3FilterByKd(subject, expanded, kdItems, config);
+  const stage3PassSet = new Set(stage3Pass.map((k) => k.kw));
+
+  // Stage 3 で落選した KW を rejectedCandidates に追加
+  const rejected: ScoutAllCandidate[] = [];
+  const kdThreshold = config.kdMaxStage3 ?? 30;
+  for (const kw of expanded) {
+    if (stage3PassSet.has(kw.kw)) continue;
+    const kd = kdMap.get(kw.kw) ?? null;
+    const overKd = kd !== null && kd > kdThreshold;
+    rejected.push({
+      kw: kw.kw,
+      intent: kw.intent,
+      reason: kw.reason,
+      stage: overKd ? "stage3_kd_rejected" : "stage3_filter_rejected",
+      kd,
+      rejectionNote: overKd
+        ? `KD=${kd} が閾値 ${kdThreshold} を超過`
+        : "Gemini #2 が重複/不適切と判定して除外",
+    });
+  }
 
   if (stage3Pass.length === 0) {
     return {
@@ -623,14 +672,35 @@ export async function runScoutPipeline(
         adoptedCount: 0,
       },
       candidates: [],
+      rejectedCandidates: rejected,
     };
   }
 
   // Stage 4: DFS #2  Keyword Overview
   const overviewItems = await keywordOverview(stage3Pass.map((k) => k.kw));
+  const overviewMap = new Map(overviewItems.map((o) => [o.kw, o]));
 
   // Stage 5: Gemini #3  数値ベース 2次絞り込み
   const stage5Pass = await stage5FilterByMetrics(subject, category, stage3Pass, overviewItems, config);
+  const stage5PassSet = new Set(stage5Pass.map((k) => k.kw));
+
+  // Stage 5 で落選した KW を rejectedCandidates に追加
+  for (const kw of stage3Pass) {
+    if (stage5PassSet.has(kw.kw)) continue;
+    const ov = overviewMap.get(kw.kw);
+    rejected.push({
+      kw: kw.kw,
+      intent: kw.intent,
+      reason: kw.reason,
+      stage: "stage5_metric_rejected",
+      kd: ov?.keywordDifficulty ?? kdMap.get(kw.kw) ?? null,
+      searchVolume: ov?.searchVolume ?? null,
+      cpc: ov?.cpc ?? null,
+      competitionLevel: ov?.competitionLevel ?? null,
+      searchIntent: ov?.searchIntent ?? null,
+      rejectionNote: "Gemini #3 が SV/CPC/intent から優先度低と判定",
+    });
+  }
 
   if (stage5Pass.length === 0) {
     return {
@@ -644,12 +714,12 @@ export async function runScoutPipeline(
         adoptedCount: 0,
       },
       candidates: [],
+      rejectedCandidates: rejected,
     };
   }
 
   // Stage 6: DFS #3  SERP Advanced (AI Overview 込み)
-  const overviewMap = new Map(overviewItems.map((o) => [o.kw, o]));
-  const kdMap = new Map(kdItems.map((k) => [k.kw, k.kd]));
+  // (overviewMap / kdMap は Stage 3/5 で既に作成済み、ここでは再利用)
 
   const serpResults = await Promise.all(
     stage5Pass.map((kw) =>
@@ -715,5 +785,6 @@ export async function runScoutPipeline(
       adoptedCount: finalized.filter((c) => c.decision === "adopt").length,
     },
     candidates: finalized,
+    rejectedCandidates: rejected,
   };
 }
