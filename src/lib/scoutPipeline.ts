@@ -385,7 +385,61 @@ async function callGeminiJson<T>(prompt: string, schema: object, maxTokens = 600
   });
   const text = res.text ?? "";
   const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-  return JSON.parse(cleaned) as T;
+  if (!cleaned) {
+    // 空応答 (safety block / quota / 0 token return)
+    const finishReason = res.candidates?.[0]?.finishReason ?? "unknown";
+    throw new Error(`Gemini returned empty response (finishReason=${finishReason})`);
+  }
+  try {
+    return JSON.parse(cleaned) as T;
+  } catch (e) {
+    // Truncation 救出: maxOutputTokens 到達で末尾が切れたケース。
+    // ] や } を補完して再 parse 試行。
+    const repaired = repairTruncatedJson(cleaned);
+    if (repaired) {
+      try {
+        const parsed = JSON.parse(repaired) as T;
+        console.warn(`[callGeminiJson] recovered from truncation. original len=${cleaned.length}`);
+        return parsed;
+      } catch {
+        // 再失敗 → 元のエラーを投げる
+      }
+    }
+    console.warn(
+      `[callGeminiJson] parse failed (len=${cleaned.length}). head=`,
+      cleaned.slice(0, 200),
+      `tail=`,
+      cleaned.slice(-200),
+    );
+    throw e;
+  }
+}
+
+// 末尾が切れた JSON を補修 (閉じ括弧の数合わせ + 末尾の不完全要素を捨てる)。
+// 完全な復元はできないが「decisions の途中まで」を取り出せれば十分。
+function repairTruncatedJson(s: string): string | null {
+  // 末尾のカンマ/不完全フィールドを切り捨てる: 最後の "}" 以降を削除
+  const lastBrace = s.lastIndexOf("}");
+  if (lastBrace < 0) return null;
+  let trimmed = s.slice(0, lastBrace + 1);
+  // 閉じ括弧の数合わせ
+  let openCurly = 0;
+  let openBracket = 0;
+  let inStr = false;
+  let esc = false;
+  for (const ch of trimmed) {
+    if (esc) { esc = false; continue; }
+    if (ch === "\\") { esc = true; continue; }
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (ch === "{") openCurly++;
+    else if (ch === "}") openCurly--;
+    else if (ch === "[") openBracket++;
+    else if (ch === "]") openBracket--;
+  }
+  while (openBracket > 0) { trimmed += "]"; openBracket--; }
+  while (openCurly > 0) { trimmed += "}"; openCurly--; }
+  return trimmed;
 }
 
 // ---------- 個別ステージ ----------
@@ -437,7 +491,7 @@ async function stage3FilterByKd(
         },
         required: ["selected"],
       },
-      4000,
+      12000,
     );
     const selectedSet = new Set(result.selected.map((s) => s.toLowerCase()));
     return withinThreshold.filter((kw) => selectedSet.has(kw.kw.toLowerCase()));
@@ -570,7 +624,7 @@ async function stage7FinalDecision(
         },
         required: ["decisions"],
       },
-      8000,
+      24000,
     );
     const decisionMap = new Map(result.decisions.map((d) => [d.kw.toLowerCase(), d]));
     return candidates.map((c) => {
