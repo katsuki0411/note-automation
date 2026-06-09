@@ -617,7 +617,7 @@ export default function ProductsClient() {
             </button>
           </div>
           <p className="text-[11px] text-[color:var(--fg-muted)]">
-            ⚠ 1回あたり Gemini × 1 / Brave Search × 25〜30 呼ばれます (Brave 無料枠 2,000req/月、月60回前後スカウト可)
+            ⚠ 1回あたり Gemini × 4 + DataForSEO × 4 (8段パイプライン)。 1スカウト ¥50 前後 / 100KW から採用3-5件
           </p>
         </div>
         )}
@@ -1036,7 +1036,7 @@ export default function ProductsClient() {
 
         {tab === "new" && busy && (
           <div className="p-4 rounded-lg border border-[var(--border-subtle)] bg-gray-50 text-center text-[13px] text-[color:var(--fg-secondary)]">
-            ⏳ 関連KW生成 → Brave 検索で各KWの上位10件を分析中…<br />
+            ⏳ 8段パイプライン実行中 (Gemini #1 → DFS Bulk KD → Gemini #2 → DFS Overview → Gemini #3 → DFS SERP → Gemini #4)…<br />
             <span className="text-[11px] text-[color:var(--fg-muted)]">
               1〜2分かかる場合があります
             </span>
