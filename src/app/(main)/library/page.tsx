@@ -415,6 +415,10 @@ export default function LibraryPage() {
     setPostModalArticle(null);
   }
 
+  // 2026-06-09: マルチポストを「destination 別記事の一括投稿」に変更。
+  //   同じ KW の各 destination 用記事を集めて、それぞれを該当 destination に投稿する。
+  //   destination 用の記事が無い場合は postModalArticle (開いている記事) を
+  //   代替フォールバックとして使う (= 旧挙動相当)。
   async function submitPost() {
     if (!postModalArticle) return;
     if (selectedTargets.size === 0) {
@@ -428,64 +432,106 @@ export default function LibraryPage() {
       .slice(0, 5);
     setPostStatus({ state: "sending", message: "投稿中…" });
 
+    // 同じ KW の destination 別記事を集める (destinationId → Article のマップ)
+    const kwKey = keywordKeyOf(postModalArticle);
+    const siblings = articles.filter((a) => keywordKeyOf(a) === kwKey);
+    const destToArticle = new Map<string, Article>();
+    for (const a of siblings) {
+      if (a.destinationId) destToArticle.set(a.destinationId, a);
+    }
+
     const noteSelected = selectedTargets.has("note");
     const destIds = [...selectedTargets].filter((t) => t !== "note");
     const messages: string[] = [];
+    const articleIdsToMarkPosted = new Set<string>();
     let hasError = false;
 
+    // 外部 destination への投稿 — destination ごとに「自分用の記事」を使って並列投稿
     if (destIds.length > 0) {
-      try {
-        const res = await fetch("/api/multipost", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            articleId: postModalArticle.id,
-            destinationIds: destIds,
-            draft: !postPublish,
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "失敗");
-        const results = (data.results ?? []) as Array<{
-          ok: boolean;
-          destinationLabel?: string;
-          platform?: string;
-          url?: string;
-          error?: string;
-        }>;
-        for (const r of results) {
+      const results = await Promise.all(
+        destIds.map(async (destId) => {
+          const article = destToArticle.get(destId) ?? postModalArticle;
+          const destLabel = destinations.find((d) => d.id === destId)?.label ?? destId;
+          const usedFallback = !destToArticle.has(destId);
+          try {
+            const res = await fetch("/api/multipost", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                articleId: article.id,
+                destinationIds: [destId],
+                draft: !postPublish,
+              }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error ?? "失敗");
+            const rs = (data.results ?? []) as Array<{
+              ok: boolean;
+              destinationLabel?: string;
+              platform?: string;
+              url?: string;
+              error?: string;
+            }>;
+            return { rs, articleId: article.id, usedFallback, destLabel };
+          } catch (e) {
+            return {
+              rs: [
+                {
+                  ok: false,
+                  destinationLabel: destLabel,
+                  error: e instanceof Error ? e.message : "失敗",
+                },
+              ],
+              articleId: article.id,
+              usedFallback,
+              destLabel,
+            };
+          }
+        }),
+      );
+      for (const { rs, articleId, usedFallback, destLabel } of results) {
+        for (const r of rs) {
           if (r.ok) {
-            messages.push(`✅ ${r.destinationLabel}: ${r.url ? "投稿完了 → " + r.url : "投稿完了"}`);
+            const fbHint = usedFallback ? " (※ 専用記事未生成のため別記事で代替)" : "";
+            messages.push(
+              `✅ ${r.destinationLabel}: ${r.url ? "投稿完了 → " + r.url : "投稿完了"}${fbHint}`,
+            );
+            articleIdsToMarkPosted.add(articleId);
           } else {
             hasError = true;
-            messages.push(`❌ ${r.destinationLabel ?? r.platform}: ${r.error}`);
+            messages.push(`❌ ${r.destinationLabel ?? destLabel}: ${r.error}`);
           }
         }
-      } catch (e) {
-        hasError = true;
-        messages.push(`❌ multipost API: ${e instanceof Error ? e.message : "失敗"}`);
       }
     }
 
+    // note 拡張: note destination 用の記事を優先。なければ postModalArticle
     if (noteSelected) {
+      const noteDest = destinations.find((d) => d.platform === "note");
+      const noteArticle = noteDest
+        ? destToArticle.get(noteDest.id) ?? postModalArticle
+        : postModalArticle;
+      const usedFallback = noteDest ? !destToArticle.has(noteDest.id) : true;
       const res: NotePostResult = await postToNote({
-        title: postModalArticle.bestTitle,
-        body: postModalArticle.bodyMarkdown,
+        title: noteArticle.bestTitle,
+        body: noteArticle.bodyMarkdown,
         tags,
         publish: postPublish,
-        imageUrl: postModalArticle.imagePath,
+        imageUrl: noteArticle.imagePath,
       });
       if (res.ok) {
+        const fbHint = usedFallback ? " (※ 専用記事未生成のため別記事で代替)" : "";
         messages.push(
-          postPublish
+          (postPublish
             ? "✅ note: 公開ボタン押下まで送信"
-            : "✅ note: 下書きに入力完了",
+            : "✅ note: 下書きに入力完了") + fbHint,
         );
+        articleIdsToMarkPosted.add(noteArticle.id);
         try {
           await fetch("/api/articles/posted", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ articleId: postModalArticle.id }),
+            body: JSON.stringify({ articleId: noteArticle.id }),
           });
         } catch {}
       } else {
@@ -494,15 +540,19 @@ export default function LibraryPage() {
       }
     }
 
-    const articleId = postModalArticle.id;
-    const nowIso = new Date().toISOString();
-    setArticles((prev) => {
-      const next = prev.map((a) =>
-        a.id === articleId ? { ...a, postedAt: a.postedAt ?? nowIso } : a,
-      );
-      setCache(CACHE_KEY, next);
-      return next;
-    });
+    // posted_at をフロント側でも反映 (実際に投稿した記事のみ)
+    if (articleIdsToMarkPosted.size > 0) {
+      const nowIso = new Date().toISOString();
+      setArticles((prev) => {
+        const next = prev.map((a) =>
+          articleIdsToMarkPosted.has(a.id)
+            ? { ...a, postedAt: a.postedAt ?? nowIso }
+            : a,
+        );
+        setCache(CACHE_KEY, next);
+        return next;
+      });
+    }
 
     setPostStatus({
       state: hasError ? "error" : "done",

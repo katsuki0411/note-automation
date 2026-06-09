@@ -482,51 +482,45 @@ export default function ProductsClient() {
 
   // ネタ化 + 記事生成キュー投入 (1ボタンで連続実行)
   // destinationStatus を見て:
-  //   1. プロンプト未設定の destination は除外 (記事生成不可)
-  //   2. note 優先、なければ最初の promptReady 候補
-  // 2026-06-07: 「同ドメイン排除」(occupied による生成スキップ) を撤廃。
-  //   上位に同ドメインの既存記事があっても投稿は進める方針に変更。
-  //   destinationStatus.occupied / hits は「参考情報」として残し、summary
-  //   にも引き続き表示するが、生成ターゲット選択ロジックからは外す。
+  // 2026-06-09: 「✍記事生成」を **全 destination で並列生成** に変更。
+  //   各サイトの 3段プロンプトでそれぞれ独立に記事を作る方針 (MTG決定の意図)。
+  //   - プロンプト未設定の destination は除外
+  //   - 全 destination がプロンプト未設定なら エラー
+  //   - 結果は「✅ note + はてな + livedoor の3サイトで生成キュー投入」のような形で通知
   async function generateFromCandidate(c: ScoutCandidate) {
-    let targetDestId: string | undefined;
+    if (!c.destinationStatus || c.destinationStatus.length === 0) return;
 
-    if (c.destinationStatus && c.destinationStatus.length > 0) {
-      const promptReadyList = c.destinationStatus.filter((s) => s.promptReady);
+    const promptReadyList = c.destinationStatus.filter((s) => s.promptReady);
+    const summary = c.destinationStatus
+      .map((s) => {
+        if (!s.promptReady) return `❌ ${s.platformLabel}: プロンプトなし → スキップ`;
+        if (s.occupied) return `✅ ${s.platformLabel}: 生成キュー投入 (上位${s.hits}件に競合あり)`;
+        return `✅ ${s.platformLabel}: 生成キュー投入`;
+      })
+      .join("\n");
 
-      // ユーザー向けに各 destination の状態を集計表示 (occupied は参考扱い)
-      const summary = c.destinationStatus
-        .map((s) => {
-          if (!s.promptReady) return `❌ ${s.platformLabel}: プロンプトなし → スキップ`;
-          if (s.occupied) return `✅ ${s.platformLabel}: OK (参考: 上位${s.hits}件に競合あり)`;
-          return `✅ ${s.platformLabel}: OK`;
-        })
-        .join("\n");
-
-      if (promptReadyList.length === 0) {
-        alert(
-          `❌ 全ての投稿先でプロンプト未設定のため記事生成できません。\n\n${summary}\n\n設定 → 投稿先 → 各行の「プロンプト」ボタンから先にプロンプトを設定してください。`,
-        );
-        return;
-      }
-
-      // note 優先、なければ最初の promptReady 候補
-      const preferred =
-        promptReadyList.find((s) => s.platform === "note") ?? promptReadyList[0];
-      targetDestId = preferred.destinationId;
-
-      // プロンプトなしでスキップされる destination があれば console に記録
-      if (promptReadyList.length < c.destinationStatus.length) {
-        console.info(`[generate] selected ${preferred.platformLabel}\n${summary}`);
-      }
+    if (promptReadyList.length === 0) {
+      alert(
+        `❌ 全ての投稿先でプロンプト未設定のため記事生成できません。\n\n${summary}\n\n設定 → 投稿先 → 各行の「プロンプト」ボタンから先にプロンプトを設定してください。`,
+      );
+      return;
     }
 
     setGenerating((s) => new Set([...s, c.kw]));
     try {
       const idea = await ideizeCandidate(c);
       if (!idea) throw new Error("ideaの生成に失敗しました");
-      enqueue([idea], targetDestId);
+      // 全 promptReady destination を並列でキュー投入
+      for (const dest of promptReadyList) {
+        enqueue([idea], dest.destinationId);
+      }
       setIdeized((s) => new Set([...s, c.kw]));
+      // 数件以上同時投入はユーザーに通知 (1件だけだと alert は煩いので 2件以上で)
+      if (promptReadyList.length >= 2) {
+        console.info(
+          `[generate] ${promptReadyList.length} destinations に並列投入\n${summary}`,
+        );
+      }
     } catch (e) {
       alert(e instanceof Error ? e.message : "記事生成キュー投入失敗");
     } finally {
