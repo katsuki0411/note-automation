@@ -1,4 +1,5 @@
 import { gemini, MODELS } from "./gemini";
+import { renderTemplate } from "./promptTemplate";
 
 // 商品名や入力キーワードから「実際に検索されそうな関連 KW」を Gemini で生成する。
 // SEO/LLMO 競合判定の元になる候補KW群を作るのが目的。
@@ -133,7 +134,25 @@ function clampIntent(v: unknown): ExpandedKeyword["intent"] {
 export type ExpandKeywordsOptions = {
   excludeKws?: string[]; // 結果に含めないKW (プロジェクト単位の除外リスト)
   maxKeywords?: number;  // 取得上限 (デフォルト100)
+  customPrompt?: string; // カスタムプロンプト (placeholder: {subject} / {excludeKws} / {maxKeywords})
+                          // 指定時は EXPAND_PROMPT の代わりにこれを使う。
+                          // 出力フォーマット指示は末尾に強制 append される (パース壊れ防止)。
 };
+
+// 出力フォーマット指示 (customPrompt 末尾に必ず append する)
+const OUTPUT_FOOTER = `
+
+# 出力形式 (JSON オブジェクトのみ、前後の説明文禁止)
+{
+  "category": "ジャンル名 (家電・PC・ガジェット / ファッション / ベビー・キッズ / ... から1つ)",
+  "keywords": [
+    {
+      "kw": "キーワード文字列",
+      "intent": "info | how-to | comparison | trouble | review | purchase のいずれか",
+      "reason": "そのKWを選んだ理由"
+    }
+  ]
+}`;
 
 export async function expandKeywords(
   subject: string,
@@ -144,10 +163,19 @@ export async function expandKeywords(
   const excludeKws = opts.excludeKws ?? [];
   const maxKeywords = opts.maxKeywords ?? 100;
 
+  // customPrompt があれば renderTemplate で展開、なければ EXPAND_PROMPT デフォルト
+  const userPrompt = opts.customPrompt?.trim()
+    ? renderTemplate(opts.customPrompt, {
+        subject: trimmed,
+        maxKeywords,
+        excludeKws: excludeKws.length > 0 ? excludeKws.map((k) => `- ${k}`).join("\n") : "(なし)",
+      }) + OUTPUT_FOOTER
+    : EXPAND_PROMPT(trimmed, excludeKws);
+
   const ai = gemini();
   const response = await ai.models.generateContent({
     model: MODELS.research,
-    contents: EXPAND_PROMPT(trimmed, excludeKws),
+    contents: userPrompt,
     config: {
       temperature: 0.85,
       // 100件 × 1件あたり ~150 tokens で 15,000、安全側に余裕を持たせて 20,000

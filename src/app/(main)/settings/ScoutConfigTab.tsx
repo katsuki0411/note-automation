@@ -149,6 +149,24 @@ export default function ScoutConfigTab() {
           🤖 Gemini プロンプト 4段 (上級者向け / 空欄ならデフォルト使用)
         </summary>
         <div className="px-4 pb-4 space-y-3">
+          <div className="text-[11px] text-[color:var(--fg-secondary)] leading-relaxed p-3 rounded-lg bg-[color:var(--accent-soft)]/40 border border-[color:var(--accent)]/20">
+            <p className="font-semibold mb-1">💡 使い方</p>
+            <p>
+              各段で <code className="font-mono px-1 rounded bg-white text-[color:var(--accent-dark)]">{"{subject}"}</code> 等の
+              placeholder を埋め込めます。実行時に自動で値が入ります。
+              空欄ならデフォルトプロンプトが使用されます。
+            </p>
+            <p className="mt-2 font-semibold">使える placeholder:</p>
+            <ul className="mt-1 space-y-0.5 list-disc list-inside">
+              <li><strong>Stage1</strong>: <code className="font-mono">{"{subject}"}</code> / <code className="font-mono">{"{maxKeywords}"}</code> / <code className="font-mono">{"{excludeKws}"}</code></li>
+              <li><strong>Stage3</strong>: <code className="font-mono">{"{subject}"}</code> / <code className="font-mono">{"{keywords}"}</code> / <code className="font-mono">{"{kdThreshold}"}</code></li>
+              <li><strong>Stage5</strong>: <code className="font-mono">{"{subject}"}</code> / <code className="font-mono">{"{category}"}</code> / <code className="font-mono">{"{keywords}"}</code> / <code className="font-mono">{"{minSv}"}</code> / <code className="font-mono">{"{minCpc}"}</code> / <code className="font-mono">{"{maxFinalCount}"}</code></li>
+              <li><strong>Stage7</strong>: <code className="font-mono">{"{subject}"}</code> / <code className="font-mono">{"{candidates}"}</code></li>
+            </ul>
+            <p className="mt-2 text-[10px] text-[color:var(--fg-muted)]">
+              ※ 出力フォーマット (JSON) の指示は自動で末尾に付加されます。
+            </p>
+          </div>
           <PromptArea
             label="Stage1: KW候補生成プロンプト (Gemini #1)"
             value={config.promptKwGen ?? ""}
@@ -169,10 +187,6 @@ export default function ScoutConfigTab() {
             value={config.promptFinal ?? ""}
             onChange={(v) => setConfig({ ...config, promptFinal: v })}
           />
-          <p className="text-[10px] text-[color:var(--fg-muted)]">
-            ※ プロンプトは保存可能ですが、Stage1 (KW生成) のみ現状の generation フローで効きます。
-            Stage3/5/7 への流し込みは別途実装予定。
-          </p>
         </div>
       </details>
 

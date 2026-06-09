@@ -9,6 +9,7 @@ import {
   type SerpAdvancedResponse,
   type BulkKdItem,
 } from "./dataforseo";
+import { renderTemplate } from "./promptTemplate";
 
 // =========================================================
 // KW スカウト 8段パイプライン (拡張プラン B' / 2026-06-07 MTG決定)
@@ -84,10 +85,14 @@ export type ScoutPipelineConfig = {
   minCpcStage5?: number;                // CPC >= この値 USD (default 0.2)
   maxFinalCount?: number;               // 最終判定に回すKW数の上限 (default 10)
   excludeKws?: string[];                // 除外KW (プロジェクト単位)
-  // 各 Gemini ステップのプロンプト override (Phase 5 で設定画面から差し替え可能に)
-  promptStage3?: (input: Stage3PromptInput) => string;
-  promptStage5?: (input: Stage5PromptInput) => string;
-  promptFinal?: (input: FinalPromptInput) => string;
+  // 各 Gemini ステップのプロンプト override (関数型 or 文字列テンプレ)
+  //   文字列の場合は placeholder ({subject} / {keywords} / {kdThreshold} 等) を
+  //   各 stage の input から自動展開して使用する。
+  //   関数型の場合はそのまま呼ぶ。
+  promptKwGen?: string;                 // Stage1: keywordExpander.customPrompt として渡す
+  promptStage3?: string | ((input: Stage3PromptInput) => string);
+  promptStage5?: string | ((input: Stage5PromptInput) => string);
+  promptFinal?: string | ((input: FinalPromptInput) => string);
 };
 
 // ---------- Gemini プロンプト入力 (型) ----------
@@ -232,6 +237,102 @@ ${idx + 1}. kw="${c.kw}"
 `.trim();
 }
 
+// ---------- プロンプトテンプレ展開ヘルパー ----------
+
+// Stage 3 input → placeholder vars
+function stage3Vars(i: Stage3PromptInput): Record<string, string | number> {
+  return {
+    subject: i.subject,
+    kdThreshold: i.kdThreshold,
+    keywords: i.keywords
+      .map(
+        (k, idx) =>
+          `${idx + 1}. kw="${k.kw}", intent=${k.intent}, kd=${k.kd ?? "?"}, 理由=${k.reason}`,
+      )
+      .join("\n"),
+  };
+}
+
+// Stage 5 input → placeholder vars
+function stage5Vars(i: Stage5PromptInput): Record<string, string | number> {
+  return {
+    subject: i.subject,
+    category: i.category,
+    minSv: i.minSv,
+    minCpc: i.minCpc,
+    maxFinalCount: i.maxFinalCount,
+    keywords: i.keywords
+      .map(
+        (k, idx) =>
+          `${idx + 1}. kw="${k.kw}" (intent_gemini=${k.intent}, intent_dfs=${k.searchIntent ?? "?"}, kd=${k.kd ?? "?"}, sv=${k.searchVolume ?? "?"}, cpc=$${k.cpc ?? "?"}, competition=${k.competitionLevel ?? "?"})`,
+      )
+      .join("\n"),
+  };
+}
+
+// Final input → placeholder vars
+function finalVars(i: FinalPromptInput): Record<string, string | number> {
+  return {
+    subject: i.subject,
+    candidates: i.candidates
+      .map(
+        (c, idx) => `
+${idx + 1}. kw="${c.kw}"
+   数値: kd=${c.kd ?? "?"}, sv=${c.searchVolume ?? "?"}, cpc=$${c.cpc ?? "?"}
+   SERP features: ${Object.entries(c.serpFeatures).filter(([, v]) => v).map(([k]) => k).join(", ") || "なし"}
+   上位ドメイン (10件): ${c.serpTopDomains.join(", ") || "なし"}
+   AI Overview引用ドメイン: ${c.aiOverviewDomains.join(", ") || "なし"}
+   PAA質問例: ${c.paaSample.slice(0, 3).join(" / ") || "なし"}
+`,
+      )
+      .join("\n"),
+  };
+}
+
+/**
+ * config.prompt* に「文字列 or 関数」が渡ったら統一的に「関数」として扱う。
+ * 文字列の場合は renderTemplate で展開し、デフォルト出力フォーマット指示 (JSON) を
+ * 末尾に必ず append する (パース壊れ防止)。
+ */
+function resolveStagePrompt<TInput>(
+  override: string | ((input: TInput) => string) | undefined,
+  defaultFn: (input: TInput) => string,
+  toVars: (input: TInput) => Record<string, string | number>,
+  outputFooter: string,
+): (input: TInput) => string {
+  if (!override) return defaultFn;
+  if (typeof override === "function") return override;
+  // 文字列テンプレ: placeholder 展開 + 出力フォーマット指示 footer を必ず追記
+  return (input: TInput) => {
+    const rendered = renderTemplate(override, toVars(input));
+    return `${rendered}\n\n${outputFooter}`;
+  };
+}
+
+const STAGE3_FOOTER = `# 出力 (JSONのみ、フェンス禁止)
+{
+  "selected": ["残すKWの文字列1", "残すKWの文字列2", ...],
+  "excluded": [{"kw": "除外したKW", "reason": "なぜ除外したかの根拠"}, ...]
+}`;
+
+const STAGE5_FOOTER = `# 出力 (JSONのみ)
+{
+  "selected": ["残すKW1", ...],
+  "rationale": "なぜこれらを選んだかの全体方針 (50-150文字)"
+}`;
+
+const FINAL_FOOTER = `# 出力 (JSONのみ、フェンス禁止)
+{
+  "decisions": [
+    {
+      "kw": "対象KW",
+      "finalScore": 75,
+      "decision": "adopt",
+      "rationale": "kd=18と低く、sv=1200で需要十分、上位10件中6件が個人ブログでDR低め。AI Overview引用元にgigazine.netが入っており解説需要あり。"
+    }
+  ]
+}`;
+
 // ---------- Gemini 呼出ヘルパー ----------
 
 async function callGeminiJson<T>(prompt: string, schema: object, maxTokens = 6000): Promise<T> {
@@ -281,7 +382,13 @@ async function stage3FilterByKd(
     })),
     kdThreshold,
   };
-  const prompt = (config.promptStage3 ?? defaultStage3Prompt)(promptInput);
+  const promptFn = resolveStagePrompt(
+    config.promptStage3,
+    defaultStage3Prompt,
+    stage3Vars,
+    STAGE3_FOOTER,
+  );
+  const prompt = promptFn(promptInput);
 
   try {
     const result = await callGeminiJson<{ selected: string[]; excluded?: unknown }>(
@@ -336,7 +443,13 @@ async function stage5FilterByMetrics(
     minCpc,
     maxFinalCount,
   };
-  const prompt = (config.promptStage5 ?? defaultStage5Prompt)(promptInput);
+  const promptFn = resolveStagePrompt(
+    config.promptStage5,
+    defaultStage5Prompt,
+    stage5Vars,
+    STAGE5_FOOTER,
+  );
+  const prompt = promptFn(promptInput);
 
   try {
     const result = await callGeminiJson<{ selected: string[]; rationale?: string }>(
@@ -389,7 +502,13 @@ async function stage7FinalDecision(
       serpTopDomains: c.serpTopUrls.map((u) => extractDomain(u) ?? "").filter(Boolean),
     })),
   };
-  const prompt = (config.promptFinal ?? defaultFinalPrompt)(promptInput);
+  const promptFn = resolveStagePrompt(
+    config.promptFinal,
+    defaultFinalPrompt,
+    finalVars,
+    FINAL_FOOTER,
+  );
+  const prompt = promptFn(promptInput);
 
   try {
     const result = await callGeminiJson<{
@@ -465,6 +584,7 @@ export async function runScoutPipeline(
   const { keywords: expanded, category } = await expandKeywords(subject, {
     excludeKws: config.excludeKws,
     maxKeywords: config.kwCandidateCount ?? 100,
+    customPrompt: config.promptKwGen,
   });
 
   if (expanded.length === 0) {

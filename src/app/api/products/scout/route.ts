@@ -41,8 +41,9 @@ export async function POST(req: NextRequest) {
       // 現プロジェクトの enabled な destination 一覧 (destinationStatus 用)
       const destinations = (await loadDestinations(ctx.projectId)).filter((d) => d.enabled);
 
-      // プロジェクト設定 (除外KW / 閾値) を読み込んで、body.config と合体 (body 優先)
-      // プロンプト4段はカスタム保存できるが、scoutPipeline に流す変換は後続実装
+      // プロジェクト設定 (除外KW / 閾値 / Gemini プロンプト4段) を読み込んで、
+      // body.config と合体 (body 優先)。文字列プロンプトは scoutPipeline 側で
+      // renderTemplate を介して展開される (placeholder: {subject}/{keywords}/...)。
       const projectConfig = await loadScoutConfig(ctx.projectId);
       const mergedConfig = {
         kwCandidateCount: config?.kwCandidateCount ?? projectConfig.kwCandidateCount,
@@ -51,6 +52,11 @@ export async function POST(req: NextRequest) {
         minCpcStage5: config?.minCpcStage5 ?? projectConfig.minCpcStage5,
         maxFinalCount: config?.maxFinalCount ?? projectConfig.maxFinalCount,
         excludeKws: config?.excludeKws ?? projectConfig.excludeKws,
+        // Gemini プロンプト4段 (文字列テンプレ、空欄ならデフォルト)
+        promptKwGen: projectConfig.promptKwGen,
+        promptStage3: projectConfig.promptStage3,
+        promptStage5: projectConfig.promptStage5,
+        promptFinal: projectConfig.promptFinal,
       };
 
       // メイン: 8段パイプライン
