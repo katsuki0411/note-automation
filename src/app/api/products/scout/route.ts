@@ -94,14 +94,20 @@ export async function POST(req: NextRequest) {
       let historyId: string | undefined;
       try {
         const rows = await sql<{ id: string }[]>`
-          insert into product_scout_history (project_id, user_id, subject, category, candidate_count, candidates)
+          insert into product_scout_history (
+            project_id, user_id, subject, category,
+            candidate_count, candidates,
+            rejected_candidates, pipeline_stats
+          )
           values (
             ${ctx.projectId},
             ${ctx.userId},
             ${subject},
             ${result.category},
             ${candidatesWithDest.length},
-            ${sql.json(candidatesWithDest as unknown as JSONValue)}
+            ${sql.json(candidatesWithDest as unknown as JSONValue)},
+            ${sql.json((result.rejectedCandidates ?? []) as unknown as JSONValue)},
+            ${sql.json((result.stats ?? null) as unknown as JSONValue)}
           )
           returning id
         `;

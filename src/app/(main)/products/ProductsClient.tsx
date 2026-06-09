@@ -354,6 +354,10 @@ export default function ProductsClient() {
         subject: data.subject,
         candidateCount: data.candidateCount,
         candidates,
+        // migration 0017 以降に保存された履歴は rejectedCandidates / stats も持つ
+        rejectedCandidates:
+          (data.rejectedCandidates as RejectedCandidate[] | undefined) ?? undefined,
+        stats: (data.stats as ScoutResponse["stats"]) ?? undefined,
         historyId: data.id,
       };
       // 履歴クリック時は subject 入力欄を触らない (新規スカウトタブに切替えた時に過去

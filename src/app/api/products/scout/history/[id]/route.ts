@@ -17,10 +17,13 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
         subject: string;
         candidate_count: number;
         candidates: unknown;
+        rejected_candidates: unknown;
+        pipeline_stats: unknown;
         created_at: string;
       }[]
     >`
-      select id, subject, candidate_count, candidates, created_at
+      select id, subject, candidate_count, candidates,
+             rejected_candidates, pipeline_stats, created_at
       from product_scout_history
       where id = ${id} and project_id = ${ctx.projectId}
       limit 1
@@ -32,6 +35,8 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
       subject: row.subject,
       candidateCount: row.candidate_count,
       candidates: row.candidates,
+      rejectedCandidates: row.rejected_candidates ?? [],
+      stats: row.pipeline_stats ?? null,
       createdAt: row.created_at,
     });
   });
