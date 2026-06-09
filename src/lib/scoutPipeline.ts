@@ -134,6 +134,15 @@ export type FinalPromptInput = {
   }>;
 };
 
+// ---------- 通貨表記ヘルパー ----------
+// DataForSEO は CPC を USD で返すので、Gemini プロンプト/UI には円換算して渡す。
+// (1 USD = 150円 固定換算。Gemini の rationale 出力に "$" が混じらないように)
+const JPY_PER_USD = 150;
+function cpcJpy(cpcUsd: number | null | undefined): string {
+  if (cpcUsd === null || cpcUsd === undefined) return "?";
+  return `¥${Math.round(cpcUsd * JPY_PER_USD)}`;
+}
+
 // ---------- デフォルト Gemini プロンプト ----------
 
 function defaultStage3Prompt(i: Stage3PromptInput): string {
@@ -171,7 +180,7 @@ DFS Keyword Overview から取得した客観指標を見て、最終 SERP 精�
 
 # 判定基準 (閾値はガイドライン。柔軟に判断OK)
 - SV >= ${i.minSv} (検索ボリュームが少なすぎるKWは除外)
-- CPC >= $${i.minCpc} (CV見込みが薄いKWは優先度低)
+- CPC >= ¥${Math.round(i.minCpc * JPY_PER_USD)} (CV見込みが薄いKWは優先度低、円換算)
 - searchIntent (DFS判定) が commercial/transactional のものは優先度高
 - KD と SV のバランス: KD低 × SV中 が理想
 - お題のカテゴリと意味的に整合するKWを優先
@@ -180,7 +189,7 @@ DFS Keyword Overview から取得した客観指標を見て、最終 SERP 精�
 ${i.keywords
   .map(
     (k, idx) =>
-      `${idx + 1}. kw="${k.kw}" (intent_gemini=${k.intent}, intent_dfs=${k.searchIntent ?? "?"}, kd=${k.kd ?? "?"}, sv=${k.searchVolume ?? "?"}, cpc=$${k.cpc ?? "?"}, competition=${k.competitionLevel ?? "?"})`,
+      `${idx + 1}. kw="${k.kw}" (intent_gemini=${k.intent}, intent_dfs=${k.searchIntent ?? "?"}, kd=${k.kd ?? "?"}, sv=${k.searchVolume ?? "?"}, cpc=${cpcJpy(k.cpc)}, competition=${k.competitionLevel ?? "?"})`,
   )
   .join("\n")}
 
@@ -214,7 +223,7 @@ ${i.candidates
   .map(
     (c, idx) => `
 ${idx + 1}. kw="${c.kw}"
-   数値: kd=${c.kd ?? "?"}, sv=${c.searchVolume ?? "?"}, cpc=$${c.cpc ?? "?"}
+   数値: kd=${c.kd ?? "?"}, sv=${c.searchVolume ?? "?"}, cpc=${cpcJpy(c.cpc)}
    SERP features: ${Object.entries(c.serpFeatures).filter(([, v]) => v).map(([k]) => k).join(", ") || "なし"}
    上位ドメイン (10件): ${c.serpTopDomains.join(", ") || "なし"}
    AI Overview引用ドメイン: ${c.aiOverviewDomains.join(", ") || "なし"}
@@ -264,7 +273,7 @@ function stage5Vars(i: Stage5PromptInput): Record<string, string | number> {
     keywords: i.keywords
       .map(
         (k, idx) =>
-          `${idx + 1}. kw="${k.kw}" (intent_gemini=${k.intent}, intent_dfs=${k.searchIntent ?? "?"}, kd=${k.kd ?? "?"}, sv=${k.searchVolume ?? "?"}, cpc=$${k.cpc ?? "?"}, competition=${k.competitionLevel ?? "?"})`,
+          `${idx + 1}. kw="${k.kw}" (intent_gemini=${k.intent}, intent_dfs=${k.searchIntent ?? "?"}, kd=${k.kd ?? "?"}, sv=${k.searchVolume ?? "?"}, cpc=${cpcJpy(k.cpc)}, competition=${k.competitionLevel ?? "?"})`,
       )
       .join("\n"),
   };
@@ -278,7 +287,7 @@ function finalVars(i: FinalPromptInput): Record<string, string | number> {
       .map(
         (c, idx) => `
 ${idx + 1}. kw="${c.kw}"
-   数値: kd=${c.kd ?? "?"}, sv=${c.searchVolume ?? "?"}, cpc=$${c.cpc ?? "?"}
+   数値: kd=${c.kd ?? "?"}, sv=${c.searchVolume ?? "?"}, cpc=${cpcJpy(c.cpc)}
    SERP features: ${Object.entries(c.serpFeatures).filter(([, v]) => v).map(([k]) => k).join(", ") || "なし"}
    上位ドメイン (10件): ${c.serpTopDomains.join(", ") || "なし"}
    AI Overview引用ドメイン: ${c.aiOverviewDomains.join(", ") || "なし"}

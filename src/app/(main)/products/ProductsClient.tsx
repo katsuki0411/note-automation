@@ -854,7 +854,7 @@ export default function ProductsClient() {
                                   )}
                                   {typeof c.cpc === "number" && (
                                     <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
-                                      CPC <strong>${c.cpc.toFixed(2)}</strong>
+                                      CPC <strong>¥{Math.round(c.cpc * 150).toLocaleString("ja-JP")}</strong>
                                     </span>
                                   )}
                                   {c.competitionLevel && (

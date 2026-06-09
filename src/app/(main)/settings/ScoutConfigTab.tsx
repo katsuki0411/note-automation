@@ -106,12 +106,21 @@ export default function ScoutConfigTab() {
             hint="これ以下のKWはCV見込薄として除外 (推奨: 100)"
           />
           <NumberRow
-            label="Stage5: CPC 最低値 (USD)"
-            placeholder={String(DEFAULTS.minCpcStage5)}
-            value={config.minCpcStage5}
-            onChange={(v) => setConfig({ ...config, minCpcStage5: v })}
-            step="0.01"
-            hint="広告出稿価値の低いKWを除外 (推奨: 0.2)"
+            label="Stage5: CPC 最低値 (円)"
+            placeholder={String(Math.round(DEFAULTS.minCpcStage5 * 150))}
+            value={
+              config.minCpcStage5 !== undefined
+                ? Math.round(config.minCpcStage5 * 150)
+                : undefined
+            }
+            onChange={(v) =>
+              setConfig({
+                ...config,
+                // 入力は円、内部は USD (DataForSEO が USD で返すため) → /150 で USD に換算
+                minCpcStage5: v === undefined ? undefined : Math.round(v) / 150,
+              })
+            }
+            hint="広告出稿価値の低いKWを除外 (推奨: 30円)"
           />
           <NumberRow
             label="最終判定に回すKW上限"

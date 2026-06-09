@@ -169,7 +169,7 @@ const INTEGRATION_DEFS: IntegrationDef[] = [
     kind: "dataforseo",
     title: "DataForSEO",
     description:
-      "Google SERP の大量取得 ($0.0006/query)。商品スカウトの「広く取る」段で使用。Basic 認証 (login + password)。",
+      "Google SERP の大量取得 (約¥0.09/query)。商品スカウトの「広く取る」段で使用。Basic 認証 (login + password)。",
     badge: "ユーザー単位",
     envFallbackNote: "未設定なら .env.local の DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD を使用",
     fields: [
