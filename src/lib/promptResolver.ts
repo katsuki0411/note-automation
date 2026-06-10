@@ -1,26 +1,16 @@
 import type { PostingDestinationRow } from "./posters/types";
 
 // destination の prompt_config の構造定義。
-// stages (3段プロンプトチェーン) を優先。旧10項目は後方互換のため残置 (UIからは編集不可)。
+// 3段プロンプトチェーンのみを使用する。
+// DB には旧10項目 (role/authorProfile/...) の残骸が入っているレコードがあるが、
+// 2026-06-10 以降はすべて無視する。記事生成は stages のみで動く。
 export type DestinationPromptConfig = {
-  // 新: 3段プロンプトチェーン (destination 単位)
   stages?: [string, string, string];
-  // 旧: 10項目構造化スキーマ (後方互換、UIからは編集不可)
-  role?: string;
-  authorProfile?: string;
-  audience?: string;
-  tone?: string;
-  dos?: string;
-  donts?: string;
-  structure?: string;
-  cta?: string;
-  platformConstraints?: string;
-  customNotes?: string;
 };
 
 /**
  * destination の prompt_config.stages から有効な3段プロンプトを取り出す。
- * いずれかの段に文字列が入っていれば返す。全段空なら null。
+ * いずれかの段に文字列が入っていれば返す。全段空 (or stages 自体なし) なら null。
  */
 export function extractDestinationStages(
   destination: PostingDestinationRow,
@@ -37,65 +27,15 @@ export function extractDestinationStages(
   return arr;
 }
 
-export type ResolvedPrompt = {
-  systemPrompt: string;
-};
-
-export function isPromptConfigConfigured(cfg: unknown): boolean {
-  if (!cfg || typeof cfg !== "object") return false;
-  const c = cfg as DestinationPromptConfig;
-  // 新: stages のいずれかに有効値があれば configured
-  if (Array.isArray(c.stages) && c.stages.some((s) => typeof s === "string" && s.trim())) {
-    return true;
-  }
-  // 旧: 10項目のいずれかに有効値があれば configured (後方互換)
-  return Boolean(
-    c.role?.trim() ||
-      c.authorProfile?.trim() ||
-      c.audience?.trim() ||
-      c.tone?.trim() ||
-      c.dos?.trim() ||
-      c.donts?.trim() ||
-      c.structure?.trim() ||
-      c.cta?.trim() ||
-      c.platformConstraints?.trim() ||
-      c.customNotes?.trim(),
-  );
-}
-
-export function buildSystemPromptFromConfig(cfg: DestinationPromptConfig): string {
-  const sections: string[] = [];
-  const push = (heading: string, body?: string) => {
-    if (!body?.trim()) return;
-    sections.push(`## ${heading}\n${body.trim()}`);
-  };
-  push("役割", cfg.role);
-  push("著者プロフィール", cfg.authorProfile);
-  push("ターゲット読者", cfg.audience);
-  push("文体・トーン", cfg.tone);
-  push("必須事項", cfg.dos);
-  push("禁事項", cfg.donts);
-  push("構造ルール", cfg.structure);
-  push("CTA 指示", cfg.cta);
-  push("プラットフォーム固有制約", cfg.platformConstraints);
-  push("補足", cfg.customNotes);
-  return sections.join("\n\n");
-}
-
-// destination から記事生成用 system prompt を解決する。
-// - prompt_config が設定済 → 項目を連結してカスタムプロンプトを返す
-// - 設定なし → null (呼び出し側で 400 を返す)
-// フォールバック (主婦デフォルト等) は廃止。destination ごとに必ず設定する運用。
-export function resolveSystemPrompt(
-  destination: PostingDestinationRow,
-): ResolvedPrompt | null {
-  const cfg = (destination.prompt_config ?? {}) as DestinationPromptConfig;
-  if (isPromptConfigConfigured(cfg)) {
-    return {
-      systemPrompt: buildSystemPromptFromConfig(cfg),
-    };
-  }
-  return null;
+/**
+ * destination が「記事生成可能な状態」か判定する。
+ * 3段プロンプトのいずれかに有効値があれば true。
+ * UI のプロンプト有/無バッジと、記事生成 API の事前チェックでも同じ判定を使う。
+ */
+export function isPromptConfigConfigured(
+  destination: PostingDestinationRow | { prompt_config?: unknown },
+): boolean {
+  return extractDestinationStages(destination as PostingDestinationRow) !== null;
 }
 
 export const PROMPT_NOT_CONFIGURED_ERROR =

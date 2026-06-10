@@ -7,6 +7,7 @@ import { detectPlatformOccupancy } from "@/lib/platformDomain";
 import { loadDestinations } from "@/lib/destinations";
 import { PLATFORM_LABELS, type Platform } from "@/lib/posters/types";
 import { loadScoutConfig } from "@/lib/projectConfigs";
+import { isPromptConfigConfigured } from "@/lib/promptResolver";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,10 +70,8 @@ export async function POST(req: NextRequest) {
         const destinationStatus = destinations.map((d) => {
           const platform = d.platform as Platform;
           const hits = platformOccupancy[platform] ?? 0;
-          const pc = d.prompt_config as Record<string, unknown> | null | undefined;
-          const promptReady =
-            !!pc &&
-            Object.values(pc).some((v) => typeof v === "string" && v.trim().length > 0);
+          // 3段プロンプトが入っていれば promptReady = true (旧10項目残骸は無視)
+          const promptReady = isPromptConfigConfigured(d);
           return {
             destinationId: d.id,
             platform,

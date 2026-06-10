@@ -16,6 +16,7 @@ import {
   type PostingDestinationRow,
 } from "@/lib/posters/types";
 import { useProject } from "@/components/ProjectContext";
+import { isPromptConfigConfigured } from "@/lib/promptResolver";
 
 const CACHE_KEY = "library:articles";
 const SELECTED_KW_CACHE_KEY = "library:selectedKw";
@@ -55,13 +56,10 @@ function feedIdeaOf(a: Article): FeedIdea | null {
     : null;
 }
 
-// destination.prompt_config に「実際に書かれた値」が1つでもあれば true
+// destination の 3段プロンプトのいずれかに有効値があれば true
+// (旧10項目スキーマの残骸は無視)
 function isPromptReady(d: PostingDestinationRow): boolean {
-  const pc = d.prompt_config as Record<string, unknown> | null | undefined;
-  return (
-    !!pc &&
-    Object.values(pc).some((v) => typeof v === "string" && v.trim().length > 0)
-  );
+  return isPromptConfigConfigured(d);
 }
 
 // KW のグルーピングキー。同じネタ (idea) なら destination 違いでも同じ KW として束ねる。

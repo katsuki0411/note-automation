@@ -4,7 +4,6 @@ import { BRAND, type ThemeTagKey } from "@/lib/brand";
 import { attachArticleToKeyword, loadKeywords } from "@/lib/keywords";
 import { getDestination } from "@/lib/destinations";
 import {
-  resolveSystemPrompt,
   extractDestinationStages,
   PROMPT_NOT_CONFIGURED_ERROR,
 } from "@/lib/promptResolver";
@@ -68,9 +67,7 @@ async function pickTargetKeyword(
   return candidates[0];
 }
 
-// destination のプロンプト設定を使うシンプルな user prompt。
-// idea / 関連記事 / 狙うキーワード を JSON 風に渡し、destination 側の system プロンプト
-// (3段または旧10項目) に沿って AI に出力させる。
+// destination の 3段プロンプトと組み合わせる「ネタ素材 + 出力フォーマット指示」。
 function buildUserPrompt(args: {
   idea: Idea | FeedIdea;
   relatedArticles: { title: string; hook?: string }[];
@@ -131,10 +128,9 @@ export async function POST(req: NextRequest) {
         return Response.json({ error: "destination が見つかりません" }, { status: 404 });
       }
 
-      // destination の prompt_config からプロンプトを解決。
-      // 未設定なら 400 (フォールバックなし)。
-      const resolved = resolveSystemPrompt(destination);
-      if (!resolved) {
+      // destination の 3段プロンプトを取り出す。未設定なら 400。
+      const stages = extractDestinationStages(destination);
+      if (!stages) {
         return Response.json(
           {
             error: PROMPT_NOT_CONFIGURED_ERROR,
@@ -161,41 +157,31 @@ export async function POST(req: NextRequest) {
           : undefined,
       });
 
-      // 3段プロンプトチェーン: destination.prompt_config.stages のみ参照。
-      // stages 未設定なら 1段で systemPrompt + userPrompt で実行。
-      const destinationStages = extractDestinationStages(destination);
-      const useChain = destinationStages !== null;
-
-      let responseText: string;
-      if (useChain && destinationStages) {
-        let context = "";
-        if (destinationStages[0]?.trim()) {
-          context = await generateArticleTextChain({
-            model: articleModel,
-            system: resolved.systemPrompt,
-            user: `${userPrompt}\n\n# 1段目プロンプト\n${destinationStages[0]}`,
-          });
-        }
-        if (destinationStages[1]?.trim()) {
-          context = await generateArticleTextChain({
-            model: articleModel,
-            system: resolved.systemPrompt,
-            user: `# 前段の出力\n${context || "(なし)"}\n\n# 2段目プロンプト\n${destinationStages[1]}`,
-          });
-        }
-        const stage3Hint = destinationStages[2]?.trim() ?? "";
-        responseText = await generateArticleJsonText({
+      // 3段プロンプトチェーンで生成。
+      // system は空文字。各 stage の prompt に必要な指示が含まれている前提。
+      // 空の stage はスキップ、最終段は JSON 出力に切り替える。
+      const system = "";
+      let context = "";
+      if (stages[0]?.trim()) {
+        context = await generateArticleTextChain({
           model: articleModel,
-          system: resolved.systemPrompt,
-          user: `# 前段までの出力\n${context || "(なし)"}\n${stage3Hint ? `\n# 3段目プロンプト\n${stage3Hint}\n` : ""}\n# 最終出力指示 (JSON フォーマットに従う)\n${userPrompt}`,
-        });
-      } else {
-        responseText = await generateArticleJsonText({
-          model: articleModel,
-          system: resolved.systemPrompt,
-          user: userPrompt,
+          system,
+          user: `${userPrompt}\n\n# 1段目プロンプト\n${stages[0]}`,
         });
       }
+      if (stages[1]?.trim()) {
+        context = await generateArticleTextChain({
+          model: articleModel,
+          system,
+          user: `# 前段の出力\n${context || "(なし)"}\n\n# 2段目プロンプト\n${stages[1]}`,
+        });
+      }
+      const stage3Hint = stages[2]?.trim() ?? "";
+      const responseText = await generateArticleJsonText({
+        model: articleModel,
+        system,
+        user: `# 前段までの出力\n${context || "(なし)"}\n${stage3Hint ? `\n# 3段目プロンプト\n${stage3Hint}\n` : ""}\n# 最終出力指示 (JSON フォーマットに従う)\n${userPrompt}`,
+      });
       const parsed = extractJson(responseText);
 
       let body = (parsed.body_markdown as string) ?? "";
@@ -220,11 +206,7 @@ export async function POST(req: NextRequest) {
         await attachArticleToKeyword(ctx.projectId, targetKw.id, article.id);
       }
 
-      return Response.json({
-        article,
-        targetKeyword: targetKw,
-        chainSource: useChain ? "destination" : "none",
-      });
+      return Response.json({ article, targetKeyword: targetKw });
     } catch (e) {
       console.error("[/api/generate] failed:", e);
       if (e instanceof Error && e.stack) {
