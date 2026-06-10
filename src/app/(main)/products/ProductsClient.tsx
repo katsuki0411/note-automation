@@ -906,36 +906,45 @@ export default function ProductsClient() {
                               <div className="text-[11px] text-[color:var(--fg-muted)] mt-0.5">
                                 {c.reason}
                               </div>
-                              {/* 客観指標 (DFS / 拡張プラン B') */}
-                              {(typeof c.kd === "number" || typeof c.searchVolume === "number" || typeof c.cpc === "number") && (
-                                <div className="mt-1.5 flex items-center gap-2 flex-wrap text-[10.5px]">
-                                  {typeof c.kd === "number" && (
-                                    <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
-                                      KD <strong>{c.kd}</strong>
-                                    </span>
-                                  )}
-                                  {typeof c.searchVolume === "number" && (
-                                    <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
-                                      月Vol <strong>{c.searchVolume.toLocaleString("ja-JP")}</strong>
-                                    </span>
-                                  )}
-                                  {typeof c.cpc === "number" && (
-                                    <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
-                                      CPC <strong>¥{Math.round(c.cpc * 150).toLocaleString("ja-JP")}</strong>
-                                    </span>
-                                  )}
-                                  {c.competitionLevel && (
-                                    <span className="px-1.5 py-0.5 rounded bg-gray-50 text-gray-600">
-                                      競合 {c.competitionLevel}
-                                    </span>
-                                  )}
-                                  {c.searchIntent && (
-                                    <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700">
-                                      DFS Intent: {c.searchIntent}
-                                    </span>
-                                  )}
-                                </div>
-                              )}
+                              {/* 客観指標 (DFS Keyword Overview) — データ取得失敗時は "-" 表示 */}
+                              <div className="mt-1.5 flex items-center gap-2 flex-wrap text-[10.5px]">
+                                <span
+                                  className={`px-1.5 py-0.5 rounded ${
+                                    c.kd === 0
+                                      ? "bg-orange-50 text-orange-700"
+                                      : typeof c.kd === "number" && c.kd > 30
+                                        ? "bg-red-50 text-red-700"
+                                        : typeof c.kd === "number"
+                                          ? "bg-emerald-50 text-emerald-700"
+                                          : "bg-gray-100 text-gray-500"
+                                  }`}
+                                  title={
+                                    c.kd === 0
+                                      ? "KD=0 は取得失敗の可能性 (DFS Backlinks 未契約)"
+                                      : typeof c.kd === "number"
+                                        ? c.kd > 30 ? "KD>30 = 上位表示困難" : "KD≤30 = 狙い目"
+                                        : "DFS から KD が取得できませんでした"
+                                  }
+                                >
+                                  KD <strong>{typeof c.kd === "number" ? c.kd : "-"}</strong>
+                                </span>
+                                <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
+                                  月Vol <strong>{typeof c.searchVolume === "number" ? c.searchVolume.toLocaleString("ja-JP") : "-"}</strong>
+                                </span>
+                                <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
+                                  CPC <strong>{typeof c.cpc === "number" ? `¥${Math.round(c.cpc * 150).toLocaleString("ja-JP")}` : "-"}</strong>
+                                </span>
+                                {c.competitionLevel && (
+                                  <span className="px-1.5 py-0.5 rounded bg-gray-50 text-gray-600">
+                                    競合 {c.competitionLevel}
+                                  </span>
+                                )}
+                                {c.searchIntent && (
+                                  <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700">
+                                    DFS Intent: {c.searchIntent}
+                                  </span>
+                                )}
+                              </div>
                               {/* SERP features */}
                               {activeFeatures.length > 0 && (
                                 <div className="mt-1.5 flex items-center gap-1.5 flex-wrap text-[10px]">
