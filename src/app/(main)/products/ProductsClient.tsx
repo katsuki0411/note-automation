@@ -29,7 +29,7 @@ type DestinationStatus = {
   promptReady?: boolean; // true = プロンプト設定済で記事生成可 / false = プロンプト未設定
 };
 
-// 拡張プラン B' / 8段パイプライン出力に対応。
+// 5段パイプライン出力に対応 (2026-06-10 リファクタ)。
 // 旧フィールド (seoDifficulty 等) は履歴の後方互換のため optional 残置。
 type ScoutCandidate = {
   kw: string;
@@ -638,7 +638,7 @@ export default function ProductsClient() {
             </button>
           </div>
           <p className="text-[11px] text-[color:var(--fg-muted)]">
-            ⚠ 1回あたり Gemini × 4 + DataForSEO × 4 (8段パイプライン)。 1スカウト ¥50 前後 / 100KW から採用3-5件
+            ⚠ 1回あたり Gemini × 3 + DataForSEO × 2 (5段パイプライン)。 1スカウト ¥30 前後 / 100KW から採用3-5件
           </p>
         </div>
         )}
@@ -973,7 +973,7 @@ export default function ProductsClient() {
                                     .join(" / ")}
                                 </div>
                               )}
-                              {/* 最終 rationale (Gemini #4) */}
+                              {/* 最終 rationale (Gemini #3 最終判定) */}
                               {c.rationale && (
                                 <div className="text-[11px] text-[color:var(--fg-secondary)] mt-1.5 leading-snug p-2 rounded bg-amber-50/40 border border-amber-100">
                                   💡 {c.rationale}
@@ -1084,7 +1084,7 @@ export default function ProductsClient() {
 
         {tab === "new" && busy && (
           <div className="p-4 rounded-lg border border-[var(--border-subtle)] bg-gray-50 text-center text-[13px] text-[color:var(--fg-secondary)]">
-            ⏳ 8段パイプライン実行中 (Gemini #1 → DFS Bulk KD → Gemini #2 → DFS Overview → Gemini #3 → DFS SERP → Gemini #4)…<br />
+            ⏳ 5段パイプライン実行中 (Gemini #1 → DFS Overview → Gemini #2 → DFS SERP → Gemini #3)…<br />
             <span className="text-[11px] text-[color:var(--fg-muted)]">
               1〜2分かかる場合があります
             </span>
