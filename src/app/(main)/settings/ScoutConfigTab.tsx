@@ -5,22 +5,19 @@ import { useEffect, useState } from "react";
 type ScoutConfig = {
   kwCandidateCount?: number;
   maxFinalCount?: number;
-  kdMaxStage3?: number;
-  minSvStage5?: number;
-  minCpcStage5?: number;
+  minSv?: number;
+  minCpc?: number;
   excludeKws?: string[];
   promptKwGen?: string;
   promptStage3?: string;
-  promptStage5?: string;
   promptFinal?: string;
 };
 
-const DEFAULTS: Required<Pick<ScoutConfig, "kwCandidateCount" | "maxFinalCount" | "kdMaxStage3" | "minSvStage5" | "minCpcStage5">> = {
+const DEFAULTS: Required<Pick<ScoutConfig, "kwCandidateCount" | "maxFinalCount" | "minSv" | "minCpc">> = {
   kwCandidateCount: 100,
   maxFinalCount: 10,
-  kdMaxStage3: 30,
-  minSvStage5: 100,
-  minCpcStage5: 0.2,
+  minSv: 100,
+  minCpc: 0.2,
 };
 
 export default function ScoutConfigTab() {
@@ -81,7 +78,7 @@ export default function ScoutConfigTab() {
       {/* 件数 / 閾値 */}
       <details className="rounded-xl border border-[var(--border-subtle)] bg-white" open>
         <summary className="cursor-pointer px-4 py-3 font-semibold text-[13px]">
-          ⚙️ 件数 / 閾値 (拡張プラン B' のスコアリング基準)
+          ⚙️ 件数 / 閾値 (5段パイプラインのスコアリング基準)
         </summary>
         <div className="px-4 pb-4 grid grid-cols-1 md:grid-cols-2 gap-3">
           <NumberRow
@@ -89,35 +86,28 @@ export default function ScoutConfigTab() {
             placeholder={String(DEFAULTS.kwCandidateCount)}
             value={config.kwCandidateCount}
             onChange={(v) => setConfig({ ...config, kwCandidateCount: v })}
-            hint="100件程度を推奨 (MTG決定)"
+            hint="100件程度を推奨"
           />
           <NumberRow
-            label="Stage3: KD 閾値 (これ以下を通過)"
-            placeholder={String(DEFAULTS.kdMaxStage3)}
-            value={config.kdMaxStage3}
-            onChange={(v) => setConfig({ ...config, kdMaxStage3: v })}
-            hint="0〜100。低いほど狙いやすい (推奨: 30)"
-          />
-          <NumberRow
-            label="Stage5: SV 最低値 (月間検索数)"
-            placeholder={String(DEFAULTS.minSvStage5)}
-            value={config.minSvStage5}
-            onChange={(v) => setConfig({ ...config, minSvStage5: v })}
+            label="Stage3: SV 最低値 (月間検索数)"
+            placeholder={String(DEFAULTS.minSv)}
+            value={config.minSv}
+            onChange={(v) => setConfig({ ...config, minSv: v })}
             hint="これ以下のKWはCV見込薄として除外 (推奨: 100)"
           />
           <NumberRow
-            label="Stage5: CPC 最低値 (円)"
-            placeholder={String(Math.round(DEFAULTS.minCpcStage5 * 150))}
+            label="Stage3: CPC 最低値 (円)"
+            placeholder={String(Math.round(DEFAULTS.minCpc * 150))}
             value={
-              config.minCpcStage5 !== undefined
-                ? Math.round(config.minCpcStage5 * 150)
+              config.minCpc !== undefined
+                ? Math.round(config.minCpc * 150)
                 : undefined
             }
             onChange={(v) =>
               setConfig({
                 ...config,
                 // 入力は円、内部は USD (DataForSEO が USD で返すため) → /150 で USD に換算
-                minCpcStage5: v === undefined ? undefined : Math.round(v) / 150,
+                minCpc: v === undefined ? undefined : Math.round(v) / 150,
               })
             }
             hint="広告出稿価値の低いKWを除外 (推奨: 30円)"
@@ -152,10 +142,10 @@ export default function ScoutConfigTab() {
         </div>
       </details>
 
-      {/* Gemini プロンプト4段 */}
+      {/* Gemini プロンプト3段 */}
       <details className="rounded-xl border border-[var(--border-subtle)] bg-white">
         <summary className="cursor-pointer px-4 py-3 font-semibold text-[13px]">
-          🤖 Gemini プロンプト 4段 (上級者向け / 空欄ならデフォルト使用)
+          🤖 Gemini プロンプト 3段 (上級者向け / 空欄ならデフォルト使用)
         </summary>
         <div className="px-4 pb-4 space-y-3">
           <div className="text-[11px] text-[color:var(--fg-secondary)] leading-relaxed p-3 rounded-lg bg-[color:var(--accent-soft)]/40 border border-[color:var(--accent)]/20">
@@ -168,9 +158,8 @@ export default function ScoutConfigTab() {
             <p className="mt-2 font-semibold">使える placeholder:</p>
             <ul className="mt-1 space-y-0.5 list-disc list-inside">
               <li><strong>Stage1</strong>: <code className="font-mono">{"{subject}"}</code> / <code className="font-mono">{"{maxKeywords}"}</code> / <code className="font-mono">{"{excludeKws}"}</code></li>
-              <li><strong>Stage3</strong>: <code className="font-mono">{"{subject}"}</code> / <code className="font-mono">{"{keywords}"}</code> / <code className="font-mono">{"{kdThreshold}"}</code></li>
-              <li><strong>Stage5</strong>: <code className="font-mono">{"{subject}"}</code> / <code className="font-mono">{"{category}"}</code> / <code className="font-mono">{"{keywords}"}</code> / <code className="font-mono">{"{minSv}"}</code> / <code className="font-mono">{"{minCpc}"}</code> / <code className="font-mono">{"{maxFinalCount}"}</code></li>
-              <li><strong>Stage7</strong>: <code className="font-mono">{"{subject}"}</code> / <code className="font-mono">{"{candidates}"}</code></li>
+              <li><strong>Stage3</strong>: <code className="font-mono">{"{subject}"}</code> / <code className="font-mono">{"{category}"}</code> / <code className="font-mono">{"{keywords}"}</code> / <code className="font-mono">{"{minSv}"}</code> / <code className="font-mono">{"{minCpc}"}</code> / <code className="font-mono">{"{maxFinalCount}"}</code></li>
+              <li><strong>Stage5</strong>: <code className="font-mono">{"{subject}"}</code> / <code className="font-mono">{"{candidates}"}</code></li>
             </ul>
             <p className="mt-2 text-[10px] text-[color:var(--fg-muted)]">
               ※ 出力フォーマット (JSON) の指示は自動で末尾に付加されます。
@@ -182,17 +171,12 @@ export default function ScoutConfigTab() {
             onChange={(v) => setConfig({ ...config, promptKwGen: v })}
           />
           <PromptArea
-            label="Stage3: KD閾値後の1次絞り込み (Gemini #2)"
+            label="Stage3: 数値+重複排除の1次絞り込み (Gemini #2)"
             value={config.promptStage3 ?? ""}
             onChange={(v) => setConfig({ ...config, promptStage3: v })}
           />
           <PromptArea
-            label="Stage5: 数値後の2次絞り込み (Gemini #3)"
-            value={config.promptStage5 ?? ""}
-            onChange={(v) => setConfig({ ...config, promptStage5: v })}
-          />
-          <PromptArea
-            label="Stage7: 最終判定 (Gemini #4)"
+            label="Stage5: SERP込みの最終判定 (Gemini #3)"
             value={config.promptFinal ?? ""}
             onChange={(v) => setConfig({ ...config, promptFinal: v })}
           />

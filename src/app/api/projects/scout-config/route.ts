@@ -36,9 +36,8 @@ export async function PUT(req: NextRequest) {
       const sanitized: ScoutConfig = {
         kwCandidateCount: clampInt(body.kwCandidateCount, 1, 200),
         maxFinalCount: clampInt(body.maxFinalCount, 1, 50),
-        kdMaxStage3: clampInt(body.kdMaxStage3, 0, 100),
-        minSvStage5: clampInt(body.minSvStage5, 0, 1_000_000),
-        minCpcStage5: clampFloat(body.minCpcStage5, 0, 1000),
+        minSv: clampInt(body.minSv, 0, 1_000_000),
+        minCpc: clampFloat(body.minCpc, 0, 1000),
         excludeKws: Array.isArray(body.excludeKws)
           ? body.excludeKws
               .map((s) => (typeof s === "string" ? s.trim() : ""))
@@ -47,7 +46,6 @@ export async function PUT(req: NextRequest) {
           : undefined,
         promptKwGen: stringOrUndefined(body.promptKwGen, 20_000),
         promptStage3: stringOrUndefined(body.promptStage3, 20_000),
-        promptStage5: stringOrUndefined(body.promptStage5, 20_000),
         promptFinal: stringOrUndefined(body.promptFinal, 20_000),
       };
       // undefined を除去

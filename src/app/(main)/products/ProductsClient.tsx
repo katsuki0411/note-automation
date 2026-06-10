@@ -85,18 +85,17 @@ type ScoutCandidate = {
 
 type ScoutStats = {
   stage1Generated: number;
-  stage3PassedKd: number;
-  stage5PassedMetrics: number;
+  stage3Passed: number;
   finalCount: number;
   adoptedCount: number;
 };
 
-// Stage 1 で生成されたが Stage 3/5 で落選した KW (落選理由付き)
+// Stage 1 で生成されたが Stage 3 で落選した KW (落選理由付き)
 type RejectedCandidate = {
   kw: string;
   intent: string;
   reason: string;
-  stage: "stage3_kd_rejected" | "stage3_filter_rejected" | "stage5_metric_rejected" | "stage7_evaluated";
+  stage: "stage3_rejected" | "stage5_evaluated";
   kd?: number | null;
   searchVolume?: number | null;
   cpc?: number | null;
@@ -172,9 +171,9 @@ export default function ProductsClient() {
     Record<string, { kd: number | null; vol: number | null; cpc: number | null }>
   >({});
   const [refining, setRefining] = useState<Set<string>>(new Set());
-  // パイプライン段階タブ (① Gemini #1 100件 / ② Stage3 KD通過 / ③ Stage5 数値通過 / ④ Stage7 最終採用)
-  // デフォルトは ④ (採用候補リスト) で現状動作維持
-  const [pipelineStage, setPipelineStage] = useState<1 | 3 | 5 | 7>(7);
+  // パイプライン段階タブ (① Gemini #1 100件 / ② Stage3 Gemini #2 通過 / ③ Stage5 最終採用)
+  // デフォルトは ③ (採用候補リスト)
+  const [pipelineStage, setPipelineStage] = useState<1 | 3 | 5>(5);
 
   // ベストセラー画面 → 「この商品でスカウト」遷移時に q クエリで subject 上書き
   useEffect(() => {
@@ -809,10 +808,7 @@ export default function ProductsClient() {
                       const cand = result.candidates ?? [];
                       const stats = result.stats ?? {
                         stage1Generated: cand.length + rej.length,
-                        stage3PassedKd:
-                          cand.length +
-                          rej.filter((r) => r.stage === "stage5_metric_rejected").length,
-                        stage5PassedMetrics: cand.length,
+                        stage3Passed: cand.length,
                         finalCount: cand.length,
                         adoptedCount: cand.filter((c) => c.decision === "adopt").length,
                       };
@@ -820,9 +816,8 @@ export default function ProductsClient() {
                       <div className="shrink-0 flex items-center gap-1">
                         {([
                           { s: 1 as const, label: `① ${stats.stage1Generated}`, title: "Gemini #1 が生成した KW 全件" },
-                          { s: 3 as const, label: `② ${stats.stage3PassedKd}`, title: "Stage 3 KD閾値+Gemini #2 を通過した KW" },
-                          { s: 5 as const, label: `③ ${stats.stage5PassedMetrics}`, title: "Stage 5 数値+Gemini #3 を通過した KW" },
-                          { s: 7 as const, label: `④ ${stats.adoptedCount}`, title: "Stage 7 最終採用された KW" },
+                          { s: 3 as const, label: `② ${stats.stage3Passed}`, title: "Stage 3 Gemini #2 (数値+重複排除) を通過した KW" },
+                          { s: 5 as const, label: `③ ${stats.adoptedCount}`, title: "Stage 5 最終採用された KW" },
                         ]).map(({ s, label, title }) => (
                           <button
                             key={s}
@@ -844,16 +839,16 @@ export default function ProductsClient() {
                   </div>
                   {/* スクロール領域 (この部分だけスクロールバー表示) */}
                   <div className="flex-1 overflow-y-auto pr-2 mt-2 min-h-0">
-                  {/* === パイプライン段階別ビュー ① / ② / ③ === */}
-                  {pipelineStage !== 7 && (
+                  {/* === パイプライン段階別ビュー ① / ② === */}
+                  {pipelineStage !== 5 && (
                     <StagePipelineView
                       stage={pipelineStage}
                       adopted={result.candidates}
                       rejected={result.rejectedCandidates ?? []}
                     />
                   )}
-                  {/* === ④ Stage 7 最終採用候補リスト (現状の詳細カード) === */}
-                  {pipelineStage === 7 && (
+                  {/* === ③ Stage 5 最終採用候補リスト (詳細カード) === */}
+                  {pipelineStage === 5 && (
                   <ul className="space-y-2">
                     {result.candidates.map((c, i) => {
                       const isOpen = expanded.has(i);
@@ -1305,7 +1300,7 @@ function StagePipelineView({
   adopted,
   rejected,
 }: {
-  stage: 1 | 3 | 5;
+  stage: 1 | 3;
   adopted: ScoutCandidate[];
   rejected: RejectedCandidate[];
 }) {
@@ -1342,29 +1337,13 @@ function StagePipelineView({
         headline: `Gemini #1 が生成した全候補 (${all.length}件)`,
       };
     }
-    if (stage === 3) {
-      // 通過: Stage5以降に進んだ全部 (= adopted + stage5_metric_rejected)
-      // 落選: Stage3で落ちた (kd超過 or Gemini除外)
-      const p = [
-        ...adoptedAsItems,
-        ...rejAsItems((r) => r.stage === "stage5_metric_rejected"),
-      ];
-      const f = rejAsItems(
-        (r) => r.stage === "stage3_kd_rejected" || r.stage === "stage3_filter_rejected",
-      );
-      return {
-        passed: p,
-        failed: f,
-        headline: `Stage 3 KD閾値 + Gemini #2 (重複/不適切排除)`,
-      };
-    }
-    // stage === 5
+    // stage === 3: Gemini #2 (数値+重複排除) 通過/落選
     const p = adoptedAsItems;
-    const f = rejAsItems((r) => r.stage === "stage5_metric_rejected");
+    const f = rejAsItems((r) => r.stage === "stage3_rejected");
     return {
       passed: p,
       failed: f,
-      headline: `Stage 5 数値 + Gemini #3 (SV/CPC/intent 評価)`,
+      headline: `Stage 3 Gemini #2 (数値+重複/不適切排除)`,
     };
   }, [stage, adopted, rejected]);
 

@@ -24,13 +24,11 @@ export async function POST(req: NextRequest) {
     try {
       const { subject, config } = (await req.json().catch(() => ({}))) as {
         subject?: string;
-        // ScoutPipelineConfig はサーバ側で安全に使えるサブセットだけ受け付ける
-        // (Gemini プロンプト関数は P5 で別途設定画面から差替)
+        // ScoutPipelineConfig のサブセットだけ受け付ける (5段パイプライン用)
         config?: {
           kwCandidateCount?: number;
-          kdMaxStage3?: number;
-          minSvStage5?: number;
-          minCpcStage5?: number;
+          minSv?: number;
+          minCpc?: number;
           maxFinalCount?: number;
           excludeKws?: string[];
         };
@@ -42,21 +40,18 @@ export async function POST(req: NextRequest) {
       // 現プロジェクトの enabled な destination 一覧 (destinationStatus 用)
       const destinations = (await loadDestinations(ctx.projectId)).filter((d) => d.enabled);
 
-      // プロジェクト設定 (除外KW / 閾値 / Gemini プロンプト4段) を読み込んで、
-      // body.config と合体 (body 優先)。文字列プロンプトは scoutPipeline 側で
-      // renderTemplate を介して展開される (placeholder: {subject}/{keywords}/...)。
+      // プロジェクト設定 (除外KW / 閾値 / Gemini プロンプト3段) を読み込んで、
+      // body.config と合体 (body 優先)。
       const projectConfig = await loadScoutConfig(ctx.projectId);
       const mergedConfig = {
         kwCandidateCount: config?.kwCandidateCount ?? projectConfig.kwCandidateCount,
-        kdMaxStage3: config?.kdMaxStage3 ?? projectConfig.kdMaxStage3,
-        minSvStage5: config?.minSvStage5 ?? projectConfig.minSvStage5,
-        minCpcStage5: config?.minCpcStage5 ?? projectConfig.minCpcStage5,
+        minSv: config?.minSv ?? projectConfig.minSv,
+        minCpc: config?.minCpc ?? projectConfig.minCpc,
         maxFinalCount: config?.maxFinalCount ?? projectConfig.maxFinalCount,
         excludeKws: config?.excludeKws ?? projectConfig.excludeKws,
-        // Gemini プロンプト4段 (文字列テンプレ、空欄ならデフォルト)
+        // Gemini プロンプト3段 (文字列テンプレ、空欄ならデフォルト)
         promptKwGen: projectConfig.promptKwGen,
         promptStage3: projectConfig.promptStage3,
-        promptStage5: projectConfig.promptStage5,
         promptFinal: projectConfig.promptFinal,
       };
 

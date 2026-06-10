@@ -13,17 +13,15 @@ export type ScoutConfig = {
   // 件数
   kwCandidateCount?: number;     // Gemini #1 生成数 (default 100)
   maxFinalCount?: number;         // 最終判定に回すKW数 (default 10)
-  // 閾値
-  kdMaxStage3?: number;           // KD <= この値 を通過 (default 30)
-  minSvStage5?: number;           // SV >= この値 を通過 (default 100)
-  minCpcStage5?: number;          // CPC >= この値 USD (default 0.2)
+  // 閾値 (Stage 3 で Gemini #2 に渡す)
+  minSv?: number;                 // SV >= この値 を通過 (default 100)
+  minCpc?: number;                // CPC >= この値 USD (default 0.2)
   // 除外KW
   excludeKws?: string[];
-  // Gemini プロンプト4段 (未設定なら scoutPipeline 側のデフォルトを使用)
-  promptKwGen?: string;           // Stage 1: KW候補生成 — 直接 keywordExpander にも渡せる将来拡張
-  promptStage3?: string;          // Stage 3: KD閾値後の1次絞り込み
-  promptStage5?: string;          // Stage 5: 数値後の2次絞り込み
-  promptFinal?: string;           // Stage 7: 最終判定
+  // Gemini プロンプト3段 (未設定なら scoutPipeline 側のデフォルトを使用)
+  promptKwGen?: string;           // Stage 1: KW候補生成
+  promptStage3?: string;          // Stage 3: 数値+重複/不適切で 1次絞り込み
+  promptFinal?: string;           // Stage 5: SERP込みの最終判定
 };
 
 // ---------- ScoutConfig ----------
