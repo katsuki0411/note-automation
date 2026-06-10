@@ -358,13 +358,14 @@ async function stage3FilterByMetrics(
   const minCpc = config.minCpc ?? 0.2;
   const maxFinalCount = config.maxFinalCount ?? 10;
 
-  const overviewMap = new Map(overviewItems.map((o) => [o.kw, o]));
+  // DFS は keyword を lower-case で返すことがあるため、マップキーは全部小文字統一。
+const overviewMap = new Map(overviewItems.map((o) => [o.kw.toLowerCase(), o]));
 
   const promptInput: Stage3PromptInput = {
     subject,
     category,
     keywords: expanded.map((kw) => {
-      const ov = overviewMap.get(kw.kw);
+      const ov = overviewMap.get(kw.kw.toLowerCase());
       return {
         kw: kw.kw,
         intent: kw.intent,
@@ -406,7 +407,7 @@ async function stage3FilterByMetrics(
     console.warn(`[stage3FilterByMetrics] Gemini failed, fallback to threshold-only:`, e);
     return expanded
       .filter((kw) => {
-        const ov = overviewMap.get(kw.kw);
+        const ov = overviewMap.get(kw.kw.toLowerCase());
         const sv = ov?.searchVolume ?? 0;
         const cpc = ov?.cpc ?? 0;
         return sv >= minSv && cpc >= minCpc;
@@ -531,7 +532,18 @@ export async function runScoutPipeline(
 
   // Stage 2: DFS Keyword Overview
   const overviewItems = await keywordOverview(expanded.map((k) => k.kw));
-  const overviewMap = new Map(overviewItems.map((o) => [o.kw, o]));
+  // DFS は keyword を lower-case で返すことがあるため、マップキーは全部小文字統一。
+  const overviewMap = new Map(overviewItems.map((o) => [o.kw.toLowerCase(), o]));
+  // 取得状況を診断ログに残す (キーが一致しない事象の早期発見用)
+  const matchedCount = expanded.filter((k) => overviewMap.has(k.kw.toLowerCase())).length;
+  console.log(
+    `[scoutPipeline] Stage2 overview: requested=${expanded.length}, returned=${overviewItems.length}, matched=${matchedCount}`,
+  );
+  if (matchedCount === 0 && expanded.length > 0) {
+    console.warn(
+      `[scoutPipeline] No overview match! sample requested="${expanded[0]?.kw}" vs returned="${overviewItems[0]?.kw ?? "(none)"}"`,
+    );
+  }
 
   // Stage 3: Gemini #2  数値 + 重複/不適切排除で 1次絞り込み
   const stage3Pass = await stage3FilterByMetrics(subject, category, expanded, overviewItems, config);
@@ -541,7 +553,7 @@ export async function runScoutPipeline(
   const rejected: ScoutAllCandidate[] = [];
   for (const kw of expanded) {
     if (stage3PassSet.has(kw.kw)) continue;
-    const ov = overviewMap.get(kw.kw);
+    const ov = overviewMap.get(kw.kw.toLowerCase());
     rejected.push({
       kw: kw.kw,
       intent: kw.intent,
@@ -583,7 +595,7 @@ export async function runScoutPipeline(
 
   // Stage 4 で取れた情報を candidate に詰める
   const stage4Candidates: ScoutFinalCandidate[] = stage3Pass.map((kw, i) => {
-    const ov = overviewMap.get(kw.kw);
+    const ov = overviewMap.get(kw.kw.toLowerCase());
     const serp = serpResults[i];
     return {
       kw: kw.kw,
