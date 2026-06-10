@@ -3,8 +3,10 @@ import type { JSONValue } from "postgres";
 import { sql } from "./db";
 
 // =========================================================
-// プロジェクト単位の設定 (拡張プラン B' + 3段プロンプト記事生成)
-// migration 0016 で追加された scout_config / article_gen_config の TS 型 + アクセサ
+// プロジェクト単位の設定 (拡張プラン B')
+// migration 0016 で追加された scout_config の TS 型 + アクセサ。
+// article_gen_config カラム自体は DB に残っているが、フォールバックを
+// 廃止 (2026-06-10) したため未使用。記事生成プロンプトは destination 単位で設定する。
 // =========================================================
 
 export type ScoutConfig = {
@@ -22,14 +24,6 @@ export type ScoutConfig = {
   promptStage3?: string;          // Stage 3: KD閾値後の1次絞り込み
   promptStage5?: string;          // Stage 5: 数値後の2次絞り込み
   promptFinal?: string;           // Stage 7: 最終判定
-};
-
-export type ArticleGenConfig = {
-  // 3段プロンプトチェーン (各段の入力テキスト)
-  // 1段目: 通常のプロンプト → 1次出力
-  // 2段目: 1次出力 + 2段目プロンプト → 2次出力
-  // 3段目: 2次出力 + 3段目プロンプト → 最終投稿内容
-  prompts?: [string, string, string];
 };
 
 // ---------- ScoutConfig ----------
@@ -52,22 +46,3 @@ export async function saveScoutConfig(
   `;
 }
 
-// ---------- ArticleGenConfig ----------
-
-export async function loadArticleGenConfig(projectId: string): Promise<ArticleGenConfig> {
-  const rows = await sql<{ article_gen_config: ArticleGenConfig | null }[]>`
-    select article_gen_config from projects where id = ${projectId} limit 1
-  `;
-  return rows[0]?.article_gen_config ?? {};
-}
-
-export async function saveArticleGenConfig(
-  projectId: string,
-  config: ArticleGenConfig,
-): Promise<void> {
-  await sql`
-    update projects
-       set article_gen_config = ${sql.json(config as unknown as JSONValue)}
-     where id = ${projectId}
-  `;
-}

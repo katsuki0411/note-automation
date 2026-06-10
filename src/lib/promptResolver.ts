@@ -1,11 +1,7 @@
-import { ARTICLE_SYSTEM } from "./prompts";
 import type { PostingDestinationRow } from "./posters/types";
-import type { ProjectKind, ProjectPersonaConfig } from "./projects";
 
 // destination の prompt_config の構造定義。
-// 2026-06-09 拡張: stages (3段プロンプトチェーン) を追加。
-// 既存の 10項目 (role/authorProfile/...) は後方互換のため残置 (UI からは編集できない)。
-// 優先度: stages > 旧10項目 > housewife-default > null
+// stages (3段プロンプトチェーン) を優先。旧10項目は後方互換のため残置 (UIからは編集不可)。
 export type DestinationPromptConfig = {
   // 新: 3段プロンプトチェーン (destination 単位)
   stages?: [string, string, string];
@@ -42,7 +38,6 @@ export function extractDestinationStages(
 }
 
 export type ResolvedPrompt = {
-  source: "custom" | "housewife-default";
   systemPrompt: string;
 };
 
@@ -87,39 +82,21 @@ export function buildSystemPromptFromConfig(cfg: DestinationPromptConfig): strin
   return sections.join("\n\n");
 }
 
-export type ProjectContextForPrompt = {
-  kind: ProjectKind;
-  personaConfig: ProjectPersonaConfig;
-};
-
-// destination + project から記事生成用 system prompt を解決する。
+// destination から記事生成用 system prompt を解決する。
 // - prompt_config が設定済 → 項目を連結してカスタムプロンプトを返す
-// - 空 && 主婦判定 → 既存の主婦デフォルトテンプレ (ARTICLE_SYSTEM)
-//   主婦判定: project.kind === 'research_based' AND persona.kind === 'housewife'
-//   (Phase 3 時代の互換: aff project は research_based でも housewife でないので fallback 不可)
-// - それ以外 → null (記事生成不可、呼び出し側で 400 を返す)
+// - 設定なし → null (呼び出し側で 400 を返す)
+// フォールバック (主婦デフォルト等) は廃止。destination ごとに必ず設定する運用。
 export function resolveSystemPrompt(
   destination: PostingDestinationRow,
-  project: ProjectContextForPrompt,
 ): ResolvedPrompt | null {
   const cfg = (destination.prompt_config ?? {}) as DestinationPromptConfig;
   if (isPromptConfigConfigured(cfg)) {
     return {
-      source: "custom",
       systemPrompt: buildSystemPromptFromConfig(cfg),
-    };
-  }
-  if (
-    project.kind === "research_based" &&
-    project.personaConfig.kind === "housewife"
-  ) {
-    return {
-      source: "housewife-default",
-      systemPrompt: ARTICLE_SYSTEM,
     };
   }
   return null;
 }
 
 export const PROMPT_NOT_CONFIGURED_ERROR =
-  "投稿先のプロンプトが設定されていません。設定画面で記事生成プロンプトを設定してください。";
+  "投稿先のプロンプトが設定されていません。設定 → 投稿先 → 各サイトの「プロンプト編集」で 3段プロンプトを設定してください。";

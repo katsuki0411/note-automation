@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
-import { ARTICLE_USER } from "@/lib/prompts";
 import { loadArticles, saveArticle, type Article, type Idea } from "@/lib/storage";
-import { BRAND, getCtaConfig, MID_ENGAGE_CTA, type ThemeTagKey } from "@/lib/brand";
+import { BRAND, type ThemeTagKey } from "@/lib/brand";
 import { attachArticleToKeyword, loadKeywords } from "@/lib/keywords";
 import { getDestination } from "@/lib/destinations";
 import {
@@ -15,11 +14,8 @@ import {
   generateArticleTextChain,
   isArticleModel,
 } from "@/lib/articleGen";
-import { loadArticleGenConfig } from "@/lib/projectConfigs";
 import type { FeedIdea, Keyword, ThemeId } from "@/lib/types";
 import { withProjectContext } from "@/lib/auth";
-import { sql } from "@/lib/db";
-import type { ProjectKind, ProjectPersonaConfig } from "@/lib/projects";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -72,10 +68,10 @@ async function pickTargetKeyword(
   return candidates[0];
 }
 
-// カスタムプロンプト用のシンプルな user prompt。
-// idea / 関連記事 / 狙うキーワード を JSON 風に渡し、AI に system プロンプトに沿って
-// 出力させる。主婦テンプレ専用の CTA / BRAND placeholder は使わない。
-function buildCustomUserPrompt(args: {
+// destination のプロンプト設定を使うシンプルな user prompt。
+// idea / 関連記事 / 狙うキーワード を JSON 風に渡し、destination 側の system プロンプト
+// (3段または旧10項目) に沿って AI に出力させる。
+function buildUserPrompt(args: {
   idea: Idea | FeedIdea;
   relatedArticles: { title: string; hook?: string }[];
   fixedTags: string[];
@@ -84,7 +80,7 @@ function buildCustomUserPrompt(args: {
   const { idea, relatedArticles, fixedTags, targetKeyword } = args;
   const feed = idea as FeedIdea;
   return `
-以下のネタで note 記事を生成してください。
+以下のネタで記事を生成してください。
 
 【ネタ】
 - タイトル候補: ${idea.title}
@@ -130,21 +126,14 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // destination と project の persona を取得
       const destination = await getDestination(ctx.projectId, destinationId);
       if (!destination) {
         return Response.json({ error: "destination が見つかりません" }, { status: 404 });
       }
-      const projectRow = await sql<
-        { kind: ProjectKind; persona_config: ProjectPersonaConfig }[]
-      >`select kind, persona_config from projects where id = ${ctx.projectId} limit 1`;
-      const projectMeta = {
-        kind: projectRow[0]?.kind ?? "research_based",
-        personaConfig: projectRow[0]?.persona_config ?? {},
-      };
 
-      // プロンプト解決: カスタム or housewife-default or null
-      const resolved = resolveSystemPrompt(destination, projectMeta);
+      // destination の prompt_config からプロンプトを解決。
+      // 未設定なら 400 (フォールバックなし)。
+      const resolved = resolveSystemPrompt(destination);
       if (!resolved) {
         return Response.json(
           {
@@ -163,82 +152,38 @@ export async function POST(req: NextRequest) {
       const explicitKwId = targetKeywordId ?? feed.targetKeywordId;
       const targetKw = await pickTargetKeyword(ctx.projectId, feed.themeId, explicitKwId);
 
-      // user prompt の組み立て: 主婦デフォルトはレガシー ARTICLE_USER (CTA placeholder 等を含む)、
-      // カスタムはシンプルな buildCustomUserPrompt を使う
-      let userPrompt: string;
-      if (resolved.source === "housewife-default") {
-        const cta = getCtaConfig();
-        userPrompt = ARTICLE_USER({
-          title: idea.title,
-          hook: idea.hook,
-          angle: idea.angle,
-          voice: feed.voice
-            ? {
-                quote: feed.voice.quote,
-                platform: feed.voice.platform,
-                context: feed.voice.context,
-              }
-            : undefined,
-          toolConcept: feed.toolConcept,
-          relatedArticles,
-          fixedTags,
-          targetKeyword: targetKw
-            ? { kw: targetKw.kw, intent: targetKw.intent, longTail: feed.keywords?.longTail }
-            : undefined,
-          ctaChannel: cta.channel,
-          ctaAction: cta.action,
-          ctaHowTo: cta.howToFull,
-          ctaButton: cta.buttonMarkdown,
-        });
-      } else {
-        userPrompt = buildCustomUserPrompt({
-          idea,
-          relatedArticles,
-          fixedTags,
-          targetKeyword: targetKw
-            ? { kw: targetKw.kw, intent: targetKw.intent, longTail: feed.keywords?.longTail }
-            : undefined,
-        });
-      }
+      const userPrompt = buildUserPrompt({
+        idea,
+        relatedArticles,
+        fixedTags,
+        targetKeyword: targetKw
+          ? { kw: targetKw.kw, intent: targetKw.intent, longTail: feed.keywords?.longTail }
+          : undefined,
+      });
 
-      // 3段プロンプトチェーン: destination 単位 → project 単位 → なし、の優先順位で決定
-      // (MTG 2026-06-07 決定 + 2026-06-09 destination 単位対応)
-      // 1. destination.prompt_config.stages が設定されていればそれを使う (媒体別最適化)
-      // 2. なければ project の article_gen_config.prompts を使う (全媒体共通)
-      // 3. 両方なければ従来通り 1段で JSON 生成
+      // 3段プロンプトチェーン: destination.prompt_config.stages のみ参照。
+      // stages 未設定なら 1段で systemPrompt + userPrompt で実行。
       const destinationStages = extractDestinationStages(destination);
-      const articleGenConfig = await loadArticleGenConfig(ctx.projectId);
-      const projectStages = articleGenConfig.prompts ?? ["", "", ""];
-      const chainPrompts: [string, string, string] = destinationStages ?? projectStages;
-      const chainSource: "destination" | "project" | "none" = destinationStages
-        ? "destination"
-        : projectStages.some((p) => p && p.trim().length > 0)
-          ? "project"
-          : "none";
-      const useChain = chainSource !== "none";
+      const useChain = destinationStages !== null;
 
       let responseText: string;
-      if (useChain) {
+      if (useChain && destinationStages) {
         let context = "";
-        // Stage 1 (空ならスキップ)
-        if (chainPrompts[0]?.trim()) {
+        if (destinationStages[0]?.trim()) {
           context = await generateArticleTextChain({
             model: articleModel,
             system: resolved.systemPrompt,
-            user: `${userPrompt}\n\n# 1段目プロンプト\n${chainPrompts[0]}`,
+            user: `${userPrompt}\n\n# 1段目プロンプト\n${destinationStages[0]}`,
           });
         }
-        // Stage 2 (空ならスキップ)
-        if (chainPrompts[1]?.trim()) {
+        if (destinationStages[1]?.trim()) {
           context = await generateArticleTextChain({
             model: articleModel,
             system: resolved.systemPrompt,
-            user: `# 前段の出力\n${context || "(なし)"}\n\n# 2段目プロンプト\n${chainPrompts[1]}`,
+            user: `# 前段の出力\n${context || "(なし)"}\n\n# 2段目プロンプト\n${destinationStages[1]}`,
           });
         }
-        // Stage 3 = 最終段。JSON 出力に切替。
-        // prompts[2] が空でも、context があれば JSON 化のため最終段を呼ぶ。
-        const stage3Hint = chainPrompts[2]?.trim() ?? "";
+        const stage3Hint = destinationStages[2]?.trim() ?? "";
         responseText = await generateArticleJsonText({
           model: articleModel,
           system: resolved.systemPrompt,
@@ -255,16 +200,6 @@ export async function POST(req: NextRequest) {
 
       let body = (parsed.body_markdown as string) ?? "";
       body = body.replace(/^\s*#\s+[^\n]+\n+/, "");
-      // 主婦デフォルト時のみ既存 placeholder を埋める
-      if (resolved.source === "housewife-default") {
-        const cta = getCtaConfig();
-        body = body.replaceAll("---FIXED_AUTHOR_BIO_PLACEHOLDER---", BRAND.authorBio);
-        body = body.replaceAll("---MID_ENGAGE_CTA_PLACEHOLDER---", MID_ENGAGE_CTA);
-        body = body.replaceAll("{{cta.channel}}", cta.channel);
-        body = body.replaceAll("{{cta.action}}", cta.action);
-        body = body.replaceAll("{{cta.howToFull}}", cta.howToFull);
-        body = body.replaceAll("{{cta.buttonMarkdown}}", cta.buttonMarkdown);
-      }
 
       const article: Article = {
         id: crypto.randomUUID(),
@@ -276,7 +211,7 @@ export async function POST(req: NextRequest) {
         bodyMarkdown: body,
         imagePromptSubject: (parsed.image_prompt_subject as string) ?? "",
         imageAltText: (parsed.image_alt_text as string) ?? "",
-        destinationId, // どのサイト用に生成された記事かを保存
+        destinationId,
       };
 
       await saveArticle(ctx.projectId, ctx.userId, article);
@@ -288,11 +223,9 @@ export async function POST(req: NextRequest) {
       return Response.json({
         article,
         targetKeyword: targetKw,
-        promptSource: resolved.source,
-        chainSource, // "destination" | "project" | "none" (どの3段プロンプトを使ったか)
+        chainSource: useChain ? "destination" : "none",
       });
     } catch (e) {
-      // Vercel runtime logs に詳細を残す (デフォルトの 500 ハンドラだと message が省略される)
       console.error("[/api/generate] failed:", e);
       if (e instanceof Error && e.stack) {
         console.error("[/api/generate] stack:", e.stack);

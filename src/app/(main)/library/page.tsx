@@ -7,7 +7,6 @@ import { THEMES } from "@/lib/types";
 import PageHeader from "@/components/PageHeader";
 import Loading from "@/components/Loading";
 import { FilterBar, GroupTab } from "@/components/FilterBar";
-import ArticleGenConfigTab from "../settings/ArticleGenConfigTab";
 import { getCache, setCache } from "@/lib/clientCache";
 import { postToNote, type NotePostResult } from "@/lib/notePost";
 import {
@@ -23,7 +22,7 @@ const SELECTED_KW_CACHE_KEY = "library:selectedKw";
 const SELECTED_DEST_CACHE_KEY = "library:selectedDest";
 const TAB_CACHE_KEY = "library:tab";
 
-type LibraryTab = "articles" | "prompts";
+type LibraryTab = "articles";
 
 // project.kind に応じて空状態の文言とリンク先を切替
 function EmptyLibraryCta() {
@@ -698,9 +697,6 @@ export default function LibraryPage() {
                 <span className="ml-1.5 text-[10px] opacity-70">({articles.length})</span>
               )}
             </GroupTab>
-            <GroupTab active={tab === "prompts"} onClick={() => setTab("prompts")}>
-              記事生成プロンプト
-            </GroupTab>
           </div>
         </FilterBar>
       </PageHeader>
@@ -709,9 +705,6 @@ export default function LibraryPage() {
         <div className="card p-10">
           <Loading size="lg" message="ライブラリを読み込み中…" fill={false} />
         </div>
-      ) : tab === "prompts" ? (
-        // 「記事生成プロンプト」タブ: 記事0件でも編集可能 (=設定なので空状態と関係なし)
-        <ArticleGenConfigTab />
       ) : articles.length === 0 ? (
         <EmptyLibraryCta />
       ) : tab === "articles" ? (
