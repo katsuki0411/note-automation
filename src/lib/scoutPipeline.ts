@@ -2,7 +2,7 @@ import "server-only";
 import { gemini, MODELS } from "./gemini";
 import { expandKeywords, type ExpandedKeyword, type ScoutCategory } from "./keywordExpander";
 import {
-  keywordOverview,
+  searchVolumeBulk,
   fetchSerpAdvanced,
   type KeywordOverviewItem,
   type SerpAdvancedResponse,
@@ -530,8 +530,11 @@ export async function runScoutPipeline(
     };
   }
 
-  // Stage 2: DFS Keyword Overview
-  const overviewItems = await keywordOverview(expanded.map((k) => k.kw));
+  // Stage 2: DFS Google Ads Search Volume (bulk対応)
+  // Keyword Overview Live は 1リクエスト 1KW しか返さないため、bulk な
+  // Search Volume API に切替。SV/CPC/competition は取れるが KD は取れない
+  // (KD は Backlinks 契約後に Keyword Overview 経由で別途追加する想定)。
+  const overviewItems = await searchVolumeBulk(expanded.map((k) => k.kw));
   // DFS は keyword を lower-case で返すことがあるため、マップキーは全部小文字統一。
   const overviewMap = new Map(overviewItems.map((o) => [o.kw.toLowerCase(), o]));
   // 取得状況を診断ログに残す (キーが一致しない事象の早期発見用)

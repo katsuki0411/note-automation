@@ -466,6 +466,79 @@ export async function keywordOverview(
 }
 
 /**
+ * Google Ads Search Volume Bulk — 100KW 単位で SV/CPC/competition を一括取得。
+ * Keyword Overview Live が 1KW しか返さないため、Stage 2 の bulk 取得用に使う。
+ * $0.075 / 100 keywords (Keyword Overview の 13倍安い)。
+ * keyword_difficulty / search_intent_info は取れないので null を返す
+ * (KD は Backlinks 契約後に Keyword Overview で別途取得する想定)。
+ */
+export async function searchVolumeBulk(
+  kws: string[],
+  opts: { locationCode?: number; languageCode?: string } = {},
+): Promise<KeywordOverviewItem[]> {
+  if (process.env.DATAFORSEO_USE_MOCK === "true") {
+    return mockKeywordOverview(kws);
+  }
+  const creds = envCredentials();
+  if (!creds) {
+    throw new Error("DataForSEO 認証情報が未設定 (env)");
+  }
+  const body = [
+    {
+      keywords: kws,
+      location_code: opts.locationCode ?? LOCATION_JP,
+      language_code: opts.languageCode ?? LANGUAGE_JP,
+    },
+  ];
+  const res = await fetch(
+    `${BASE}/keywords_data/google_ads/search_volume/live`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: authHeader(creds.login, creds.password),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`DataForSEO Search Volume error: ${res.status} ${await res.text()}`);
+  }
+  type Raw = {
+    keyword?: string;
+    search_volume?: number | null;
+    cpc?: number | null;
+    competition?: string | null;        // "HIGH" / "MEDIUM" / "LOW"
+    competition_index?: number | null;  // 0-100
+    monthly_searches?: Array<{ year: number; month: number; search_volume: number }>;
+  };
+  // ★ 重要: Search Volume API は items ではなく result 直下に各 KW が並ぶ
+  const data = (await res.json()) as {
+    tasks?: Array<{ result?: Raw[] | null }>;
+  };
+  const items = data.tasks?.[0]?.result ?? [];
+  return items.map((it) => ({
+    kw: it.keyword ?? "",
+    searchVolume: it.search_volume ?? null,
+    cpc: it.cpc ?? null,
+    // competition_index (0-100) を 0-1 にスケール
+    competition:
+      typeof it.competition_index === "number" ? it.competition_index / 100 : null,
+    competitionLevel: it.competition ?? null,
+    keywordDifficulty: null, // Search Volume API では取得不可
+    searchIntent: null,      // Search Volume API では取得不可
+    monthlySearches: (it.monthly_searches ?? []).map((m) => ({
+      year: m.year,
+      month: m.month,
+      searchVolume: m.search_volume,
+    })),
+    avgBacklinksMain: null,
+    avgBacklinksReferringDomains: null,
+    serpItemTypes: [],
+  }));
+}
+
+/**
  * SERP Organic Live Advanced — 上位N件 + 全 SERP feature。
  * AI Overview 含む。$0.002/req (+ AI Overview tracking で +$0.0006/req)。
  */
