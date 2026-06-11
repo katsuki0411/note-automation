@@ -84,6 +84,7 @@ type ScoutCandidate = {
 };
 
 type ScoutStats = {
+  stage0SeedCount?: number;
   stage1Generated: number;
   stage3Passed: number;
   finalCount: number;
@@ -638,7 +639,7 @@ export default function ProductsClient() {
             </button>
           </div>
           <p className="text-[11px] text-[color:var(--fg-muted)]">
-            ⚠ 1回あたり Gemini × 3 + DataForSEO × 2 (5段パイプライン)。 1スカウト ¥30 前後 / 100KW から採用3-5件
+            ⚠ 1回あたり Gemini × 3 + DataForSEO × 4 (6段パイプライン)。 1スカウト ¥35 前後 / 100KW から採用3-5件
           </p>
         </div>
         )}
@@ -1084,7 +1085,7 @@ export default function ProductsClient() {
 
         {tab === "new" && busy && (
           <div className="p-4 rounded-lg border border-[var(--border-subtle)] bg-gray-50 text-center text-[13px] text-[color:var(--fg-secondary)]">
-            ⏳ 5段パイプライン実行中 (Gemini #1 → DFS Overview → Gemini #2 → DFS SERP → Gemini #3)…<br />
+            ⏳ 6段パイプライン実行中 (DFS Related/Suggestions → Gemini #1 → DFS Search Volume → Gemini #2 → DFS SERP → Gemini #3)…<br />
             <span className="text-[11px] text-[color:var(--fg-muted)]">
               1〜2分かかる場合があります
             </span>

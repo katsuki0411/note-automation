@@ -36,7 +36,7 @@ export type ExpandKeywordsResult = {
 // 2026-06-07: 30件 → 100件に拡張。 拡張プラン B' のスカウト初期段で「広く取って
 // DFS Bulk KD で安く絞る」ためにバッターボックスを大きく取る方針。
 // Phase 5 で「設定画面でユーザー編集可能」にする予定。
-const EXPAND_PROMPT = (subject: string, excludeKws: string[]) => `
+const EXPAND_PROMPT = (subject: string, excludeKws: string[], seedKeywords: string[]) => `
 あなたはアフィリエイトSEOのキーワードリサーチャーです。
 
 # ミッション
@@ -45,13 +45,13 @@ const EXPAND_PROMPT = (subject: string, excludeKws: string[]) => `
 2. このお題が属するジャンルを以下から1つ選ぶ:
    ${SCOUT_CATEGORIES.join(" / ")}
 
-後段のフロー (DFS Bulk KD で安価スクリーニング → Keyword Overview で精査) で
-上澄みを絞るための「広めの母数」を作るのが狙いです。
+後段で Google Ads Search Volume + SERP 分析で絞り込むため、「広めの母数」を作るのが狙いです。
 
 # お題
 ${subject}
+${seedKeywords.length > 0 ? `\n# 実際に Google で検索されている関連KW (DFS Related + Suggestions 由来、実検索データ)\n以下はあなたの想像ではなく、実際に検索されているフレーズです。\n**これらを起点・参考にして** 語尾・年代・シーンを加えた 100件を作ってください\n(これら自体も該当するなら含めて OK):\n${seedKeywords.map((k) => `- ${k}`).join("\n")}` : ""}
 
-# 抽出方針 (MTG 2026-06-07 決定)
+# 抽出方針
 - **商標入りKWを必ず含める** (商品名 + 周辺KW)
 - **購入直前のKW (CVキーワード)** を中核に置く
    - 例: "○○ 価格", "○○ 最安", "○○ amazon", "○○ 買い方", "○○ 在庫"
@@ -62,6 +62,7 @@ ${subject}
 - 単一語ではなく **2〜4語の複合フレーズ** を中心に
 - 「○○ おすすめ」「○○ 比較」「○○ 違い」「○○ いつから」「○○ デメリット」「○○ 安い」など多様な切り口
 - 100件出すために無理にこじつけず、本当に検索されそうなフレーズだけにする (質 > 数)
+- 上の「実検索KW」を超えて、想像で作る場合も実検索データに似た表現に寄せる
 - intent は以下から選ぶ:
   - info     : 情報収集
   - how-to   : やり方
@@ -134,9 +135,11 @@ function clampIntent(v: unknown): ExpandedKeyword["intent"] {
 export type ExpandKeywordsOptions = {
   excludeKws?: string[]; // 結果に含めないKW (プロジェクト単位の除外リスト)
   maxKeywords?: number;  // 取得上限 (デフォルト100)
-  customPrompt?: string; // カスタムプロンプト (placeholder: {subject} / {excludeKws} / {maxKeywords})
+  customPrompt?: string; // カスタムプロンプト (placeholder: {subject} / {excludeKws} / {maxKeywords} / {seedKeywords})
                           // 指定時は EXPAND_PROMPT の代わりにこれを使う。
                           // 出力フォーマット指示は末尾に強制 append される (パース壊れ防止)。
+  seedKeywords?: string[]; // Stage 0 で DFS Related/Suggestions から取得したシード KW
+                            // Gemini #1 に「実検索データ」として渡してハルシ抑制
 };
 
 // 出力フォーマット指示 (customPrompt 末尾に必ず append する)
@@ -162,6 +165,7 @@ export async function expandKeywords(
   if (!trimmed) throw new Error("subject が空です");
   const excludeKws = opts.excludeKws ?? [];
   const maxKeywords = opts.maxKeywords ?? 100;
+  const seedKeywords = opts.seedKeywords ?? [];
 
   // customPrompt があれば renderTemplate で展開、なければ EXPAND_PROMPT デフォルト
   const userPrompt = opts.customPrompt?.trim()
@@ -169,8 +173,12 @@ export async function expandKeywords(
         subject: trimmed,
         maxKeywords,
         excludeKws: excludeKws.length > 0 ? excludeKws.map((k) => `- ${k}`).join("\n") : "(なし)",
+        seedKeywords:
+          seedKeywords.length > 0
+            ? seedKeywords.map((k) => `- ${k}`).join("\n")
+            : "(シードなし)",
       }) + OUTPUT_FOOTER
-    : EXPAND_PROMPT(trimmed, excludeKws);
+    : EXPAND_PROMPT(trimmed, excludeKws, seedKeywords);
 
   const ai = gemini();
   const response = await ai.models.generateContent({

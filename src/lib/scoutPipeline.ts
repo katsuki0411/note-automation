@@ -4,24 +4,25 @@ import { expandKeywords, type ExpandedKeyword, type ScoutCategory } from "./keyw
 import {
   searchVolumeBulk,
   fetchSerpAdvanced,
+  relatedKeywords,
+  keywordSuggestions,
   type KeywordOverviewItem,
   type SerpAdvancedResponse,
 } from "./dataforseo";
 import { renderTemplate } from "./promptTemplate";
 
 // =========================================================
-// KW スカウト 5段パイプライン (2026-06-10 リファクタ)
+// KW スカウト 6段パイプライン (2026-06-11 リファクタ)
 // =========================================================
-// Stage 1: Gemini #1  KW候補 100件生成
-// Stage 2: DFS    #1  Keyword Overview Live (SV/CPC/Intent/Trend/...)
+// Stage 0: DFS    #1  Related Keywords + Keyword Suggestions (シード取得)
+// Stage 1: Gemini #1  KW候補 100件生成 (シードを実検索データとして活用)
+// Stage 2: DFS    #2  Google Ads Search Volume Bulk (SV/CPC/competition)
 // Stage 3: Gemini #2  数値 + 重複/不適切排除で 1次絞り込み
-// Stage 4: DFS    #2  SERP Organic Live Advanced (SERP feature + AI Overview)
+// Stage 4: DFS    #3  SERP Organic Live Advanced (SERP feature + AI Overview)
 // Stage 5: Gemini #3  全情報を見て最終判定 (rationale 強制出力)
 //
-// 旧8段から Bulk KD と Stage 3 KD閾値絞り込みを撤廃。理由:
-//   DataForSEO の KD は Backlinks サブスクが必要で、未契約時は KD=0/null を
-//   返す。事実上 Stage 3 KD絞り込みが機能していなかったため、SV/CPC/intent +
-//   SERP の中身判定で十分と判断 (タスク #107)。
+// 2026-06-10 旧8段から KD ステージを撤廃 (Backlinks 未契約で KD=0/null)。
+// 2026-06-11 Stage 0 を追加。Gemini のハルシ抑制とロングテール KW 発掘を狙う。
 // =========================================================
 
 // ---------- 公開型 ----------
@@ -59,6 +60,7 @@ export type ScoutFinalCandidate = {
 };
 
 export type ScoutStageStats = {
+  stage0SeedCount?: number;   // Stage 0: DFS Related/Suggestions の合算 (ユニーク数)
   stage1Generated: number;    // Gemini #1 が出した数
   stage3Passed: number;       // Gemini #2 (数値+絞り込み) を通過した数
   finalCount: number;         // 最終候補数 (decision 関係なく)
@@ -513,18 +515,42 @@ export async function runScoutPipeline(
   subject: string,
   config: ScoutPipelineConfig = {},
 ): Promise<ScoutPipelineResult> {
-  // Stage 1: Gemini #1  KW候補生成
+  // Stage 0: DFS Related Keywords + Keyword Suggestions で実検索データのシード KW を取得。
+  // 失敗しても先に進む (Gemini #1 単独で動ける)。
+  const [related, suggestions] = await Promise.all([
+    relatedKeywords(subject, { limit: 50 }).catch((e) => {
+      console.warn("[scoutPipeline] Stage0 related failed:", e instanceof Error ? e.message : e);
+      return [];
+    }),
+    keywordSuggestions(subject, { limit: 50 }).catch((e) => {
+      console.warn("[scoutPipeline] Stage0 suggestions failed:", e instanceof Error ? e.message : e);
+      return [];
+    }),
+  ]);
+  const seedKws = Array.from(new Set([...related, ...suggestions])).slice(0, 100);
+  console.log(
+    `[scoutPipeline] Stage0 seed: related=${related.length}, suggestions=${suggestions.length}, unique=${seedKws.length}`,
+  );
+
+  // Stage 1: Gemini #1  KW候補生成 (シードを実検索データとして活用)
   const { keywords: expanded, category } = await expandKeywords(subject, {
     excludeKws: config.excludeKws,
     maxKeywords: config.kwCandidateCount ?? 100,
     customPrompt: config.promptKwGen,
+    seedKeywords: seedKws,
   });
 
   if (expanded.length === 0) {
     return {
       subject,
       category,
-      stats: { stage1Generated: 0, stage3Passed: 0, finalCount: 0, adoptedCount: 0 },
+      stats: {
+        stage0SeedCount: seedKws.length,
+        stage1Generated: 0,
+        stage3Passed: 0,
+        finalCount: 0,
+        adoptedCount: 0,
+      },
       candidates: [],
       rejectedCandidates: [],
     };
@@ -576,6 +602,7 @@ export async function runScoutPipeline(
       subject,
       category,
       stats: {
+        stage0SeedCount: seedKws.length,
         stage1Generated: expanded.length,
         stage3Passed: 0,
         finalCount: 0,
@@ -644,6 +671,7 @@ export async function runScoutPipeline(
     subject,
     category,
     stats: {
+      stage0SeedCount: seedKws.length,
       stage1Generated: expanded.length,
       stage3Passed: stage3Pass.length,
       finalCount: finalized.length,

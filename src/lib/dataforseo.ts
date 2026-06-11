@@ -466,6 +466,90 @@ export async function keywordOverview(
 }
 
 /**
+ * Related Keywords Live — Google の「People also search for」由来の関連 KW。
+ * subject 1 つに対して最大 100 件取得可能。$0.011/req 程度。
+ * Stage 0 でシード KW として Gemini #1 に渡す用途。
+ */
+export async function relatedKeywords(
+  seed: string,
+  opts: { locationCode?: number; languageCode?: string; depth?: number; limit?: number } = {},
+): Promise<string[]> {
+  if (process.env.DATAFORSEO_USE_MOCK === "true") return [];
+  const creds = envCredentials();
+  if (!creds) throw new Error("DataForSEO 認証情報が未設定 (env)");
+  const body = [
+    {
+      keyword: seed,
+      location_code: opts.locationCode ?? LOCATION_JP,
+      language_code: opts.languageCode ?? LANGUAGE_JP,
+      depth: opts.depth ?? 1,
+      limit: opts.limit ?? 50,
+    },
+  ];
+  const res = await fetch(
+    `${BASE}/dataforseo_labs/google/related_keywords/live`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: authHeader(creds.login, creds.password),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`DataForSEO Related Keywords error: ${res.status} ${await res.text()}`);
+  }
+  type Raw = { keyword_data?: { keyword?: string } };
+  const data = (await res.json()) as {
+    tasks?: Array<{ result?: Array<{ items?: Raw[] | null }> | null }>;
+  };
+  const items = data.tasks?.[0]?.result?.[0]?.items ?? [];
+  return items.map((i) => i.keyword_data?.keyword ?? "").filter(Boolean);
+}
+
+/**
+ * Keyword Suggestions Live — Google サジェスト由来の関連 KW (検索バー候補)。
+ * 実際の検索者が入力するパターン。$0.012/req 程度。
+ */
+export async function keywordSuggestions(
+  seed: string,
+  opts: { locationCode?: number; languageCode?: string; limit?: number } = {},
+): Promise<string[]> {
+  if (process.env.DATAFORSEO_USE_MOCK === "true") return [];
+  const creds = envCredentials();
+  if (!creds) throw new Error("DataForSEO 認証情報が未設定 (env)");
+  const body = [
+    {
+      keyword: seed,
+      location_code: opts.locationCode ?? LOCATION_JP,
+      language_code: opts.languageCode ?? LANGUAGE_JP,
+      limit: opts.limit ?? 50,
+    },
+  ];
+  const res = await fetch(
+    `${BASE}/dataforseo_labs/google/keyword_suggestions/live`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: authHeader(creds.login, creds.password),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`DataForSEO Keyword Suggestions error: ${res.status} ${await res.text()}`);
+  }
+  type Raw = { keyword?: string };
+  const data = (await res.json()) as {
+    tasks?: Array<{ result?: Array<{ items?: Raw[] | null }> | null }>;
+  };
+  const items = data.tasks?.[0]?.result?.[0]?.items ?? [];
+  return items.map((i) => i.keyword ?? "").filter(Boolean);
+}
+
+/**
  * Google Ads Search Volume Bulk — 100KW 単位で SV/CPC/competition を一括取得。
  * Keyword Overview Live が 1KW しか返さないため、Stage 2 の bulk 取得用に使う。
  * $0.075 / 100 keywords (Keyword Overview の 13倍安い)。
