@@ -1034,11 +1034,11 @@ export default function ProductsClient() {
                                   </span>
                                 )}
                               </div>
-                              {/* C. Top3 ページ構造 (採用候補のみ) */}
+                              {/* C. Top3 ページ構造 — 採用 KW は常時展開、それ以外は折りたたみ */}
                               {c.topPageStructures && c.topPageStructures.length > 0 && (
-                                <details className="mt-1.5 text-[10px]">
+                                <details className="mt-1.5 text-[10px]" open={c.decision === "adopt"}>
                                   <summary className="cursor-pointer text-[color:var(--fg-muted)] hover:text-[color:var(--accent-dark)]">
-                                    🔍 競合 Top{c.topPageStructures.length} の中身を見る
+                                    🔍 競合 Top{c.topPageStructures.length} の中身{c.decision === "adopt" ? " (差別化戦略の手がかり)" : ""}
                                   </summary>
                                   <div className="mt-1 pl-3 space-y-0.5">
                                     {c.topPageStructures.map((s, si) => (
@@ -1060,27 +1060,40 @@ export default function ProductsClient() {
                               )}
                               {/* SERP features (検索結果ページに出ている枠) */}
                               {activeFeatures.length > 0 && (
-                                <div className="mt-1.5 flex items-center gap-1.5 flex-wrap text-[10px]">
-                                  <span
-                                    className="text-[color:var(--fg-muted)]"
-                                    title="Google 検索結果ページに表示されている特別枠。記事構成のヒントになる"
-                                  >
-                                    検索結果の特徴:
-                                  </span>
-                                  {activeFeatures.map((f) => (
+                                <>
+                                  <div className="mt-1.5 flex items-center gap-1.5 flex-wrap text-[10px]">
                                     <span
-                                      key={f.label}
-                                      title={f.tip}
-                                      className={`px-1.5 py-0.5 rounded cursor-help ${
-                                        f.label.startsWith("🤖")
-                                          ? "bg-fuchsia-50 text-fuchsia-700 font-semibold"
-                                          : "bg-slate-100 text-slate-700"
-                                      }`}
+                                      className="text-[color:var(--fg-muted)]"
+                                      title="Google 検索結果ページに表示されている特別枠。記事構成のヒントになる"
                                     >
-                                      {f.label}
+                                      検索結果の特徴:
                                     </span>
-                                  ))}
-                                </div>
+                                    {activeFeatures.map((f) => (
+                                      <span
+                                        key={f.label}
+                                        title={f.tip}
+                                        className={`px-1.5 py-0.5 rounded cursor-help ${
+                                          f.label.startsWith("🤖")
+                                            ? "bg-fuchsia-50 text-fuchsia-700 font-semibold"
+                                            : "bg-slate-100 text-slate-700"
+                                        }`}
+                                      >
+                                        {f.label}
+                                      </span>
+                                    ))}
+                                  </div>
+                                  {/* 採用 KW のときだけ「これがあると何を意味するか」の解説を常時表示 */}
+                                  {c.decision === "adopt" && (
+                                    <ul className="mt-1 pl-1 space-y-0.5 text-[9.5px] text-[color:var(--fg-secondary)] leading-relaxed">
+                                      {activeFeatures.map((f) => (
+                                        <li key={`tip-${f.label}`}>
+                                          <span className="font-semibold mr-1">{f.label}:</span>
+                                          {f.tip.replace(/^[^:]+:\s*/, "")}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </>
                               )}
                               {/* AI Overview 引用元 */}
                               {c.aiOverviewReferences && c.aiOverviewReferences.length > 0 && (
