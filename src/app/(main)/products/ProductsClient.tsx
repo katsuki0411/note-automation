@@ -1037,51 +1037,63 @@ export default function ProductsClient() {
                                   </span>
                                 )}
                               </div>
-                              {/* C. Top3 競合の中身 (SERP の title + snippet) */}
+                              {/* C. Top3 競合の中身 (SERP の title + snippet)
+                                * 用途: 「Top3 がどんな切り口で書いているか」を見て、別角度で書けば勝てる
+                                * 採用カードでは常時展開、それ以外は折りたたみ */}
                               {c.topPageStructures && c.topPageStructures.length > 0 && (
-                                <details className="mt-1.5 text-[10px]" open={c.decision === "adopt"}>
-                                  <summary className="cursor-pointer text-[color:var(--fg-muted)] hover:text-[color:var(--accent-dark)]">
-                                    🔍 競合 Top{c.topPageStructures.length} の中身{c.decision === "adopt" ? " (差別化戦略の手がかり)" : ""}
+                                <details className="mt-2 text-[10px] bg-blue-50/40 border border-blue-100 rounded-lg p-2" open={c.decision === "adopt"}>
+                                  <summary className="cursor-pointer text-[11px] font-semibold text-[color:var(--accent-dark)] hover:text-[color:var(--accent)]">
+                                    ✏️ 上位3記事の「切り口」 — ここと違う角度で書けば勝てる
                                   </summary>
-                                  <div className="mt-1 pl-3 space-y-1.5">
+                                  <p className="mt-1 mb-1.5 text-[9.5px] text-[color:var(--fg-muted)] leading-relaxed">
+                                    ⬇️ Top3 がどんなタイトル・要点で書いているか。自分は<strong>違う角度</strong>(体験談 / 写真 / 別ターゲット / 細かい比較項目など)で書くと食い込みやすい。
+                                  </p>
+                                  <ul className="space-y-1.5">
                                     {c.topPageStructures.map((s, si) => {
-                                      // 新フォーマット (SERP) のデータ
                                       const hasTitle = !!s.title;
                                       const hasDesc = !!s.description;
-                                      // 旧フォーマット (Content Parsing) のデータ — 0 は失敗扱いで無視
                                       const hasOldWord = typeof s.wordCount === "number" && s.wordCount > 0;
                                       const hasOldH2 = typeof s.h2Count === "number" && s.h2Count > 0;
                                       const hasAny = hasTitle || hasDesc || hasOldWord || hasOldH2;
+                                      // 概要文は冒頭 120文字に丸める (情報量を絞る)
+                                      const shortDesc = hasDesc && s.description
+                                        ? s.description.replace(/^\d{4}\/\d{1,2}\/\d{1,2}\s*[—\-]\s*/, "").slice(0, 120) + (s.description.length > 120 ? "…" : "")
+                                        : null;
                                       return (
-                                        <div key={si} className="text-[color:var(--fg-secondary)] border-l-2 border-[color:var(--border-subtle)] pl-2">
-                                          <div className="font-semibold text-[color:var(--fg-primary)]">
-                                            {s.rank ?? si + 1}位 — {s.domain ?? "?"}
+                                        <li key={si} className="flex gap-2 text-[color:var(--fg-secondary)]">
+                                          <span className="shrink-0 text-[11px] font-bold text-[color:var(--accent-dark)] w-7">
+                                            {s.rank ?? si + 1}位
+                                          </span>
+                                          <div className="flex-1 min-w-0">
+                                            <div className="text-[9px] text-[color:var(--fg-muted)] truncate">
+                                              {s.domain ?? "?"}
+                                            </div>
+                                            {hasTitle && (
+                                              <div className="text-[10.5px] font-semibold text-[color:var(--fg-primary)] leading-tight mt-0.5">
+                                                {s.title}
+                                              </div>
+                                            )}
+                                            {shortDesc && (
+                                              <div className="text-[9.5px] text-[color:var(--fg-muted)] leading-relaxed mt-0.5">
+                                                💬 {shortDesc}
+                                              </div>
+                                            )}
+                                            {(hasOldWord || hasOldH2) && (
+                                              <div className="text-[9px] text-[color:var(--fg-muted)] mt-0.5 font-mono">
+                                                {hasOldWord && `${s.wordCount}字 `}
+                                                {hasOldH2 && `H2 ${s.h2Count}個`}
+                                              </div>
+                                            )}
+                                            {!hasAny && (
+                                              <div className="text-[9px] text-gray-400 italic mt-0.5">
+                                                (旧履歴のため詳細なし。新規スカウトで表示)
+                                              </div>
+                                            )}
                                           </div>
-                                          {hasTitle && (
-                                            <div className="mt-0.5 text-[10.5px] text-[color:var(--fg-primary)]">
-                                              📰 {s.title}
-                                            </div>
-                                          )}
-                                          {hasDesc && (
-                                            <div className="mt-0.5 text-[9.5px] text-[color:var(--fg-muted)] leading-relaxed">
-                                              {s.description}
-                                            </div>
-                                          )}
-                                          {(hasOldWord || hasOldH2) && (
-                                            <div className="text-[9px] text-[color:var(--fg-muted)] mt-0.5 font-mono">
-                                              {hasOldWord && `${s.wordCount}字 `}
-                                              {hasOldH2 && `H2 ${s.h2Count}個`}
-                                            </div>
-                                          )}
-                                          {!hasAny && (
-                                            <div className="text-[9px] text-gray-400 italic mt-0.5">
-                                              (旧履歴のため詳細データなし。新規スカウトで SERP のタイトル/概要が表示されます)
-                                            </div>
-                                          )}
-                                        </div>
+                                        </li>
                                       );
                                     })}
-                                  </div>
+                                  </ul>
                                 </details>
                               )}
                               {/* SERP features (検索結果ページに出ている枠) */}
