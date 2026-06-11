@@ -1044,30 +1044,43 @@ export default function ProductsClient() {
                                     🔍 競合 Top{c.topPageStructures.length} の中身{c.decision === "adopt" ? " (差別化戦略の手がかり)" : ""}
                                   </summary>
                                   <div className="mt-1 pl-3 space-y-1.5">
-                                    {c.topPageStructures.map((s, si) => (
-                                      <div key={si} className="text-[color:var(--fg-secondary)] border-l-2 border-[color:var(--border-subtle)] pl-2">
-                                        <div className="font-semibold text-[color:var(--fg-primary)]">
-                                          {s.rank ?? si + 1}位 — {s.domain ?? "?"}
+                                    {c.topPageStructures.map((s, si) => {
+                                      // 新フォーマット (SERP) のデータ
+                                      const hasTitle = !!s.title;
+                                      const hasDesc = !!s.description;
+                                      // 旧フォーマット (Content Parsing) のデータ — 0 は失敗扱いで無視
+                                      const hasOldWord = typeof s.wordCount === "number" && s.wordCount > 0;
+                                      const hasOldH2 = typeof s.h2Count === "number" && s.h2Count > 0;
+                                      const hasAny = hasTitle || hasDesc || hasOldWord || hasOldH2;
+                                      return (
+                                        <div key={si} className="text-[color:var(--fg-secondary)] border-l-2 border-[color:var(--border-subtle)] pl-2">
+                                          <div className="font-semibold text-[color:var(--fg-primary)]">
+                                            {s.rank ?? si + 1}位 — {s.domain ?? "?"}
+                                          </div>
+                                          {hasTitle && (
+                                            <div className="mt-0.5 text-[10.5px] text-[color:var(--fg-primary)]">
+                                              📰 {s.title}
+                                            </div>
+                                          )}
+                                          {hasDesc && (
+                                            <div className="mt-0.5 text-[9.5px] text-[color:var(--fg-muted)] leading-relaxed">
+                                              {s.description}
+                                            </div>
+                                          )}
+                                          {(hasOldWord || hasOldH2) && (
+                                            <div className="text-[9px] text-[color:var(--fg-muted)] mt-0.5 font-mono">
+                                              {hasOldWord && `${s.wordCount}字 `}
+                                              {hasOldH2 && `H2 ${s.h2Count}個`}
+                                            </div>
+                                          )}
+                                          {!hasAny && (
+                                            <div className="text-[9px] text-gray-400 italic mt-0.5">
+                                              (旧履歴のため詳細データなし。新規スカウトで SERP のタイトル/概要が表示されます)
+                                            </div>
+                                          )}
                                         </div>
-                                        {s.title && (
-                                          <div className="mt-0.5 text-[10.5px] text-[color:var(--fg-primary)]">
-                                            📰 {s.title}
-                                          </div>
-                                        )}
-                                        {s.description && (
-                                          <div className="mt-0.5 text-[9.5px] text-[color:var(--fg-muted)] leading-relaxed">
-                                            {s.description}
-                                          </div>
-                                        )}
-                                        {/* 旧履歴 (Content Parsing 時代) の文字数があれば併記 */}
-                                        {(typeof s.wordCount === "number" || typeof s.h2Count === "number") && (
-                                          <div className="text-[9px] text-[color:var(--fg-muted)] mt-0.5 font-mono">
-                                            {typeof s.wordCount === "number" && `${s.wordCount}字 `}
-                                            {typeof s.h2Count === "number" && `H2 ${s.h2Count}個`}
-                                          </div>
-                                        )}
-                                      </div>
-                                    ))}
+                                      );
+                                    })}
                                   </div>
                                 </details>
                               )}
