@@ -623,6 +623,157 @@ export async function searchVolumeBulk(
 }
 
 /**
+ * Search Intent Bulk — Google が学習した検索意図を実データから取得。
+ * 100KW までまとめて投げて約 $0.043 (¥6.5)、コスパ最強。
+ * 4 ラベル (commercial / informational / navigational / transactional) を返す。
+ * Gemini の intent 推定の代替/補強用。
+ */
+export type SearchIntentItem = {
+  kw: string;
+  intent: string | null; // commercial / informational / navigational / transactional / null
+  probability: number | null;
+};
+
+export async function searchIntentBulk(
+  kws: string[],
+  opts: { languageCode?: string } = {},
+): Promise<SearchIntentItem[]> {
+  if (process.env.DATAFORSEO_USE_MOCK === "true") {
+    return kws.map((kw) => ({ kw, intent: "informational", probability: 0.5 }));
+  }
+  const creds = envCredentials();
+  if (!creds) throw new Error("DataForSEO 認証情報が未設定 (env)");
+  const body = [
+    {
+      keywords: kws,
+      language_code: opts.languageCode ?? LANGUAGE_JP,
+    },
+  ];
+  const res = await fetch(
+    `${BASE}/dataforseo_labs/google/search_intent/live`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: authHeader(creds.login, creds.password),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`DataForSEO Search Intent error: ${res.status} ${await res.text()}`);
+  }
+  type Raw = {
+    keyword?: string;
+    keyword_intent?: { label?: string; probability?: number } | null;
+  };
+  const data = (await res.json()) as {
+    tasks?: Array<{ result?: Array<{ items?: Raw[] | null }> | null }>;
+  };
+  const items = data.tasks?.[0]?.result?.[0]?.items ?? [];
+  return items.map((it) => ({
+    kw: it.keyword ?? "",
+    intent: it.keyword_intent?.label ?? null,
+    probability: it.keyword_intent?.probability ?? null,
+  }));
+}
+
+/**
+ * On-Page Content Parsing — 単一 URL の HTML を構造化して返す。
+ * H1/H2/H3 タイトル、メタ情報、本文文字数が取れる。$0.000125/req と激安。
+ * 採用候補の SERP Top3 サイトに対して叩いて Stage 5 Gemini #3 + 記事生成に活用。
+ */
+export type ContentStructure = {
+  url: string;
+  domain: string | null;
+  title: string | null;
+  metaDescription: string | null;
+  h1: string[];
+  h2: string[];
+  h3: string[];
+  wordCount: number | null;
+};
+
+export async function contentParsing(url: string): Promise<ContentStructure | null> {
+  if (process.env.DATAFORSEO_USE_MOCK === "true") {
+    return {
+      url,
+      domain: new URL(url).hostname.replace(/^www\./, ""),
+      title: "Mock",
+      metaDescription: null,
+      h1: [],
+      h2: [],
+      h3: [],
+      wordCount: null,
+    };
+  }
+  const creds = envCredentials();
+  if (!creds) throw new Error("DataForSEO 認証情報が未設定 (env)");
+  const body = [{ url }];
+  const res = await fetch(
+    `${BASE}/on_page/content_parsing/live`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: authHeader(creds.login, creds.password),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`DataForSEO Content Parsing error: ${res.status} ${await res.text()}`);
+  }
+  type RawHeader = { text?: string | null };
+  type RawItem = {
+    page_content?: {
+      header?: { primary_header?: string | null };
+      main_topic?: Array<{ h_title?: string | null; primary_topic?: string | null }>;
+    };
+    page_as_markdown?: string | null;
+    meta?: {
+      title?: string | null;
+      description?: string | null;
+      htags?: {
+        h1?: RawHeader[] | string[];
+        h2?: RawHeader[] | string[];
+        h3?: RawHeader[] | string[];
+      };
+      content?: {
+        plain_text_word_count?: number | null;
+      };
+    };
+  };
+  const data = (await res.json()) as {
+    tasks?: Array<{ result?: RawItem[] | null }>;
+  };
+  const item = data.tasks?.[0]?.result?.[0];
+  if (!item) return null;
+  const normHeaders = (arr: RawHeader[] | string[] | undefined): string[] => {
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .map((h) => (typeof h === "string" ? h : h?.text ?? ""))
+      .filter((s) => s.trim().length > 0);
+  };
+  return {
+    url,
+    domain: (() => {
+      try {
+        return new URL(url).hostname.replace(/^www\./, "");
+      } catch {
+        return null;
+      }
+    })(),
+    title: item.meta?.title ?? null,
+    metaDescription: item.meta?.description ?? null,
+    h1: normHeaders(item.meta?.htags?.h1),
+    h2: normHeaders(item.meta?.htags?.h2),
+    h3: normHeaders(item.meta?.htags?.h3),
+    wordCount: item.meta?.content?.plain_text_word_count ?? null,
+  };
+}
+
+/**
  * SERP Organic Live Advanced — 上位N件 + 全 SERP feature。
  * AI Overview 含む。$0.002/req (+ AI Overview tracking で +$0.0006/req)。
  */

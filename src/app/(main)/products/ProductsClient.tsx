@@ -63,7 +63,21 @@ type ScoutCandidate = {
   aiOverviewReferences?: Array<{ url: string; title?: string; domain?: string; source?: string }>;
   paaQuestions?: string[];
 
-  // Gemini #4 最終判定
+  // 2026-06-11 A+B+C 統合で追加 (optional: 旧履歴互換)
+  googleIntent?: string | null;       // A: Google 公式 intent
+  googleIntentProb?: number | null;
+  peakMonths?: number[];               // B: SV ピーク月
+  troughMonths?: number[];             // B: SV 谷月
+  topPageStructures?: Array<{          // C: Top3 ページ構造解析
+    url: string;
+    domain: string | null;
+    title: string | null;
+    h2Count: number;
+    h2Sample: string[];
+    wordCount: number | null;
+  }>;
+
+  // Gemini #3 最終判定
   finalScore?: number;
   decision?: "adopt" | "borderline" | "reject";
 
@@ -945,7 +959,57 @@ export default function ProductsClient() {
                                     DFS Intent: {c.searchIntent}
                                   </span>
                                 )}
+                                {/* A. Google 公式 intent (Search Intent API) */}
+                                {c.googleIntent && (
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded font-semibold ${
+                                      c.googleIntent === "transactional"
+                                        ? "bg-emerald-100 text-emerald-800"
+                                        : c.googleIntent === "commercial"
+                                          ? "bg-teal-100 text-teal-800"
+                                          : c.googleIntent === "navigational"
+                                            ? "bg-blue-100 text-blue-800"
+                                            : "bg-amber-50 text-amber-800"
+                                    }`}
+                                    title={`Google公式intent (確信度: ${Math.round((c.googleIntentProb ?? 0) * 100)}%)`}
+                                  >
+                                    🎯 {c.googleIntent}
+                                  </span>
+                                )}
+                                {/* B. 季節性 (ピーク月) */}
+                                {c.peakMonths && c.peakMonths.length > 0 && (
+                                  <span
+                                    className="px-1.5 py-0.5 rounded bg-orange-50 text-orange-700"
+                                    title="過去12ヶ月でSVが平均20%以上高い月"
+                                  >
+                                    📈 ピーク {c.peakMonths.join("/")}月
+                                  </span>
+                                )}
                               </div>
+                              {/* C. Top3 ページ構造 (採用候補のみ) */}
+                              {c.topPageStructures && c.topPageStructures.length > 0 && (
+                                <details className="mt-1.5 text-[10px]">
+                                  <summary className="cursor-pointer text-[color:var(--fg-muted)] hover:text-[color:var(--accent-dark)]">
+                                    🔍 競合 Top{c.topPageStructures.length} の中身を見る
+                                  </summary>
+                                  <div className="mt-1 pl-3 space-y-0.5">
+                                    {c.topPageStructures.map((s, si) => (
+                                      <div key={si} className="text-[color:var(--fg-secondary)]">
+                                        <strong>{si + 1}位 {s.domain ?? "?"}</strong>
+                                        {" — "}
+                                        <span className="font-mono">{s.wordCount ?? "?"}字</span>
+                                        {", "}
+                                        <span className="font-mono">H2 {s.h2Count}個</span>
+                                        {s.h2Sample.length > 0 && (
+                                          <div className="text-[9.5px] text-[color:var(--fg-muted)] mt-0.5">
+                                            H2例: {s.h2Sample.slice(0, 2).join(" / ")}
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </details>
+                              )}
                               {/* SERP features */}
                               {activeFeatures.length > 0 && (
                                 <div className="mt-1.5 flex items-center gap-1.5 flex-wrap text-[10px]">

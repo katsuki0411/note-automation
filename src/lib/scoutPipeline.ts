@@ -6,8 +6,11 @@ import {
   fetchSerpAdvanced,
   relatedKeywords,
   keywordSuggestions,
+  searchIntentBulk,
+  contentParsing,
   type KeywordOverviewItem,
   type SerpAdvancedResponse,
+  type ContentStructure,
 } from "./dataforseo";
 import { renderTemplate } from "./promptTemplate";
 
@@ -52,6 +55,20 @@ export type ScoutFinalCandidate = {
   serpTopUrls: string[];
   aiOverviewReferences: SerpAdvancedResponse["aiOverviewReferences"];
   paaQuestions: string[];
+
+  // 強化 (2026-06-11 A+B+C 統合)
+  googleIntent: string | null;       // A: Google 公式の検索意図 (commercial/informational/navigational/transactional)
+  googleIntentProb: number | null;   // intent の確信度 (0-1)
+  peakMonths: number[];              // B: 過去12ヶ月でSVが平均より20%以上高い月 (1-12)
+  troughMonths: number[];            // B: 同じく低い月
+  topPageStructures: Array<{         // C: Top3 ページの構造解析 (採用候補のみ)
+    url: string;
+    domain: string | null;
+    title: string | null;
+    h2Count: number;
+    h2Sample: string[];              // 上位3つだけ抽出
+    wordCount: number | null;
+  }>;
 
   // Stage 5 由来 (Gemini #3 最終判定)
   finalScore: number;         // 0-100
@@ -133,10 +150,14 @@ export type FinalPromptInput = {
     kd: number | null;
     searchVolume: number | null;
     cpc: number | null;
+    googleIntent: string | null;   // A: Google 公式 intent
+    peakMonths: number[];          // B: SV ピーク月 (1-12)
+    troughMonths: number[];        // B: SV 谷月
     serpFeatures: SerpAdvancedResponse["features"];
-    paaSample: string[];          // 上位3つだけ
-    aiOverviewDomains: string[];  // AI Overview に引用されているドメイン
-    serpTopDomains: string[];     // 上位10件のドメイン
+    paaSample: string[];           // 上位3つだけ
+    aiOverviewDomains: string[];   // AI Overview に引用されているドメイン
+    serpTopDomains: string[];      // 上位10件のドメイン
+    topPagesSummary: string[];     // C: Top3 ページ構造の要約 (domain + h2Count + wordCount)
   }>;
 };
 
@@ -186,12 +207,15 @@ function defaultFinalPrompt(i: FinalPromptInput): string {
   const { subject, candidates } = i;
   return `
 あなたは SEO + アフィリエイトの専門家です。
-商品「${subject}」のキーワード候補について、SERP の状況を見て採用判定してください。
+商品「${subject}」のキーワード候補について、すべての Google 実データを見て採用判定してください。
 
 【判定基準】
 - adopt: 上位10件に個人ブログ/中堅サイトが入っており、新規記事でも食い込める
+        + Google公式intent が commercial/transactional 寄り
+        + Top3 ページが薄い (文字数少ない or H2 少ない) なら差別化容易で優先
 - borderline: 大手と個人ブログが混在、難易度中
 - reject: 大手 (Amazon/楽天/mybest/公式) で埋まっており勝ち目薄
+         + intent が informational のみで購入導線弱いものも reject 寄り
 
 【候補】
 ${candidates
@@ -199,10 +223,13 @@ ${candidates
     (c, idx) =>
       `${idx + 1}. ${c.kw}
    KD=${c.kd ?? "?"}, SV=${c.searchVolume ?? "?"}, CPC=${cpcJpy(c.cpc)}
+   Google公式intent: ${c.googleIntent ?? "?"}
+   季節性: ${c.peakMonths.length > 0 ? `ピーク=${c.peakMonths.join("/")}月` : "平坦"}${c.troughMonths.length > 0 ? `, 谷=${c.troughMonths.join("/")}月` : ""}
    SERP features: ${Object.entries(c.serpFeatures).filter(([, v]) => v).map(([k]) => k).join(", ") || "(none)"}
    Top10 domains: ${c.serpTopDomains.slice(0, 10).join(", ") || "(none)"}
    AI Overview引用: ${c.aiOverviewDomains.join(", ") || "(none)"}
-   PAA: ${c.paaSample.join(" / ") || "(none)"}`,
+   PAA: ${c.paaSample.join(" / ") || "(none)"}
+   Top3 ページ構造: ${c.topPagesSummary.length > 0 ? c.topPagesSummary.join(" / ") : "(取得失敗)"}`,
   )
   .join("\n\n")}
 
@@ -432,12 +459,19 @@ async function stage5FinalDecision(
       kd: c.kd,
       searchVolume: c.searchVolume,
       cpc: c.cpc,
+      googleIntent: c.googleIntent,
+      peakMonths: c.peakMonths,
+      troughMonths: c.troughMonths,
       serpFeatures: c.serpFeatures,
       paaSample: c.paaQuestions.slice(0, 3),
       aiOverviewDomains: Array.from(
         new Set(c.aiOverviewReferences.map((r) => r.domain ?? extractDomain(r.url))),
       ).filter(Boolean) as string[],
       serpTopDomains: c.serpTopUrls.map((u) => extractDomain(u) ?? "").filter(Boolean),
+      topPagesSummary: c.topPageStructures.map(
+        (s) =>
+          `${s.domain ?? "?"}(${s.wordCount ?? "?"}字, H2=${s.h2Count}個)`,
+      ),
     })),
   };
   const promptFn = resolveStagePrompt(
@@ -507,6 +541,32 @@ function extractDomain(url?: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+// 月別 SV から「平均より20%以上高い月」と「20%以上低い月」を抽出する。
+// 季節性のピーク/谷を可視化するため。SV データが少ない (5ヶ月未満) なら空配列。
+function calcSeasonality(
+  monthlySearches: KeywordOverviewItem["monthlySearches"],
+): { peakMonths: number[]; troughMonths: number[] } {
+  if (!Array.isArray(monthlySearches) || monthlySearches.length < 5) {
+    return { peakMonths: [], troughMonths: [] };
+  }
+  // 直近12ヶ月だけ使う (それより前は古い)
+  const recent = monthlySearches.slice(0, 12);
+  const svs = recent.map((m) => m.searchVolume).filter((v): v is number => typeof v === "number" && v > 0);
+  if (svs.length === 0) return { peakMonths: [], troughMonths: [] };
+  const avg = svs.reduce((a, b) => a + b, 0) / svs.length;
+  const peakMonths: number[] = [];
+  const troughMonths: number[] = [];
+  for (const m of recent) {
+    if (typeof m.searchVolume !== "number") continue;
+    if (m.searchVolume >= avg * 1.2) peakMonths.push(m.month);
+    else if (m.searchVolume <= avg * 0.8) troughMonths.push(m.month);
+  }
+  return {
+    peakMonths: Array.from(new Set(peakMonths)).sort((a, b) => a - b),
+    troughMonths: Array.from(new Set(troughMonths)).sort((a, b) => a - b),
+  };
 }
 
 // ---------- メインエントリ ----------
@@ -613,7 +673,19 @@ export async function runScoutPipeline(
     };
   }
 
-  // Stage 4: DFS SERP Advanced (AI Overview 込み)
+  // Stage 3.5: A. Search Intent — stage3 通過 KW に対して Google 公式 intent を bulk 取得 (~30件)
+  const intentItems = await searchIntentBulk(stage3Pass.map((k) => k.kw)).catch((e) => {
+    console.warn("[scoutPipeline] Stage3.5 Search Intent failed:", e instanceof Error ? e.message : e);
+    return [];
+  });
+  const intentMap = new Map(
+    intentItems.map((it) => [it.kw.toLowerCase(), it] as const),
+  );
+  console.log(
+    `[scoutPipeline] Stage3.5 intent: requested=${stage3Pass.length}, returned=${intentItems.length}`,
+  );
+
+  // Stage 4: DFS SERP Advanced (AI Overview 込み) + C. Content Parsing 並列
   const serpResults = await Promise.all(
     stage3Pass.map((kw) =>
       fetchSerpAdvanced(kw.kw, { includeAiOverview: true }).catch((e) => {
@@ -623,10 +695,39 @@ export async function runScoutPipeline(
     ),
   );
 
+  // C. Content Parsing — 各 stage3 通過 KW の SERP Top3 URL に対して並列実行。
+  // 安いとはいえ 1スカウトあたり最大 30req (= 採用候補 ~10 × Top3) 程度に留める。
+  const parsingPromises: Array<Promise<{
+    kwIdx: number;
+    structures: ContentStructure[];
+  }>> = stage3Pass.map((_kw, i) => {
+    const serp = serpResults[i];
+    const top3 = serp?.items
+      .filter((it) => it.type === "organic" && it.url)
+      .slice(0, 3)
+      .map((it) => it.url!) ?? [];
+    return Promise.all(
+      top3.map((url) =>
+        contentParsing(url).catch((e) => {
+          console.warn(`[stage4 contentParsing] fail for ${url}:`, e instanceof Error ? e.message : e);
+          return null;
+        }),
+      ),
+    ).then((results) => ({
+      kwIdx: i,
+      structures: results.filter((r): r is ContentStructure => r !== null),
+    }));
+  });
+  const parsingResults = await Promise.all(parsingPromises);
+  const parsingByIdx = new Map(parsingResults.map((p) => [p.kwIdx, p.structures] as const));
+
   // Stage 4 で取れた情報を candidate に詰める
   const stage4Candidates: ScoutFinalCandidate[] = stage3Pass.map((kw, i) => {
     const ov = overviewMap.get(kw.kw.toLowerCase());
     const serp = serpResults[i];
+    const intent = intentMap.get(kw.kw.toLowerCase());
+    const seasonality = calcSeasonality(ov?.monthlySearches ?? []);
+    const structures = parsingByIdx.get(i) ?? [];
     return {
       kw: kw.kw,
       intent: kw.intent,
@@ -641,6 +742,21 @@ export async function runScoutPipeline(
       avgBacklinksMain: ov?.avgBacklinksMain ?? null,
       avgBacklinksReferringDomains: ov?.avgBacklinksReferringDomains ?? null,
       serpItemTypes: ov?.serpItemTypes ?? [],
+      // A. Google 公式 intent
+      googleIntent: intent?.intent ?? null,
+      googleIntentProb: intent?.probability ?? null,
+      // B. 季節性 (既存 monthlySearches から算出)
+      peakMonths: seasonality.peakMonths,
+      troughMonths: seasonality.troughMonths,
+      // C. Top3 ページ構造
+      topPageStructures: structures.map((s) => ({
+        url: s.url,
+        domain: s.domain,
+        title: s.title,
+        h2Count: s.h2.length,
+        h2Sample: s.h2.slice(0, 3),
+        wordCount: s.wordCount,
+      })),
       serpFeatures: serp?.features ?? {
         hasAiOverview: false,
         hasFeaturedSnippet: false,
