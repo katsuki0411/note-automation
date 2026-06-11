@@ -876,16 +876,23 @@ export default function ProductsClient() {
                           : c.decision === "borderline"
                             ? { text: "△ 要検討", cls: "bg-yellow-100 text-yellow-700" }
                             : null;
-                      // SERP feature の有効なものだけ抽出
-                      const activeFeatures: string[] = [];
+                      // SERP feature の有効なものだけ抽出 (日本語ラベル + tooltip付き)
+                      const activeFeatures: Array<{ label: string; tip: string }> = [];
                       if (c.serpFeatures) {
-                        if (c.serpFeatures.hasAiOverview) activeFeatures.push("AI Overview");
-                        if (c.serpFeatures.hasFeaturedSnippet) activeFeatures.push("FS");
-                        if (c.serpFeatures.hasKnowledgePanel) activeFeatures.push("KP");
-                        if (c.serpFeatures.hasPaa) activeFeatures.push("PAA");
-                        if (c.serpFeatures.hasShopping) activeFeatures.push("Shopping");
-                        if (c.serpFeatures.hasTopStories) activeFeatures.push("News");
-                        if (c.serpFeatures.hasVideo) activeFeatures.push("Video");
+                        if (c.serpFeatures.hasAiOverview)
+                          activeFeatures.push({ label: "🤖 AI要約", tip: "AI Overview: Google AI が検索結果上部に要約を生成。SEO に有利な切り口を見せられる" });
+                        if (c.serpFeatures.hasFeaturedSnippet)
+                          activeFeatures.push({ label: "⭐ 注目回答", tip: "Featured Snippet: 検索結果の最上部にゼロ位として抜粋表示される枠。狙えれば爆発的に流入" });
+                        if (c.serpFeatures.hasKnowledgePanel)
+                          activeFeatures.push({ label: "📚 知識パネル", tip: "Knowledge Panel: Google が公式情報を集めた右サイドパネル。ブランドや人物等の検索で出る" });
+                        if (c.serpFeatures.hasPaa)
+                          activeFeatures.push({ label: "❓ 関連質問", tip: "People Also Ask: 「他の人はこちらも質問」枠。Q&A 形式の見出しを記事に入れると拾われやすい" });
+                        if (c.serpFeatures.hasShopping)
+                          activeFeatures.push({ label: "🛒 ショッピング", tip: "Shopping枠: 商品比較カードが表示される = 購買意図が強い = アフィリ向き" });
+                        if (c.serpFeatures.hasTopStories)
+                          activeFeatures.push({ label: "📰 ニュース", tip: "Top Stories: ニュース記事枠。トレンド/速報性のあるテーマ" });
+                        if (c.serpFeatures.hasVideo)
+                          activeFeatures.push({ label: "🎬 動画", tip: "Video枠: YouTube等の動画が SERP に出る。使い方系/レビュー系 KW" });
                       }
                       return (
                         <li
@@ -949,33 +956,74 @@ export default function ProductsClient() {
                                 <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
                                   CPC <strong>{typeof c.cpc === "number" ? `¥${Math.round(c.cpc * 150).toLocaleString("ja-JP")}` : "-"}</strong>
                                 </span>
-                                {c.competitionLevel && (
-                                  <span className="px-1.5 py-0.5 rounded bg-gray-50 text-gray-600">
-                                    競合 {c.competitionLevel}
-                                  </span>
-                                )}
-                                {c.searchIntent && (
-                                  <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700">
-                                    DFS Intent: {c.searchIntent}
-                                  </span>
-                                )}
-                                {/* A. Google 公式 intent (Search Intent API) */}
-                                {c.googleIntent && (
+                                {c.competitionLevel && (() => {
+                                  const compInfo: Record<string, { jp: string; cls: string; tip: string }> = {
+                                    HIGH: { jp: "高", cls: "bg-red-50 text-red-700", tip: "競合 HIGH: 広告出稿者が多い = 商業価値が高い KW (= アフィリ向き)" },
+                                    MEDIUM: { jp: "中", cls: "bg-amber-50 text-amber-700", tip: "競合 MEDIUM: 中程度の広告需要。バランスの取れた KW" },
+                                    LOW: { jp: "低", cls: "bg-gray-50 text-gray-600", tip: "競合 LOW: 広告需要少なめ。情報系 KW か超ニッチ" },
+                                  };
+                                  const info = compInfo[c.competitionLevel] ?? { jp: c.competitionLevel, cls: "bg-gray-50 text-gray-600", tip: c.competitionLevel };
+                                  return (
+                                    <span className={`px-1.5 py-0.5 rounded cursor-help ${info.cls}`} title={info.tip}>
+                                      広告競合 {info.jp}
+                                    </span>
+                                  );
+                                })()}
+                                {/* DFS Intent は Google 公式 intent と概念被るので、後者がなければフォールバック表示 */}
+                                {!c.googleIntent && c.searchIntent && (
                                   <span
-                                    className={`px-1.5 py-0.5 rounded font-semibold ${
-                                      c.googleIntent === "transactional"
-                                        ? "bg-emerald-100 text-emerald-800"
-                                        : c.googleIntent === "commercial"
-                                          ? "bg-teal-100 text-teal-800"
-                                          : c.googleIntent === "navigational"
-                                            ? "bg-blue-100 text-blue-800"
-                                            : "bg-amber-50 text-amber-800"
-                                    }`}
-                                    title={`Google公式intent (確信度: ${Math.round((c.googleIntentProb ?? 0) * 100)}%)`}
+                                    className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 cursor-help"
+                                    title="DFS 推定 intent (補助データ)。Google 公式 intent が取得できなかった場合のフォールバック"
                                   >
-                                    🎯 {c.googleIntent}
+                                    🔮 {c.searchIntent}
                                   </span>
                                 )}
+                                {/* A. Google 公式 intent (Search Intent API)
+                                  * 4種類: transactional > commercial > navigational > informational
+                                  * 日本語ラベル + 確信度 + 解説 tooltip でユーザーが意味を理解できるように */}
+                                {c.googleIntent && (() => {
+                                  const intentInfo: Record<string, { jp: string; emoji: string; cls: string; tip: string }> = {
+                                    transactional: {
+                                      jp: "今すぐ購入",
+                                      emoji: "💰",
+                                      cls: "bg-emerald-100 text-emerald-800",
+                                      tip: "Transactional: 「買う直前」の検索 (例: ○○ 価格、○○ amazon)。CV に直結する最重要 intent。アフィリ収益化しやすい",
+                                    },
+                                    commercial: {
+                                      jp: "商品比較",
+                                      emoji: "🛍️",
+                                      cls: "bg-teal-100 text-teal-800",
+                                      tip: "Commercial: 「買う前に比較・検討」の検索 (例: ○○ おすすめ、○○ 違い)。比較記事・口コミ記事と相性◎。アフィリ向き",
+                                    },
+                                    navigational: {
+                                      jp: "公式探し",
+                                      emoji: "🧭",
+                                      cls: "bg-blue-100 text-blue-800",
+                                      tip: "Navigational: 「特定サイトに行く」検索 (例: amazon ログイン、○○ 公式)。読者は既に行き先決定済なのでアフィリ向きでない",
+                                    },
+                                    informational: {
+                                      jp: "情報収集",
+                                      emoji: "📖",
+                                      cls: "bg-amber-50 text-amber-800",
+                                      tip: "Informational: 「知りたい」の検索 (例: ○○ とは、○○ やり方)。CV 直結はしにくいが SEO 集客の入口として有効",
+                                    },
+                                  };
+                                  const info = intentInfo[c.googleIntent] ?? {
+                                    jp: c.googleIntent,
+                                    emoji: "🎯",
+                                    cls: "bg-gray-100 text-gray-700",
+                                    tip: c.googleIntent,
+                                  };
+                                  const prob = Math.round((c.googleIntentProb ?? 0) * 100);
+                                  return (
+                                    <span
+                                      className={`px-1.5 py-0.5 rounded font-semibold ${info.cls} cursor-help`}
+                                      title={`${info.tip}\n\nGoogle 公式判定 (確信度: ${prob}%)`}
+                                    >
+                                      {info.emoji} {info.jp}{prob > 0 ? ` ${prob}%` : ""}
+                                    </span>
+                                  );
+                                })()}
                                 {/* B. 季節性 (ピーク月) */}
                                 {c.peakMonths && c.peakMonths.length > 0 && (
                                   <span
@@ -1010,20 +1058,26 @@ export default function ProductsClient() {
                                   </div>
                                 </details>
                               )}
-                              {/* SERP features */}
+                              {/* SERP features (検索結果ページに出ている枠) */}
                               {activeFeatures.length > 0 && (
                                 <div className="mt-1.5 flex items-center gap-1.5 flex-wrap text-[10px]">
-                                  <span className="text-[color:var(--fg-muted)]">SERP:</span>
+                                  <span
+                                    className="text-[color:var(--fg-muted)]"
+                                    title="Google 検索結果ページに表示されている特別枠。記事構成のヒントになる"
+                                  >
+                                    検索結果の特徴:
+                                  </span>
                                   {activeFeatures.map((f) => (
                                     <span
-                                      key={f}
-                                      className={`px-1.5 py-0.5 rounded ${
-                                        f === "AI Overview"
+                                      key={f.label}
+                                      title={f.tip}
+                                      className={`px-1.5 py-0.5 rounded cursor-help ${
+                                        f.label.startsWith("🤖")
                                           ? "bg-fuchsia-50 text-fuchsia-700 font-semibold"
                                           : "bg-slate-100 text-slate-700"
                                       }`}
                                     >
-                                      {f}
+                                      {f.label}
                                     </span>
                                   ))}
                                 </div>
