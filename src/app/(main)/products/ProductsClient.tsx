@@ -68,13 +68,16 @@ type ScoutCandidate = {
   googleIntentProb?: number | null;
   peakMonths?: number[];               // B: SV ピーク月
   troughMonths?: number[];             // B: SV 谷月
-  topPageStructures?: Array<{          // C: Top3 ページ構造解析
+  topPageStructures?: Array<{          // C: Top3 競合の SERP 概要 (タイトル + スニペット)
     url: string;
     domain: string | null;
+    rank?: number;                     // SERP 順位
     title: string | null;
-    h2Count: number;
-    h2Sample: string[];
-    wordCount: number | null;
+    description?: string | null;       // SERP のスニペット
+    // 旧フィールド (Content Parsing 時代の履歴互換、廃止)
+    h2Count?: number;
+    h2Sample?: string[];
+    wordCount?: number | null;
   }>;
 
   // Gemini #3 最終判定
@@ -1034,23 +1037,33 @@ export default function ProductsClient() {
                                   </span>
                                 )}
                               </div>
-                              {/* C. Top3 ページ構造 — 採用 KW は常時展開、それ以外は折りたたみ */}
+                              {/* C. Top3 競合の中身 (SERP の title + snippet) */}
                               {c.topPageStructures && c.topPageStructures.length > 0 && (
                                 <details className="mt-1.5 text-[10px]" open={c.decision === "adopt"}>
                                   <summary className="cursor-pointer text-[color:var(--fg-muted)] hover:text-[color:var(--accent-dark)]">
                                     🔍 競合 Top{c.topPageStructures.length} の中身{c.decision === "adopt" ? " (差別化戦略の手がかり)" : ""}
                                   </summary>
-                                  <div className="mt-1 pl-3 space-y-0.5">
+                                  <div className="mt-1 pl-3 space-y-1.5">
                                     {c.topPageStructures.map((s, si) => (
-                                      <div key={si} className="text-[color:var(--fg-secondary)]">
-                                        <strong>{si + 1}位 {s.domain ?? "?"}</strong>
-                                        {" — "}
-                                        <span className="font-mono">{s.wordCount ?? "?"}字</span>
-                                        {", "}
-                                        <span className="font-mono">H2 {s.h2Count}個</span>
-                                        {s.h2Sample.length > 0 && (
-                                          <div className="text-[9.5px] text-[color:var(--fg-muted)] mt-0.5">
-                                            H2例: {s.h2Sample.slice(0, 2).join(" / ")}
+                                      <div key={si} className="text-[color:var(--fg-secondary)] border-l-2 border-[color:var(--border-subtle)] pl-2">
+                                        <div className="font-semibold text-[color:var(--fg-primary)]">
+                                          {s.rank ?? si + 1}位 — {s.domain ?? "?"}
+                                        </div>
+                                        {s.title && (
+                                          <div className="mt-0.5 text-[10.5px] text-[color:var(--fg-primary)]">
+                                            📰 {s.title}
+                                          </div>
+                                        )}
+                                        {s.description && (
+                                          <div className="mt-0.5 text-[9.5px] text-[color:var(--fg-muted)] leading-relaxed">
+                                            {s.description}
+                                          </div>
+                                        )}
+                                        {/* 旧履歴 (Content Parsing 時代) の文字数があれば併記 */}
+                                        {(typeof s.wordCount === "number" || typeof s.h2Count === "number") && (
+                                          <div className="text-[9px] text-[color:var(--fg-muted)] mt-0.5 font-mono">
+                                            {typeof s.wordCount === "number" && `${s.wordCount}字 `}
+                                            {typeof s.h2Count === "number" && `H2 ${s.h2Count}個`}
                                           </div>
                                         )}
                                       </div>

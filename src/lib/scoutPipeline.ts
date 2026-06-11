@@ -7,10 +7,8 @@ import {
   relatedKeywords,
   keywordSuggestions,
   searchIntentBulk,
-  contentParsing,
   type KeywordOverviewItem,
   type SerpAdvancedResponse,
-  type ContentStructure,
 } from "./dataforseo";
 import { renderTemplate } from "./promptTemplate";
 
@@ -61,13 +59,12 @@ export type ScoutFinalCandidate = {
   googleIntentProb: number | null;   // intent の確信度 (0-1)
   peakMonths: number[];              // B: 過去12ヶ月でSVが平均より20%以上高い月 (1-12)
   troughMonths: number[];            // B: 同じく低い月
-  topPageStructures: Array<{         // C: Top3 ページの構造解析 (採用候補のみ)
+  topPageStructures: Array<{         // C: Top3 ページの概要 (SERP の title + snippet)
     url: string;
     domain: string | null;
-    title: string | null;
-    h2Count: number;
-    h2Sample: string[];              // 上位3つだけ抽出
-    wordCount: number | null;
+    rank: number;                    // SERP 順位 (1-3)
+    title: string | null;            // SERP に出るタイトル
+    description: string | null;      // SERP に出るスニペット文
   }>;
 
   // Stage 5 由来 (Gemini #3 最終判定)
@@ -470,7 +467,7 @@ async function stage5FinalDecision(
       serpTopDomains: c.serpTopUrls.map((u) => extractDomain(u) ?? "").filter(Boolean),
       topPagesSummary: c.topPageStructures.map(
         (s) =>
-          `${s.domain ?? "?"}(${s.wordCount ?? "?"}字, H2=${s.h2Count}個)`,
+          `[${s.rank}位] ${s.domain ?? "?"}「${s.title ?? "(タイトル不明)"}」`,
       ),
     })),
   };
@@ -685,7 +682,9 @@ export async function runScoutPipeline(
     `[scoutPipeline] Stage3.5 intent: requested=${stage3Pass.length}, returned=${intentItems.length}`,
   );
 
-  // Stage 4: DFS SERP Advanced (AI Overview 込み) + C. Content Parsing 並列
+  // Stage 4: DFS SERP Advanced (AI Overview 込み)
+  // C. 競合 Top3 の中身は SERP レスポンスに含まれる title + snippet で代替。
+  //    Content Parsing API は動的サイトで "Page content is empty" 多発のため不採用。
   const serpResults = await Promise.all(
     stage3Pass.map((kw) =>
       fetchSerpAdvanced(kw.kw, { includeAiOverview: true }).catch((e) => {
@@ -695,39 +694,23 @@ export async function runScoutPipeline(
     ),
   );
 
-  // C. Content Parsing — 各 stage3 通過 KW の SERP Top3 URL に対して並列実行。
-  // 安いとはいえ 1スカウトあたり最大 30req (= 採用候補 ~10 × Top3) 程度に留める。
-  const parsingPromises: Array<Promise<{
-    kwIdx: number;
-    structures: ContentStructure[];
-  }>> = stage3Pass.map((_kw, i) => {
-    const serp = serpResults[i];
-    const top3 = serp?.items
-      .filter((it) => it.type === "organic" && it.url)
-      .slice(0, 3)
-      .map((it) => it.url!) ?? [];
-    return Promise.all(
-      top3.map((url) =>
-        contentParsing(url).catch((e) => {
-          console.warn(`[stage4 contentParsing] fail for ${url}:`, e instanceof Error ? e.message : e);
-          return null;
-        }),
-      ),
-    ).then((results) => ({
-      kwIdx: i,
-      structures: results.filter((r): r is ContentStructure => r !== null),
-    }));
-  });
-  const parsingResults = await Promise.all(parsingPromises);
-  const parsingByIdx = new Map(parsingResults.map((p) => [p.kwIdx, p.structures] as const));
-
   // Stage 4 で取れた情報を candidate に詰める
   const stage4Candidates: ScoutFinalCandidate[] = stage3Pass.map((kw, i) => {
     const ov = overviewMap.get(kw.kw.toLowerCase());
     const serp = serpResults[i];
     const intent = intentMap.get(kw.kw.toLowerCase());
     const seasonality = calcSeasonality(ov?.monthlySearches ?? []);
-    const structures = parsingByIdx.get(i) ?? [];
+    // C. Top3 競合の中身を SERP の organic 上位 3 件の title + snippet で構築
+    const top3 = (serp?.items ?? [])
+      .filter((it) => it.type === "organic" && it.url)
+      .slice(0, 3);
+    const topPageStructures = top3.map((it, idx) => ({
+      url: it.url!,
+      domain: extractDomain(it.url) ?? null,
+      rank: idx + 1,
+      title: it.title ?? null,
+      description: it.description ?? null,
+    }));
     return {
       kw: kw.kw,
       intent: kw.intent,
@@ -748,15 +731,8 @@ export async function runScoutPipeline(
       // B. 季節性 (既存 monthlySearches から算出)
       peakMonths: seasonality.peakMonths,
       troughMonths: seasonality.troughMonths,
-      // C. Top3 ページ構造
-      topPageStructures: structures.map((s) => ({
-        url: s.url,
-        domain: s.domain,
-        title: s.title,
-        h2Count: s.h2.length,
-        h2Sample: s.h2.slice(0, 3),
-        wordCount: s.wordCount,
-      })),
+      // C. Top3 競合 (SERP の title + snippet で構築)
+      topPageStructures,
       serpFeatures: serp?.features ?? {
         hasAiOverview: false,
         hasFeaturedSnippet: false,
