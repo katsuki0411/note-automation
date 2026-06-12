@@ -572,15 +572,20 @@ export default function LibraryPage() {
       clearTimeout(timeout);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "失敗");
+      // 2026-06-12: API は Supabase Storage に保存せず data URL を返すように変更。
+      // メモリ内 (state) のみ保持し、ページリロードしたら消える運用に。
+      // 再表示したい場合はもう一度「画像生成」する。
+      const dataUrl = (data.imageDataUrl as string | undefined) ?? (data.imagePath as string | undefined);
+      if (!dataUrl) throw new Error("画像データが返ってきませんでした");
       setArticles((prev) => {
         const next = prev.map((a) =>
-          a.id === articleId ? { ...a, imagePath: data.imagePath as string } : a,
+          a.id === articleId ? { ...a, imagePath: dataUrl } : a,
         );
         setCache(CACHE_KEY, next);
         return next;
       });
-      setImageStatus({ state: "done", message: "見出し画像を生成しました" });
-      setTimeout(() => setImageStatus({ state: "idle" }), 3000);
+      setImageStatus({ state: "done", message: "見出し画像を生成しました (リロードで消えます。投稿先に直接アップしてください)" });
+      setTimeout(() => setImageStatus({ state: "idle" }), 5000);
     } catch (e) {
       clearTimeout(timeout);
       const msg =

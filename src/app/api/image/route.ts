@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { gemini, MODELS } from "@/lib/gemini";
 import { buildImagePrompt } from "@/lib/prompts";
-import { loadArticles, saveArticle, saveImage } from "@/lib/storage";
+import { loadArticles } from "@/lib/storage";
 import { withProjectContext } from "@/lib/auth";
 
 export const runtime = "nodejs";
@@ -9,6 +9,10 @@ export const maxDuration = 300;
 
 type InlineDataPart = { inlineData?: { data?: string; mimeType?: string } };
 
+// 2026-06-12: Supabase Storage への保存を廃止 (容量制限超過のため)。
+// 画像は base64 を直接フロントに返却 → ユーザーが投稿先 (note 等) に直接
+// アップロードする運用に。永続化は articles テーブルにも保存しない。
+// 再表示したい場合は再生成 (Gemini 課金は発生するが Storage 容量問題は回避)。
 export async function POST(req: NextRequest) {
   return withProjectContext(async (ctx) => {
     try {
@@ -40,7 +44,9 @@ export async function POST(req: NextRequest) {
 
       const parts: InlineDataPart[] =
         result.candidates?.[0]?.content?.parts ?? [];
-      const base64 = parts.find((p) => p.inlineData?.data)?.inlineData?.data;
+      const inlinePart = parts.find((p) => p.inlineData?.data);
+      const base64 = inlinePart?.inlineData?.data;
+      const mimeType = inlinePart?.inlineData?.mimeType ?? "image/png";
       if (!base64) {
         const finishReason = result.candidates?.[0]?.finishReason;
         const textPart = parts
@@ -52,11 +58,9 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const imagePath = await saveImage(ctx.projectId, articleId, base64);
-      article.imagePath = imagePath;
-      await saveArticle(ctx.projectId, ctx.userId, article);
-
-      return Response.json({ imagePath });
+      // base64 のまま data URL でフロントに返す (Storage 保存はしない)
+      const dataUrl = `data:${mimeType};base64,${base64}`;
+      return Response.json({ imageDataUrl: dataUrl, mimeType });
     } catch (e) {
       const message = e instanceof Error ? e.message : "unknown error";
       return Response.json({ error: message }, { status: 500 });

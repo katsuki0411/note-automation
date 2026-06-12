@@ -152,6 +152,12 @@ export async function updateArticleContent(
 // 再生成時に上書きされるよう upsert: true。
 // 画像パスにも projectId を含めて、別 project が同じ articleId を使うことが
 // 仮にあっても衝突しないようにする。
+/**
+ * @deprecated 2026-06-12: Supabase Storage 容量上限 (Free 1GB) 対策で廃止予定。
+ * /api/image は base64 を直接フロントに返すように変更済。
+ * この関数を呼び出してはいけない (呼び出し箇所は撤廃済)。
+ * 将来 Pro プラン移行 or Vercel Blob 等への移行時に復活可能。
+ */
 export async function saveImage(
   projectId: string,
   articleId: string,
