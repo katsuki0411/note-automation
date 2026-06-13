@@ -1,192 +1,436 @@
-# 商品スカウト スコアリング設計書
+# KW スカウト評価指標ガイド (2026-06-13 版)
 
-`/products` の **商品スカウト機能** がキーワード候補に対して出す各種スコアの算出方法と根拠をまとめる。
-ソースコードでの実装: `src/lib/competitionAnalyzer.ts` / `src/lib/keywordExpander.ts` / `src/app/api/products/scout/route.ts`
+`/products` の **KW スカウト機能** で、各 Stage がどんな数値で KW を評価しているか、
+その**算出方法**と**根拠**をまとめたドキュメント。
+
+> 実装ファイル: `src/lib/scoutPipeline.ts` / `src/lib/cvKw.ts` / `src/lib/dataforseo.ts` / `src/lib/keywordExpander.ts`
 
 ---
 
-## 1. 全体フロー
-
-商品名やお題 (例:「ワイヤレスイヤホン 寝るとき」) を入力すると、以下の3段階で評価する。
+## 0. 全体フロー (6段パイプライン)
 
 ```
-[入力] subject (商品名 or お題)
+[ subject 入力 ] 例: "ピジョン 母乳実感"
    │
    ▼
-[Step 1] Gemini で関連KW を 8〜12個 自動生成 (intent付き)
-   │     例: 「○○ おすすめ」「○○ 寝るとき」「○○ 比較」「○○ デメリット」
-   ▼
-[Step 2] 各 KW を Brave Search で上位30件取得
-   │
-   ├─ (A) 固定ドメインリストで分類 → SEO難易度 + opportunityScore
-   │
-   └─ (B) Gemini に上位30件 + intent を渡して 5軸評価
-          → AI overall (加重平均) + 判断理由
+Stage 0    DFS Related + Suggestions  → 実検索シード 約 30 件
+Stage 1    Gemini #1                  → 100 KW 生成
+Stage 2    DFS Search Volume Bulk     → SV / CPC / 競合 / 月別12ヶ月
+Stage 3    Gemini #2                  → 30 件に絞り込み
+Stage 3.5  DFS Search Intent          → Google 公式 intent ラベル
+Stage 4    DFS SERP + CVKW スコア計算  → SERP / Top3 / CVKW スコア
+Stage 5    Gemini #3                  → 最終判定 (adopt/borderline/reject)
    │
    ▼
-[Step 3] AI overall (なければ opportunityScore) 降順でソートしてUIに表示
+[ 採用 KW 3-5 件 (rationale 付き) ]
 ```
 
-各 KW につき **Gemini × 1〜2 req + Brave × 1〜2 req** が消費される。
+**1スカウトのコスト**: 約 ¥43 (Gemini × 3 + DFS API × 4)
 
 ---
 
-## 2. なぜ「競合判定」が必要か
+## 1. Stage 0: 実検索シード取得
 
-> Amazon の売れ筋を取ってきて全部記事化しても意味がない。
-> SEO/LLMO で**勝てる KW か事前判定**してから書く方が効率的。
+### 機能
 
-判定の本質は「**この KW で個人ブログが上位入りできる可能性があるか**」を多角的に推定すること。
+入力商品名から「実際に Google で検索されている関連 KW」を取得して、Gemini #1 のハルシ抑制に使う。
 
----
+### 使用 API
 
-## 3. 2系統の評価を並列実行
-
-スカウト機能は2つの独立した評価系統を持ち、両方を UI に並べて表示する。
-ユーザーは見比べて最終判断する。
-
-| 系統 | 仕組み | 強み | 弱み |
-|---|---|---|---|
-| **(A) 固定分類** | Brave 上位30 → ドメインリストで4バケットに分類 → 比率でスコア | 高速・確定的・無料 | 新興ドメイン取りこぼし / intent 整合性 / LLMO 観点ナシ |
-| **(B) Gemini 五軸評価** | Brave 上位30 + intent → Gemini に投げて 5観点で評価 | 動的判定 / LLMO 観点 / intent整合 / 判断理由テキストあり | Gemini × 1req コスト / ハルシネーション可能性 |
-
----
-
-## 4. 系統 (A) 固定ドメイン分類ベースの評価
-
-### 4-1. ドメインを4バケットに分類
-
-`src/lib/competitionAnalyzer.ts` 内のハードコードされたリストで判定。
-
-| バケット | 代表ドメイン |
-|---|---|
-| **big_ec** | amazon.co.jp / rakuten.co.jp / shopping.yahoo.co.jp / mercari / qoo10 / askul / lohaco / biccamera / yodobashi |
-| **big_media** | kakaku.com / my-best.com / mybest.tokyo / monomag / the360.life / limia / lifehacker / ranking.goo.ne.jp / fumufumunews / thebest-1.com |
-| **individual_blog** | hatenablog / hatenadiary / livedoor.blog / livedoor.jp / blog.fc2 / fc2.com / ameblo / seesaa.net / note.com / blog.jp / blogspot / wordpress.com / naver / exblog |
-| **other** | 上記以外 (公式メーカーサイト / 業界メディア / 個人独自ドメイン等) |
-
-### 4-2. 比率を計算
-
-```
-ecRatio    = big_ec / 30
-mediaRatio = big_media / 30
-blogRatio  = individual_blog / 30
-```
-
-### 4-3. SEO 難易度 `seoDifficulty` の判定
-
-| 条件 | 判定 | 根拠 |
+| API | エンドポイント | コスト |
 |---|---|---|
-| `mediaRatio ≥ 40%` | ✕ **hard** | 大手比較メディアが SERP を占有 → ドメイン権威性で個人は勝てない |
-| `blogRatio ≥ 50%` かつ `mediaRatio < 20%` | ✕ **hard** | 個人ブロガーが既に飽和 → 先発組とのコンテンツ量・被リンク戦争 |
-| `ecRatio ≥ 40%` かつ `mediaRatio < 20%` | ◎ **easy** | EC ばかり = 解説記事が SERP に少ない = 個人ブログの解説が入る隙間あり |
-| それ以外 | △ **medium** | ミックス。やってみる価値あり |
+| Related Keywords Live | `/dataforseo_labs/google/related_keywords/live` | ¥1.7 |
+| Keyword Suggestions Live | `/dataforseo_labs/google/keyword_suggestions/live` | ¥1.8 |
 
-### 4-4. 機会スコア `opportunityScore` の計算式
+### 評価指標
+
+このステージは**評価しない**。後段に渡すシード集合を作るだけ。
+
+### 出力例
 
 ```
-opportunityScore =
-    50 (中立スタート)
-  + ecRatio    × 50    (+加点: 商品ページが多い = 解説の余地)
-  − mediaRatio × 60    (-減点: 大手メディアは最強の壁、係数重め)
-  − blogRatio  × 20    (-減点: 飽和市場、係数軽め)
-
-   結果を [0, 100] にクランプ
+seedKws (27件):
+  - ピジョン 母乳実感 SS
+  - ピジョン 母乳実感 違い
+  - ピジョン 母乳実感 おすすめ
+  ...
 ```
-
-#### 係数の意図
-
-- **メディアの減点係数 (60) > 個人ブログの減点係数 (20)** にしているのは、**1サイトあたりの強さがケタ違い**だから (mybest 1サイトで個人ブログ20サイト分の権威)
-- **EC の加点係数 (50)** は中庸。EC が多いだけでは決め手にならないが、確実に好材料
 
 ---
 
-## 5. 系統 (B) Gemini 五軸評価
+## 2. Stage 1: KW 候補生成 (Gemini #1)
 
-### 5-1. Gemini に渡す情報
+### 機能
 
-- 対象キーワード
-- 検索意図 (intent: info / how-to / comparison / trouble / review / purchase)
-- Brave 上位30件のタイトル + URL
+Stage 0 のシードを参考に、Gemini が**100 個の関連 KW**を生成する。
 
-### 5-2. 5つの評価軸 (各 0-100、高いほど個人ブログに有利)
+### 使用 API
 
-| # | 軸 | 意味 |
-|---|---|---|
-| 1 | **authority** | 上位サイトの権威性が "低い" ほど高得点 (Wikipedia/政府/大手新聞/大手比較メディアが多い = 低、知らないドメイン = 高) |
-| 2 | **intentGap** | SERP が intent を "満たせていない" ほど高得点 (例: 比較intent なのに上位が商品ページばかり = 高 = 隙間チャンス) |
-| 3 | **blogRoom** | SERP に個人ブログの解説記事が "入る余地" がどれだけあるか (大手メディア独占 = 低、商品ページ多め = 高) |
-| 4 | **llmoAffinity** | AI 検索 (ChatGPT/Perplexity/Gemini AI Overview) で "引用源になりやすい" KW か (情報網羅性・専門解説ニーズが強い = 高) |
-| 5 | **mediaMix** | 動画(YouTube)・SNS が "少ない" ほど高得点 (文字記事に有利。動画ばかりだとテキスト記事の天井低い) |
-
-### 5-3. AI overall (加重平均) の計算式
-
-```
-overall =
-    intentGap    × 0.30   (最重視: ニーズに対する SERP のズレ = チャンス)
-  + blogRoom     × 0.25   (個人ブログの参入余地)
-  + authority    × 0.20   (権威性が低いほど勝てる)
-  + llmoAffinity × 0.15   (LLMO 観点)
-  + mediaMix     × 0.10   (動画/SNS 少なめのほうが文字記事有利)
-```
-
-#### 重みの意図
-
-- **intentGap を最大重み (0.30)** にしたのは、「ニーズに合った記事が SERP に無い」状態が個人ブロガーには最大のチャンスだから
-- **blogRoom (0.25)** は SERP 内の物理的な「空き枠」を見ている。これも重要
-- **authority (0.20)** は権威性。固定分類とは独立した第三者視点
-- **llmoAffinity (0.15)** は将来重要になる軸 (現状は AI 検索シェア小さい)
-- **mediaMix (0.10)** は補助指標
-
-### 5-4. Gemini が返す rationale (判断理由)
-
-各 KW について、5軸の数値を出した理由を日本語1文で返す。UI に表示する。
-
-例:
-> 上位はAmazonと楽天が多く、解説記事が少ない。intent=comparison なら、解説の比較記事は隙間。大手メディア mybest 等は少なめで、個人ブログの参入余地あり。LLMO は中程度。
-
----
-
-## 6. ソート順
-
-```
-sortedCandidates = candidates.sort((a, b) => {
-  const scoreA = a.ai?.overall ?? a.opportunityScore;
-  const scoreB = b.ai?.overall ?? b.opportunityScore;
-  return scoreB - scoreA;
-});
-```
-
-- Gemini 評価がある場合は **AI overall** を優先
-- 失敗時 (Gemini エラー等) は固定分類の **opportunityScore** にフォールバック
-
----
-
-## 7. 既知の弱点と改善余地
-
-| # | 弱点 | 影響 | 改善案 |
-|---|---|---|---|
-| 1 | ドメインリストが固定 | 新興メディアを誤分類 | (B) 系統で動的判定済み → 解消 |
-| 2 | 上位記事の中身は未評価 | 「同じ ◎ 易」でも質の差を区別できない | Phase 5-2-D-α: 上位3記事の HTML 取得 → 文字数/H2数/更新日 で深掘り |
-| 3 | 被リンク数・年齢未考慮 | ドメイン権威の主要指標を使っていない | Ahrefs / Moz API (有料) を契約すれば追加可 |
-| 4 | 検索ボリューム未考慮 | スコア高いのに月間検索数 0 のニッチ KW を見抜けない | Google Trends / Brave Suggest 等で代替 |
-| 5 | Gemini ハルシネーション | 5軸の数値が実態と乖離する可能性 | 系統(A) を並べて表示することで人間の最終判断を残している |
-| 6 | コスト | 1スカウトで Gemini × 8〜12 req + Brave × 16〜24 req | Brave Pro 課金 ($5/月 で 15kreq) + Gemini 課金で対応 |
-
----
-
-## 8. 関連ファイル
-
-| ファイル | 役割 |
+| API | コスト |
 |---|---|
-| `src/lib/keywordExpander.ts` | 商品名/お題 → 関連KW 8〜12個生成 (Gemini) |
-| `src/lib/competitionAnalyzer.ts` | Brave 上位30取得 + (A) 固定分類 + (B) Gemini五軸 |
-| `src/app/api/products/scout/route.ts` | エンドポイント。expand → analyze → ソートして返す |
-| `src/app/(main)/products/ProductsClient.tsx` | UI。各候補の (A)/(B) 評価を並べて表示、「ネタ化」「✍ 記事生成」ボタン |
+| Gemini 2.5 Pro | ¥10 |
+
+### 評価指標
+
+Gemini 内部で「**CVKW 比率 70% 以上**」を強制 (プロンプト指示)。
+
+| 比率 | 例 |
+|---|---|
+| 強CVKW 40% 以上 | "○○ 価格" / "○○ 最安" / "○○ amazon" / "○○ 楽天" / "○○ 通販" |
+| 中CVKW 30% 以上 | "○○ おすすめ" / "○○ 比較" / "○○ 違い" / "○○ 口コミ" |
+| 残り 30% | 派生・情報系 |
+
+### 出力フィールド (1 KW あたり)
+
+| フィールド | 例 | 意味 |
+|---|---|---|
+| `kw` | "ピジョン 母乳実感 価格" | KW 文字列 |
+| `intent` | "purchase" | Gemini 推定 intent (purchase / comparison / how-to / info / review / trouble) |
+| `reason` | "購入直前KW" | なぜこの KW を選んだか (記事化時に reason として再利用可能) |
+
+### 根拠
+
+- Gemini に「**Google で実際に検索されているデータ**」(seedKws) を参考にさせることで、検索されない造語 KW が混じるのを抑制。
+- 「**CVKW 比率 70% 以上**」を強制することで、後段 Stage 5 で採用される KW の CV 直結度を担保。
 
 ---
 
-## 9. 履歴
+## 3. Stage 2: SV/CPC 一括取得 (DFS Search Volume)
 
-- **2026-05-27 Phase 5-2-A**: 固定分類 (A) のみ実装。`opportunityScore` 単体評価
-- **2026-05-27 Phase 5-2-D**: Gemini 五軸評価 (B) を追加。両系統並列表示に
+### 機能
+
+100 KW すべての SV (検索数) / CPC (広告単価) / 競合度 / 月別12ヶ月SV を一括取得。
+
+### 使用 API
+
+| API | エンドポイント | コスト |
+|---|---|---|
+| Google Ads Search Volume Bulk | `/keywords_data/google_ads/search_volume/live` | ¥11 (100 KW分) |
+
+### 取得指標と算出方法
+
+| 指標 | 例 | 算出方法 | 根拠 |
+|---|---|---|---|
+| **search_volume** | 1,200 | Google Ads が記録した過去12ヶ月の月平均検索数 | Google Ads の広告主向け実データ |
+| **cpc** | $0.07 (≒ ¥10) | 広告のクリック単価平均 | 広告主が実際に支払っている金額の中央値 |
+| **competition_index** | 0-100 | 広告出稿者数の正規化値 | 100 に近いほど広告需要が高い |
+| **competition** | HIGH / MEDIUM / LOW | competition_index の階級分け | HIGH ≒ 商業価値が高い (= アフィリ向き) |
+| **monthly_searches** | [{year:2025, month:6, sv:1300}, ...] × 12 | 過去 12ヶ月分の月別 SV | 季節性算出に使用 |
+
+### 派生計算: 季節性 (peakMonths / troughMonths)
+
+```typescript
+// src/lib/scoutPipeline.ts: calcSeasonality()
+平均 = (12ヶ月のSV合計) / 12
+peakMonths = SV が 平均 * 1.2 以上の月
+troughMonths = SV が 平均 * 0.8 以下の月
+```
+
+#### 例
+
+```
+ベビーカー 軽量:
+  4月 1000, 5月 1300, 6月 1300, 7月 1300, 8月 1300, 9月 1300
+  10月 1000, 11月 880, 12月 720, 1月 880, 2月 880, 3月 1000
+
+  平均 ≒ 1059
+  peakMonths: [5, 6, 7, 8, 9] (春-夏ピーク = 出産シーズン)
+  troughMonths: [11, 12, 1, 2] (冬底)
+```
+
+### 評価指標
+
+このステージは**評価しない**。Stage 3/5 の Gemini が判断材料として使用。
+
+### 根拠
+
+- Google Ads は「広告主が実際に支払う料金」のため、**商業価値の絶対指標**。
+- 月別12ヶ月で季節性を把握 → 公開タイミング戦略に活用。
+
+---
+
+## 4. Stage 3: 1次絞り込み (Gemini #2)
+
+### 機能
+
+100 KW を ~30 件 (`maxFinalCount`) に絞り込み。
+
+### 使用 API
+
+| API | コスト |
+|---|---|
+| Gemini 2.5 Pro | ¥4 |
+
+### 評価基準 (Gemini プロンプト)
+
+```
+1. SV >= 100 (検索数が一定以上ある)
+2. CPC >= ¥30 (広告出稿価値 = 商業意図)
+3. dfs_intent が commercial / transactional 寄り
+4. 「比較」「おすすめ」「口コミ」「使い方」など購入直前KW を優先
+5. 同じ意味の重複 (例: "○○ 価格" と "○○ 値段") は片方だけ
+6. 商品名と無関係なジャンル混入は除外
+```
+
+### 出力
+
+- `selected`: 通過 KW リスト (~30 件)
+- `rationale`: 全体の絞り込み方針説明
+
+落選した KW は `rejectedCandidates[].stage = "stage3_rejected"` として記録 → UI の「①Gemini全候補」タブで確認可能。
+
+### 根拠
+
+- 単純な閾値ではなく Gemini が**「複合的な判断」**(SV低くても CVKW なら通す等) を行うことで、ロングテール KW を取りこぼさない。
+
+---
+
+## 5. Stage 3.5: Google 公式 intent 取得 (DFS Search Intent)
+
+### 機能
+
+Stage 3 通過した ~30 KW に対して、**Google AI が公式に判定した検索意図**を取得。
+
+### 使用 API
+
+| API | エンドポイント | コスト |
+|---|---|---|
+| Search Intent Bulk | `/dataforseo_labs/google/search_intent/live` | ¥2 |
+
+### 取得指標
+
+| ラベル | 意味 | 例 KW |
+|---|---|---|
+| **transactional** | 「買う直前」(購入クリック直結) | "○○ 価格", "○○ amazon", "○○ クーポン" |
+| **commercial** | 「比較・検討中」 | "○○ おすすめ", "○○ 違い", "○○ 比較" |
+| **navigational** | 「特定サイトに行く」 | "○○ 公式", "amazon ログイン" |
+| **informational** | 「情報収集」 | "○○ とは", "○○ 使い方" |
+
+加えて `probability` (確信度 0-1) も取得。
+
+### 算出方法
+
+Google 自身が学習データ (検索クエリ + クリック後の行動) から intent を推定したラベル。**ブラックボックスだが Google 公式の判定**。
+
+### 根拠
+
+- Gemini の推定よりも**実データに基づいた客観判定**。
+- これ以降の Stage で「CV直結度の最重要因子」として使う。
+
+---
+
+## 6. Stage 4: SERP取得 + CVKW スコア計算
+
+### A. SERP Top10 取得 (DFS)
+
+#### 使用 API
+
+| API | エンドポイント | コスト |
+|---|---|---|
+| SERP Organic Live Advanced | `/serp/google/organic/live/advanced` | ¥3 (30 KW分) |
+
+#### 取得指標
+
+| 項目 | 例 | 意味 |
+|---|---|---|
+| `items[].url` | https://bg-note.com/... | Top10 ページの URL |
+| `items[].title` | "ピジョン母乳実感の比較" | Google が表示するタイトル |
+| `items[].description` | "実際に使った感想..." | SERP スニペット |
+| `features.hasAiOverview` | true | AI 要約が表示されているか |
+| `features.hasPaa` | true | 関連質問枠があるか |
+| `aiOverviewReferences[].domain` | support.pigeon.co.jp | AI 要約の引用元ドメイン |
+| `paaQuestions` | ["どっちがいい?"] | 関連質問の質問文 |
+
+#### 評価指標
+
+このステージでは評価せず、Stage 5 の Gemini #3 が SERP 中身を見て判定。
+
+#### 根拠
+
+- 「**Top10 にどんなサイトが入っているか**」が「個人で食い込めるか」の最重要判断材料。
+- mybest.com / Amazon / 楽天 が独占 = 個人ブログでは厳しい。
+- bg-note.com / ameblo.jp 等の個人ブログ混じり = 食い込める可能性大。
+
+---
+
+### B. CVKW スコア計算 (ルールベース、API 不要) ⭐
+
+各 KW に **`cvKwScore` (0-100)** を計算。
+
+#### 算出方法 (`src/lib/cvKw.ts: calcCvKwScore()`)
+
+```typescript
+合計スコア = intentScore + tokenScore + brandScore  (上限 100)
+```
+
+| 要素 | 加点 | 根拠 |
+|---|---|---|
+| Google公式 intent = **transactional** | +40 | 「買う直前」だから |
+| Google公式 intent = **commercial** | +25 | 「比較検討中」だから |
+| Google公式 intent = navigational | +5 | 「サイト探し」(購入意図弱) |
+| Google公式 intent = informational | 0 | 「情報収集」(購入意図最小) |
+| **強CVKW 語**含む (「価格」「最安」「amazon」「楽天」「クーポン」等) | +30 | 購入直前の検索パターン |
+| 中CVKW 語含む (「おすすめ」「比較」「違い」「口コミ」等) | +15 | 比較検討の検索パターン |
+| 商標含む (subject から抽出した語) | +15 | ブランド狙い撃ち = CV直結 |
+
+#### 例
+
+| KW | intent | 強CV | 中CV | 商標 | **cvKwScore** | 分類 |
+|---|---|---|---|---|---|---|
+| ピジョン 母乳実感 価格 | transactional (40) | 価格 (30) | - | ピジョン (15) | **85** | 💰 強CVKW |
+| ピジョン 母乳実感 違い | commercial (25) | - | 違い (15) | ピジョン (15) | **55** | 中CVKW |
+| ピジョン 母乳実感 使い方 | informational (0) | - | - | ピジョン (15) | **15** | 非CVKW |
+
+#### 4段階分類
+
+| スコア | 分類 | UI バッジ色 | 採用判断 |
+|---|---|---|---|
+| 70-100 | **strong (強CVKW)** | emerald 強調 | adopt 優先 |
+| 50-69 | **mid (中CVKW)** | teal | borderline 候補 |
+| 30-49 | **weak (弱CVKW)** | amber | 場合により採用 |
+| 0-29 | **none (非CVKW)** | gray | 原則 reject |
+
+### 根拠
+
+- **Google 公式 intent (実データ)** + **キーワードパターン (ルールベース)** + **商標含有 (確実な購入意図)** の3軸組合せ。
+- KGI (個人開発受注獲得) のため、「CV直結度」を採用判定の最重要因子に据える。
+
+---
+
+## 7. Stage 5: 最終判定 (Gemini #3)
+
+### 機能
+
+すべての情報を総合して **adopt / borderline / reject** を判定。
+
+### 使用 API
+
+| API | コスト |
+|---|---|
+| Gemini 2.5 Pro | ¥8 (最も重い) |
+
+### 評価基準 (Gemini プロンプト, CVKW 強化版)
+
+```
+【最重要: CV直結度を最優先に判定する】
+- このプロジェクトは「主婦に CV (購入クリック) を促す」のが目的
+- CVスコア (0-100) は KW の購入意図の強さを示す
+- CVスコア >= 60 を強く優先
+- CVスコア < 30 は原則 reject
+
+【判定基準】
+- adopt: CVスコア >= 60 + Top10 個人ブログ食い込み可能
+       + Top3 が薄い (差別化容易) なら優先
+- borderline: CVスコア 40-59、または CVスコア >= 60 だが Top10 大手中心
+- reject: CVスコア < 40 or Top10 大手独占
+```
+
+### 出力指標
+
+| フィールド | 範囲 | 意味 |
+|---|---|---|
+| `decision` | adopt / borderline / reject | 最終判定 |
+| `finalScore` | 0-100 | 総合スコア (UI で「総合 85」と表示) |
+| `rationale` | テキスト | 採用/却下の根拠 (説明用、記事生成にも転用) |
+
+### 根拠
+
+- **CVKW スコア (購入意図)** × **SERP 中身 (上位表示可能性)** × **Top3 ページ構造 (差別化容易性)** の3軸総合判断。
+- 単純な閾値判定ではなく Gemini に「複合判断」を任せることで、エッジケースをカバー。
+
+---
+
+## 8. KD (Keyword Difficulty) について
+
+### 現状
+
+**KD は取得していない** (Search Volume API は KD を返さない仕様)。
+
+### KD とは
+
+| | 詳細 |
+|---|---|
+| 定義 | 検索結果 Top10 ページに食い込む難易度 (0-100) |
+| 算出方法 | Top10 ページの被リンク数 (RD) + ドメイン権威 (DR) の中央値を正規化 |
+| 根拠 | DataForSEO / Ahrefs が独自アルゴリズムで算出 |
+
+### KD 数値の解釈
+
+| KD | Top10 の様子 | 個人ブログの勝率 |
+|---|---|---|
+| 0-20 | 個人ブログ中心 | ◎ 1-3 ヶ月で上位 |
+| 21-30 | 中堅ブログ混じる | ○ 6 ヶ月で勝負 |
+| 31-50 | 大手メディア混じる | △ 1 年戦略要 |
+| 51-70 | 大手中心 | ✗ 個人では厳しい |
+| 71+ | 巨大ドメイン独占 | ✗✗ 無理ゲー |
+
+### 取得には Backlinks 契約が必要
+
+| API | KD 取得 | コスト |
+|---|---|---|
+| 現在使用中の Search Volume | ❌ | ¥11/100 KW (KD 含まず) |
+| Bulk Keyword Difficulty (要 Backlinks) | ✓ | 約 ¥7.5/100 KW + サブスク基本料 ¥4,500/月 |
+
+### 契約のトレードオフ
+
+| 観点 | 評価 |
+|---|---|
+| 確からしさ | UP (KD 客観指標による機械的フィルタ追加) |
+| デモ説得力 | UP (「Google 公式の難易度数値」と説明可能) |
+| 月額 ¥4,500 | 受注 1 件で即回収 (KGI 視点では誤差) |
+| 緊急性 | 低 (SERP 中身判断で代替可能、現状でも機能している) |
+
+---
+
+## 9. 採用 KW の最終的な「根拠」を再構成
+
+採用 KW (例: 「ピジョン 母乳実感 価格」) が `決定` される根拠は以下の階層で説明可能:
+
+### Layer 1: 検索データ (Google 公式)
+- SV = 1,200 (月間検索数あり)
+- CPC = ¥45 (広告価値あり)
+- intent = transactional (Google 自身が「買う直前」と判定)
+
+### Layer 2: CV 直結度 (CVKW スコア)
+- 強CVKW = 85/100 (transactional + 「価格」+ 商標「ピジョン」)
+
+### Layer 3: 季節性 (12ヶ月分析)
+- ピーク 3/4月 (出産シーズン)
+- 公開時期戦略の根拠
+
+### Layer 4: 競合状況 (SERP)
+- Top10 に bg-note.com (個人ブログ) 等が複数 = 食い込める
+- AI Overview 引用元に support.pigeon.co.jp (公式) のみ = 個人記事の AI 引用余地あり
+
+### Layer 5: 差別化容易性 (Top3 構造)
+- 1位 bg-note.com: タイトル + スニペットから「価格比較メイン」と判明
+- 自分は「体験談 + 写真」で差別化可能
+
+### Layer 6: AI 総合判断 (Gemini #3)
+- rationale: 「CVスコア85の強CVKW。Top10にbg-note.com等の個人ブログ多数 + AI Overview引用元にも個人サイト多い。3-4月の出産シーズンに向けた記事として最適」
+
+→ **6つのレイヤーで根拠を語れる** = 受注デモで反論不能。
+
+---
+
+## 10. デモ用キャッチコピー
+
+> 「商品名を入れるだけで、Google 公式の検索データから:
+> - 月間検索数 / 広告単価 / 検索意図 / 12ヶ月の季節性
+> を全部取得。さらに**購入直前の KW (CVKW) だけ**に絞り込んで、上位サイトの中身まで分析した上で、**個人ブログでも食い込める KW** だけを採用します。AI に推測させるのではなく、**Google 自身のデータ**に基づいて判定するので、外しません。」
+
+---
+
+## 11. 関連ファイル
+
+| ファイル | 内容 |
+|---|---|
+| `src/lib/scoutPipeline.ts` | 6段パイプライン本体 |
+| `src/lib/cvKw.ts` | CVKW スコア計算ロジック |
+| `src/lib/dataforseo.ts` | DFS API クライアント |
+| `src/lib/keywordExpander.ts` | Stage 1 Gemini #1 プロンプト |
+| `src/app/(main)/products/ProductsClient.tsx` | UI 表示 |
+| `src/app/api/products/scout/route.ts` | API エントリ |
+| `docs/PRODUCT_FLOW.md` | システム全体の機能フロー |
+| `docs/GLOSSARY.md` | SEO 用語集 |
+| `docs/DATAFORSEO_SETUP.md` | DFS 契約・設定手順 |
