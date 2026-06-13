@@ -86,7 +86,7 @@ export default function ScoutConfigTab() {
             placeholder={String(DEFAULTS.kwCandidateCount)}
             value={config.kwCandidateCount}
             onChange={(v) => setConfig({ ...config, kwCandidateCount: v })}
-            hint="100件程度を推奨"
+            hint="通常 100件 / Backlinks契約後は最大500件まで網羅可"
           />
           <NumberRow
             label="Stage3: SV 最低値 (月間検索数)"

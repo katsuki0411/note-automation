@@ -34,7 +34,7 @@ export async function PUT(req: NextRequest) {
       const body = (await req.json()) as ScoutConfig;
       // 簡易バリデーション (型と範囲)
       const sanitized: ScoutConfig = {
-        kwCandidateCount: clampInt(body.kwCandidateCount, 1, 200),
+        kwCandidateCount: clampInt(body.kwCandidateCount, 1, 500),
         maxFinalCount: clampInt(body.maxFinalCount, 1, 50),
         minSv: clampInt(body.minSv, 0, 1_000_000),
         minCpc: clampFloat(body.minCpc, 0, 1000),
