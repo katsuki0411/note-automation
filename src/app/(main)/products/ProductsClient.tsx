@@ -66,6 +66,9 @@ type ScoutCandidate = {
   // 2026-06-11 A+B+C 統合で追加 (optional: 旧履歴互換)
   googleIntent?: string | null;       // A: Google 公式 intent
   googleIntentProb?: number | null;
+  // 2026-06-13 CVKW 評価追加 (optional)
+  cvKwScore?: number;                 // 0-100 (購入意図の強さ)
+  cvKwHits?: { strong?: string; mid?: string; brand?: string };
   peakMonths?: number[];               // B: SV ピーク月
   troughMonths?: number[];             // B: SV 谷月
   topPageStructures?: Array<{          // C: Top3 競合の SERP 概要 (タイトル + スニペット)
@@ -1024,6 +1027,22 @@ export default function ProductsClient() {
                                       title={`${info.tip}\n\nGoogle 公式判定 (確信度: ${prob}%)`}
                                     >
                                       {info.emoji} {info.jp}{prob > 0 ? ` ${prob}%` : ""}
+                                    </span>
+                                  );
+                                })()}
+                                {/* CVKW スコア (購入意図の強さ) */}
+                                {typeof c.cvKwScore === "number" && (() => {
+                                  const score = c.cvKwScore;
+                                  const cls = score >= 70 ? "bg-emerald-100 text-emerald-800 font-bold"
+                                    : score >= 50 ? "bg-teal-100 text-teal-700 font-semibold"
+                                    : score >= 30 ? "bg-amber-50 text-amber-700"
+                                    : "bg-gray-100 text-gray-500";
+                                  const hitsStr = [c.cvKwHits?.strong, c.cvKwHits?.mid, c.cvKwHits?.brand]
+                                    .filter(Boolean).join(" / ");
+                                  const tip = `CV直結度 ${score}/100 (CVKW = 購入直前/比較検討の検索意図 KW)\n${score >= 70 ? "強CVKW: 購入クリック直結" : score >= 50 ? "中CVKW: 比較検討段階" : score >= 30 ? "弱CVKW" : "非CVKW"}${hitsStr ? `\n反応した語: ${hitsStr}` : ""}`;
+                                  return (
+                                    <span className={`px-1.5 py-0.5 rounded cursor-help ${cls}`} title={tip}>
+                                      💰 CV直結 {score}
                                     </span>
                                   );
                                 })()}

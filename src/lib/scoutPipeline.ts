@@ -11,6 +11,7 @@ import {
   type SerpAdvancedResponse,
 } from "./dataforseo";
 import { renderTemplate } from "./promptTemplate";
+import { calcCvKwScore, extractBrandTokens } from "./cvKw";
 
 // =========================================================
 // KW スカウト 6段パイプライン (2026-06-11 リファクタ)
@@ -57,6 +58,9 @@ export type ScoutFinalCandidate = {
   // 強化 (2026-06-11 A+B+C 統合)
   googleIntent: string | null;       // A: Google 公式の検索意図 (commercial/informational/navigational/transactional)
   googleIntentProb: number | null;   // intent の確信度 (0-1)
+  // CVKW (Conversion Keyword) 評価 (2026-06-13 追加)
+  cvKwScore: number;                 // 0-100 (Google intent + CV トークン + 商標含有)
+  cvKwHits: { strong?: string; mid?: string; brand?: string }; // どの語が当たったか
   peakMonths: number[];              // B: 過去12ヶ月でSVが平均より20%以上高い月 (1-12)
   troughMonths: number[];            // B: 同じく低い月
   topPageStructures: Array<{         // C: Top3 ページの概要 (SERP の title + snippet)
@@ -148,6 +152,7 @@ export type FinalPromptInput = {
     searchVolume: number | null;
     cpc: number | null;
     googleIntent: string | null;   // A: Google 公式 intent
+    cvKwScore: number;             // CVKW 総合スコア (0-100)
     peakMonths: number[];          // B: SV ピーク月 (1-12)
     troughMonths: number[];        // B: SV 谷月
     serpFeatures: SerpAdvancedResponse["features"];
@@ -206,21 +211,24 @@ function defaultFinalPrompt(i: FinalPromptInput): string {
 あなたは SEO + アフィリエイトの専門家です。
 商品「${subject}」のキーワード候補について、すべての Google 実データを見て採用判定してください。
 
+【最重要: CV直結度を最優先に判定する】
+- このプロジェクトは「主婦に CV (購入クリック) を促す」のが目的
+- CVスコア (0-100) は KW の購入意図の強さを示す。CVスコア >= 60 を強く優先
+- CVスコア < 30 は原則 reject (情報収集系で広告収益につながらない)
+
 【判定基準】
-- adopt: 上位10件に個人ブログ/中堅サイトが入っており、新規記事でも食い込める
-        + Google公式intent が commercial/transactional 寄り
+- adopt: CVスコア >= 60 + 上位10件に個人ブログ/中堅サイトが入っており食い込める
         + Top3 ページが薄い (文字数少ない or H2 少ない) なら差別化容易で優先
-- borderline: 大手と個人ブログが混在、難易度中
-- reject: 大手 (Amazon/楽天/mybest/公式) で埋まっており勝ち目薄
-         + intent が informational のみで購入導線弱いものも reject 寄り
+- borderline: CVスコア 40-59 + 大手と個人ブログ混在、または CVスコア >= 60 だが Top10 大手中心
+- reject: CVスコア < 40 (informational のみで購入導線弱い) or Top10 大手独占で勝ち目薄
 
 【候補】
 ${candidates
   .map(
     (c, idx) =>
       `${idx + 1}. ${c.kw}
+   💰 CVスコア=${c.cvKwScore}/100 (intent=${c.googleIntent ?? "?"})
    KD=${c.kd ?? "?"}, SV=${c.searchVolume ?? "?"}, CPC=${cpcJpy(c.cpc)}
-   Google公式intent: ${c.googleIntent ?? "?"}
    季節性: ${c.peakMonths.length > 0 ? `ピーク=${c.peakMonths.join("/")}月` : "平坦"}${c.troughMonths.length > 0 ? `, 谷=${c.troughMonths.join("/")}月` : ""}
    SERP features: ${Object.entries(c.serpFeatures).filter(([, v]) => v).map(([k]) => k).join(", ") || "(none)"}
    Top10 domains: ${c.serpTopDomains.slice(0, 10).join(", ") || "(none)"}
@@ -457,6 +465,7 @@ async function stage5FinalDecision(
       searchVolume: c.searchVolume,
       cpc: c.cpc,
       googleIntent: c.googleIntent,
+      cvKwScore: c.cvKwScore,
       peakMonths: c.peakMonths,
       troughMonths: c.troughMonths,
       serpFeatures: c.serpFeatures,
@@ -694,6 +703,9 @@ export async function runScoutPipeline(
     ),
   );
 
+  // CVKW スコア計算用: subject から商標トークンを抽出
+  const brandTokens = extractBrandTokens(subject);
+
   // Stage 4 で取れた情報を candidate に詰める
   const stage4Candidates: ScoutFinalCandidate[] = stage3Pass.map((kw, i) => {
     const ov = overviewMap.get(kw.kw.toLowerCase());
@@ -711,6 +723,12 @@ export async function runScoutPipeline(
       title: it.title ?? null,
       description: it.description ?? null,
     }));
+    // CVKW スコア計算 (Google公式 intent + CV トークン + 商標含有)
+    const cv = calcCvKwScore({
+      kw: kw.kw,
+      googleIntent: intent?.intent ?? null,
+      brandTokens,
+    });
     return {
       kw: kw.kw,
       intent: kw.intent,
@@ -728,6 +746,9 @@ export async function runScoutPipeline(
       // A. Google 公式 intent
       googleIntent: intent?.intent ?? null,
       googleIntentProb: intent?.probability ?? null,
+      // CVKW (Conversion Keyword) スコア
+      cvKwScore: cv.total,
+      cvKwHits: cv.hits,
       // B. 季節性 (既存 monthlySearches から算出)
       peakMonths: seasonality.peakMonths,
       troughMonths: seasonality.troughMonths,
