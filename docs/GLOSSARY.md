@@ -1,8 +1,8 @@
 # MultiPostAI 専門用語集
 
-> 作成: 2026-06-09
-> 対象読者: ツールを使う全員 (小社長 / 開発パートナー / スタッフ)
-> 関連: 機能解説は `docs/PRODUCT_FLOW.md` を参照
+> 最終更新: 2026-06-13 (6段パイプライン + CVKW 統合版)
+> 対象読者: ツールを使う全員 (社長 / 開発パートナー / スタッフ / 受注時のクライアント)
+> 関連: 機能解説は `docs/PRODUCT_FLOW.md` / 評価指標詳細は `docs/SCOUT_SCORING.md`
 
 ジャンル別 (SEO/LLMO指標 → ツール内部用語 → 投稿API用語 → 技術用語) で並べています。
 
@@ -79,12 +79,47 @@
 - LLMO = AI が引用元として選んでくれる記事を書く
 - 評価軸: AI Overview に引用される / LLM Mentions が多い / 解説が明快
 
+### RD (Referring Domains / 参照ドメイン数)
+- 意味: あるページ (or サイト) に対して「リンクを張っている**ユニークなドメイン**の数」
+- ドメインベースなので、同じドメインから何百本リンクされても RD は 1
+- KD 算出の最重要因子
+- 個人ブログ: RD < 10 / 中堅: 30-100 / 大手: 500-2000+
+- 取得元: DataForSEO Backlinks (要サブスク契約) / Ahrefs
+
 ### DR (Domain Rating / ドメインランク)
 - 範囲: 0〜100
 - 意味: そのドメイン全体の権威性
 - 「mybest.com の DR=72」= 強い、「個人ブログの DR=12」= 弱い
 - 取得元: Ahrefs (主) / DataForSEO Domain Rank Overview
 - 個人ブログで戦うなら、DR 低いサイトと並んでる KW を狙うのがコツ
+
+### Backlinks サブスクリプション (DataForSEO)
+- DataForSEO の**有料追加プラン** (約 $30/月 ≒ ¥4,500/月)
+- 契約すると以下が解禁:
+  - **Bulk Keyword Difficulty Live**: KD を 100KW 単位で取得 (約 ¥7.5/100KW)
+  - Keyword Overview Live で KD が正しい値で返るようになる
+  - Backlinks Summary / Referring Domains 等の被リンク分析
+- このプロジェクトは**未契約のため KD は表示されない**
+- 契約後の Stage 1.5 で「KD ≤ 30」の機械的フィルタが追加可能
+
+### 季節性 (peakMonths / troughMonths)
+- 過去 12 ヶ月の月別 SV から「ピーク月」と「谷月」を算出
+- 計算: 平均 ±20% (`平均 × 1.2 以上` = ピーク / `平均 × 0.8 以下` = 谷)
+- 例: 「ベビーカー 軽量」のピーク 5-9月 (春-夏 = 出産シーズン)
+- 公開タイミング戦略に使う (記事は「ピーク 1-2 ヶ月前」に公開がベスト)
+- 取得元: DFS Search Volume Bulk API の `monthly_searches` から自動算出
+- 実装: `src/lib/scoutPipeline.ts: calcSeasonality()`
+
+### Google 公式 Search Intent (4 ラベル)
+- DFS Search Intent API (Stage 3.5) が返す**Google 公式の検索意図ラベル**
+- ツール内部の Gemini 推定 intent (purchase 等) より優先される、客観指標
+- 4 種類:
+  - **transactional**: 「買う直前」(購入クリック直結 / 例: ○○ 価格、○○ amazon)
+  - **commercial**: 「比較・検討中」(例: ○○ おすすめ、○○ 違い、○○ 口コミ)
+  - **navigational**: 「特定サイトに行く」(例: amazon ログイン)
+  - **informational**: 「情報収集」(例: ○○ とは、○○ 使い方)
+- CVKW スコア算出の最重要因子 (transactional=+40 / commercial=+25 / navi=+5 / info=0)
+- 加えて `probability` (確信度 0-1) も取得
 
 ---
 
@@ -100,7 +135,7 @@
 - まだ評価前のリスト
 
 ### 採用KW / Adopted KW
-- スカウト8段パイプライン後、Gemini #4 が「adopt」判定した KW
+- スカウト6段パイプライン後、Gemini #3 (Stage 5) が「adopt」判定した KW
 - これが実際に記事化される対象
 - KWスカウトの「採用KW」タブで確認可能
 - ライブラリの「📖 記事を見る」で該当記事に飛べる
@@ -110,16 +145,11 @@
 - 後でまとめて記事化したい時に使う
 - KWスカウトの「保留KW」タブで確認可能
 
-### CVキーワード / 購入直前KW
-- CV = Conversion (コンバージョン、=購入や成果)
-- 「ユーザーが買おうとしている瞬間に検索するKW」
-- 例: 「メリーズ Merries Amazon」「○○ 価格」「○○ クーポン」
-- このツールは特にこの種類のKWを狙う方針 (MTG 2026-06-07 決定)
-
 ### 商標KW
 - 商品名そのものを含むKW
 - 例: 「Merries 新生児」「メリーズ さらさらエアスルー」
 - このツールは商標KWを必ず含めて出力する方針
+- subject 入力欄から `extractBrandTokens()` で自動抽出される
 
 ### 除外KW
 - スカウト結果に含めたくないKW
@@ -127,10 +157,32 @@
 - KWスカウト > スカウト設定 タブで設定可能 (1行1KW)
 - Gemini #1 にも除外指示が伝わる + Stage1 後にもフィルタ
 
-### 8段パイプライン
-- KWスカウトの内部処理。Gemini が4回、DataForSEO が4回、交互に呼ばれる
-- 1スカウト ¥50 程度のコストで 100KW → 採用 3〜5件に絞り込み
-- 詳細は `PRODUCT_FLOW.md` 参照
+### 6段パイプライン (2026-06-13 現行)
+- KWスカウトの内部処理。Gemini が3回、DataForSEO が4回、組み合わせて呼ばれる
+- 1スカウト ¥43 程度のコストで 100KW → 採用 3〜5件に絞り込み
+- 各 Stage の詳細は `docs/SCOUT_SCORING.md` 参照
+- 構成: Stage 0 (DFS シード) → Stage 1 (Gemini #1 生成) → Stage 2 (DFS SV/CPC) → Stage 3 (Gemini #2 絞り込み) → Stage 3.5 (DFS Search Intent) → Stage 4 (DFS SERP + CVKW算出) → Stage 5 (Gemini #3 判定)
+
+### CVKW (Conversion Keyword)
+- CV = Conversion (購入や成果)
+- 「ユーザーが買おうとしている瞬間に検索する KW」
+- このツールは特にこの種類を狙う方針 (Stage 1 で 70% 以上を CVKW にすると指示)
+- 例: 「メリーズ 価格」「○○ クーポン」「○○ amazon」「○○ おすすめ」「○○ 比較」
+- 旧称「CVキーワード / 購入直前KW」を 2026-06-13 から CVKW に統一
+
+### CVKW スコア (cvKwScore)
+- 範囲: 0〜100
+- 算出: `intentScore + tokenScore + brandScore` (上限100)
+  - intentScore: Google公式 intent (transactional=40 / commercial=25 / navigational=5 / informational=0)
+  - tokenScore: 強CVKW 語 (+30) or 中CVKW 語 (+15)
+  - brandScore: subject 商標含有 (+15)
+- 4 段階分類:
+  - 70〜100: **強CVKW** (emerald 強調表示、購入クリック直結)
+  - 50〜69: 中CVKW (teal、比較検討段階)
+  - 30〜49: 弱CVKW (amber、ぎりぎり)
+  - 0〜29: 非CVKW (gray、原則 reject)
+- 実装: `src/lib/cvKw.ts: calcCvKwScore()`
+- 詳細: `docs/SCOUT_SCORING.md` の 6章
 
 ### 3段プロンプトチェーン
 - 記事生成の精度向上テクニック
@@ -199,8 +251,20 @@
 ### DataForSEO (DFS)
 - KW評価 + SERP取得 のメインAPI
 - 12カテゴリ (SERP / Keywords Data / Labs / Backlinks / Content Analysis / Merchant 等)
-- このツールでは Labs (KD/SV/CPC/Intent) と SERP Advanced を中心に使う
+- このツールでは Labs / Keywords Data / SERP を中心に使う
 - 詳細: `docs/DFS_CAPABILITIES.md`
+
+### DFS API 一覧 (このツールが使う / 候補)
+| API | 用途 | コスト | 契約 |
+|---|---|---|---|
+| Related Keywords Live | Stage 0 シード | $0.011/req | 不要 |
+| Keyword Suggestions Live | Stage 0 シード | $0.012/req | 不要 |
+| **Google Ads Search Volume Bulk** | Stage 2 SV/CPC/月別 | $0.075/100KW | 不要 |
+| Search Intent Bulk | Stage 3.5 Google公式 intent | $0.005/KW | 不要 |
+| SERP Organic Live Advanced | Stage 4 SERP Top10 | $0.002/req | 不要 |
+| Keyword Overview Live | (廃止) 1KW しか返さない | $0.01/req | 不要 |
+| **Bulk Keyword Difficulty Live** | KD 取得 (将来) | $0.05/100KW | **Backlinks 要** |
+| On-Page Content Parsing Live | (廃止) JS実行せず動的サイト取れない | $0.000125/req | 不要 |
 
 ### Ahrefs
 - KW評価 + 競合分析の業界標準 SaaS
