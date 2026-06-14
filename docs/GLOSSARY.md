@@ -1,6 +1,6 @@
 # MultiPostAI 専門用語集
 
-> 最終更新: 2026-06-13 (6段パイプライン + CVKW 統合版)
+> 最終更新: 2026-06-14 (7段パイプライン + Backlinks Active trial)
 > 対象読者: ツールを使う全員 (社長 / 開発パートナー / スタッフ / 受注時のクライアント)
 > 関連: 機能解説は `docs/PRODUCT_FLOW.md` / 評価指標詳細は `docs/SCOUT_SCORING.md`
 
@@ -94,13 +94,16 @@
 - 個人ブログで戦うなら、DR 低いサイトと並んでる KW を狙うのがコツ
 
 ### Backlinks サブスクリプション (DataForSEO)
-- DataForSEO の**有料追加プラン** (約 $30/月 ≒ ¥4,500/月)
+- DataForSEO の**有料追加プラン** ($100/月 最低コミット ≒ ¥17,800/月、FastSpring 経由)
+- 「コミット」とは「毎月 $100 をデポジット式に入金する約束」のこと。
+  払った $100 は消えず**アカウント残高に積み上がり**、他の DFS API (Search Volume / SERP 等) でも使える。
+  → 実質的には「Backlinks へのアクセス権 + 月 $100 のクレジット前払い」モデル。
 - 契約すると以下が解禁:
-  - **Bulk Keyword Difficulty Live**: KD を 100KW 単位で取得 (約 ¥7.5/100KW)
+  - **Bulk Keyword Difficulty Live**: KD を 100KW 単位で取得 (約 ¥1.65/100KW)
   - Keyword Overview Live で KD が正しい値で返るようになる
   - Backlinks Summary / Referring Domains 等の被リンク分析
-- このプロジェクトは**未契約のため KD は表示されない**
-- 契約後の Stage 1.5 で「KD ≤ 30」の機械的フィルタが追加可能
+- 2026-06-14 〜 6/28: **14日間トライアル中** ($0 で全機能利用可)
+- トライアル期間中に Stage 2.5 (KD ≤ 30 機械フィルタ) を実装・検証 → 6/28 までに本契約判断
 
 ### 季節性 (peakMonths / troughMonths)
 - 過去 12 ヶ月の月別 SV から「ピーク月」と「谷月」を算出
@@ -157,11 +160,12 @@
 - KWスカウト > スカウト設定 タブで設定可能 (1行1KW)
 - Gemini #1 にも除外指示が伝わる + Stage1 後にもフィルタ
 
-### 6段パイプライン (2026-06-13 現行)
-- KWスカウトの内部処理。Gemini が3回、DataForSEO が4回、組み合わせて呼ばれる
-- 1スカウト ¥43 程度のコストで 100KW → 採用 3〜5件に絞り込み
+### 7段パイプライン (2026-06-14 現行)
+- KWスカウトの内部処理。Gemini が3回、DataForSEO が5回、組み合わせて呼ばれる
+- 1スカウト ¥45 程度のコストで 100KW → KD≤30 通過 → 採用 3〜5件に絞り込み
 - 各 Stage の詳細は `docs/SCOUT_SCORING.md` 参照
-- 構成: Stage 0 (DFS シード) → Stage 1 (Gemini #1 生成) → Stage 2 (DFS SV/CPC) → Stage 3 (Gemini #2 絞り込み) → Stage 3.5 (DFS Search Intent) → Stage 4 (DFS SERP + CVKW算出) → Stage 5 (Gemini #3 判定)
+- 構成: Stage 0 (DFS シード) → Stage 1 (Gemini #1 生成) → Stage 2 (DFS SV/CPC) → **Stage 2.5 (DFS Bulk KD + KD閾値フィルタ)** → Stage 3 (Gemini #2 絞り込み) → Stage 3.5 (DFS Search Intent) → Stage 4 (DFS SERP + CVKW算出) → Stage 5 (Gemini #3 判定)
+- Stage 2.5 は Backlinks 契約 (2026-06-14 trial 開始) により有効化。高KD KW を機械的に除外 → Stage 3 の Gemini #2 トークン削減 + 採用品質向上
 
 ### CVKW (Conversion Keyword)
 - CV = Conversion (購入や成果)

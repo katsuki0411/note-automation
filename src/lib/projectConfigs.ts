@@ -16,6 +16,7 @@ export type ScoutConfig = {
   // 閾値 (Stage 3 で Gemini #2 に渡す)
   minSv?: number;                 // SV >= この値 を通過 (default 100)
   minCpc?: number;                // CPC >= この値 USD (default 0.2)
+  maxKd?: number;                 // Stage 2.5: KD <= この値 を通過 (default 100=実質無効/Backlinks 契約後に 30 等)
   // 除外KW
   excludeKws?: string[];
   // Gemini プロンプト3段 (未設定なら scoutPipeline 側のデフォルトを使用)

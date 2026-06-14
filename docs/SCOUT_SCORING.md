@@ -1,4 +1,4 @@
-# KW スカウト評価指標ガイド (2026-06-13 版)
+# KW スカウト評価指標ガイド (2026-06-14 版)
 
 `/products` の **KW スカウト機能** で、各 Stage がどんな数値で KW を評価しているか、
 その**算出方法**と**根拠**をまとめたドキュメント。
@@ -7,7 +7,7 @@
 
 ---
 
-## 0. 全体フロー (6段パイプライン)
+## 0. 全体フロー (7段パイプライン)
 
 ```
 [ subject 入力 ] 例: "ピジョン 母乳実感"
@@ -16,6 +16,7 @@
 Stage 0    DFS Related + Suggestions  → 実検索シード 約 30 件
 Stage 1    Gemini #1                  → 100 KW 生成
 Stage 2    DFS Search Volume Bulk     → SV / CPC / 競合 / 月別12ヶ月
+Stage 2.5  DFS Bulk Keyword Difficulty → KD 取得 + KD 閾値で機械フィルタ ⭐NEW
 Stage 3    Gemini #2                  → 30 件に絞り込み
 Stage 3.5  DFS Search Intent          → Google 公式 intent ラベル
 Stage 4    DFS SERP + CVKW スコア計算  → SERP / Top3 / CVKW スコア
@@ -25,7 +26,8 @@ Stage 5    Gemini #3                  → 最終判定 (adopt/borderline/reject)
 [ 採用 KW 3-5 件 (rationale 付き) ]
 ```
 
-**1スカウトのコスト**: 約 ¥43 (Gemini × 3 + DFS API × 4)
+**1スカウトのコスト**: 約 ¥45 (Gemini × 3 + DFS API × 5)
+※ Stage 2.5 のコストは ¥1.65/100KW と非常に安価。Backlinks サブスク基本料は別途月 ¥17,800 (FastSpring 経由)。
 
 ---
 
@@ -340,45 +342,53 @@ Google 自身が学習データ (検索クエリ + クリック後の行動) か
 
 ---
 
-## 8. KD (Keyword Difficulty) について
+## 8. Stage 2.5: KD (Keyword Difficulty) フィルタ
 
 ### 現状
 
-**KD は取得していない** (Search Volume API は KD を返さない仕様)。
+**Backlinks サブスク (Active trial 〜2026-06-28) により KD 実数値を取得**。
+Stage 2.5 で機械的に高 KD KW を除外し、Stage 3 Gemini #2 のトークン削減 + 採用品質向上を実現。
 
-### KD とは
+### 使用 API
+
+| API | 取得内容 | コスト |
+|---|---|---|
+| Bulk Keyword Difficulty Live | 100 KW の KD (0-100) 一発取得 | ¥1.65/100 KW |
+| **エンドポイント** | `/dataforseo_labs/google/bulk_keyword_difficulty/live` | |
+
+### 評価指標
+
+| KD | Top10 の様子 | 個人ブログの勝率 | スカウトの扱い (maxKd=30 デフォルト) |
+|---|---|---|---|
+| 0-20 | 個人ブログ中心 | ◎ 1-3 ヶ月で上位 | ✅ 強推奨で通過 |
+| 21-30 | 中堅ブログ混じる | ○ 6 ヶ月で勝負 | ✅ 通過 |
+| 31-50 | 大手メディア混じる | △ 1 年戦略要 | ❌ 機械的に除外 |
+| 51-70 | 大手中心 | ✗ 個人では厳しい | ❌ 機械的に除外 |
+| 71+ | 巨大ドメイン独占 | ✗✗ 無理ゲー | ❌ 機械的に除外 |
+
+### KD の算出根拠 (DataForSEO 仕様)
 
 | | 詳細 |
 |---|---|
 | 定義 | 検索結果 Top10 ページに食い込む難易度 (0-100) |
 | 算出方法 | Top10 ページの被リンク数 (RD) + ドメイン権威 (DR) の中央値を正規化 |
-| 根拠 | DataForSEO / Ahrefs が独自アルゴリズムで算出 |
+| 根拠 | DataForSEO が自社の Backlinks データベース (数兆リンク) から算出 |
 
-### KD 数値の解釈
+### maxKd 設定
 
-| KD | Top10 の様子 | 個人ブログの勝率 |
+| 設定 | 動作 | 推奨シーン |
 |---|---|---|
-| 0-20 | 個人ブログ中心 | ◎ 1-3 ヶ月で上位 |
-| 21-30 | 中堅ブログ混じる | ○ 6 ヶ月で勝負 |
-| 31-50 | 大手メディア混じる | △ 1 年戦略要 |
-| 51-70 | 大手中心 | ✗ 個人では厳しい |
-| 71+ | 巨大ドメイン独占 | ✗✗ 無理ゲー |
+| 30 (デフォルト) | KD ≤ 30 のみ通過。個人ブログで確実に勝てる範囲 | 通常運用 |
+| 50 | KD ≤ 50 まで許容。中堅メディア競合も挑戦 | 大型サイト保有者 |
+| 100 | 実質無効化 (フィルタなし) | Backlinks 失効時のフォールバック |
 
-### 取得には Backlinks 契約が必要
+### 契約コスト
 
-| API | KD 取得 | コスト |
-|---|---|---|
-| 現在使用中の Search Volume | ❌ | ¥11/100 KW (KD 含まず) |
-| Bulk Keyword Difficulty (要 Backlinks) | ✓ | 約 ¥7.5/100 KW + サブスク基本料 ¥4,500/月 |
-
-### 契約のトレードオフ
-
-| 観点 | 評価 |
+| 項目 | 金額 |
 |---|---|
-| 確からしさ | UP (KD 客観指標による機械的フィルタ追加) |
-| デモ説得力 | UP (「Google 公式の難易度数値」と説明可能) |
-| 月額 ¥4,500 | 受注 1 件で即回収 (KGI 視点では誤差) |
-| 緊急性 | 低 (SERP 中身判断で代替可能、現状でも機能している) |
+| Backlinks サブスク (月次コミット) | $100/月 ≒ ¥17,800 (FastSpring 経由) |
+| ただし $100 は残高に積み上がり他 API でも使える | → 実質的には Backlinks アクセス権 + クレジット前払い |
+| Stage 2.5 単体コスト (1スカウト) | ¥1.65/100KW |
 
 ---
 
@@ -425,7 +435,7 @@ Google 自身が学習データ (検索クエリ + クリック後の行動) か
 
 | ファイル | 内容 |
 |---|---|
-| `src/lib/scoutPipeline.ts` | 6段パイプライン本体 |
+| `src/lib/scoutPipeline.ts` | 7段パイプライン本体 |
 | `src/lib/cvKw.ts` | CVKW スコア計算ロジック |
 | `src/lib/dataforseo.ts` | DFS API クライアント |
 | `src/lib/keywordExpander.ts` | Stage 1 Gemini #1 プロンプト |

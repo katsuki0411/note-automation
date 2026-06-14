@@ -116,7 +116,7 @@ type RejectedCandidate = {
   kw: string;
   intent: string;
   reason: string;
-  stage: "stage3_rejected" | "stage5_evaluated";
+  stage: "stage2_5_kd_rejected" | "stage3_rejected" | "stage5_evaluated";
   kd?: number | null;
   searchVolume?: number | null;
   cpc?: number | null;
@@ -938,23 +938,25 @@ export default function ProductsClient() {
                               <div className="mt-1.5 flex items-center gap-2 flex-wrap text-[10.5px]">
                                 <span
                                   className={`px-1.5 py-0.5 rounded ${
-                                    c.kd === 0
-                                      ? "bg-orange-50 text-orange-700"
-                                      : typeof c.kd === "number" && c.kd > 30
-                                        ? "bg-red-50 text-red-700"
-                                        : typeof c.kd === "number"
-                                          ? "bg-emerald-50 text-emerald-700"
-                                          : "bg-gray-100 text-gray-500"
+                                    typeof c.kd !== "number"
+                                      ? "bg-gray-100 text-gray-500"
+                                      : c.kd <= 30
+                                        ? "bg-emerald-100 text-emerald-800 font-bold"
+                                        : c.kd <= 50
+                                          ? "bg-amber-50 text-amber-700"
+                                          : "bg-rose-50 text-rose-700"
                                   }`}
                                   title={
-                                    c.kd === 0
-                                      ? "KD=0 は取得失敗の可能性 (DFS Backlinks 未契約)"
-                                      : typeof c.kd === "number"
-                                        ? c.kd > 30 ? "KD>30 = 上位表示困難" : "KD≤30 = 狙い目"
-                                        : "DFS から KD が取得できませんでした"
+                                    typeof c.kd !== "number"
+                                      ? "DFS から KD が取得できませんでした (Backlinks API レスポンス欠損 or サブスク未契約)"
+                                      : c.kd <= 30
+                                        ? `KD ${c.kd} (Backlinks 実数値): 個人ブログで戦える / 狙い目`
+                                        : c.kd <= 50
+                                          ? `KD ${c.kd} (Backlinks 実数値): 中難度 / 切り口次第`
+                                          : `KD ${c.kd} (Backlinks 実数値): 上位表示困難 / 大手寡占の可能性`
                                   }
                                 >
-                                  KD <strong>{typeof c.kd === "number" ? c.kd : "-"}</strong>
+                                  🔧 KD <strong>{typeof c.kd === "number" ? c.kd : "-"}</strong>
                                 </span>
                                 <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
                                   月Vol <strong>{typeof c.searchVolume === "number" ? c.searchVolume.toLocaleString("ja-JP") : "-"}</strong>
@@ -1563,11 +1565,11 @@ function StagePipelineView({
         )}
       </div>
 
-      {/* KD=0 が多い場合は警告 (DFS Backlinks 未契約の疑い) */}
+      {/* KD=0 が多い場合は警告 (Backlinks サブスク失効 or API障害の疑い) */}
       {kdZeroCount > 0 && kdTotalCount > 0 && kdZeroCount / kdTotalCount >= 0.5 && (
         <div className="text-[10px] text-orange-700 bg-orange-50 border border-orange-200 rounded px-2 py-1.5">
-          ⚠ KD=0 が {kdZeroCount}/{kdTotalCount}件。DataForSEO Backlinks 未契約のため
-          KD が正しく取得できていない可能性があります (タスク #107 で調査中)。
+          ⚠ KD=0 が {kdZeroCount}/{kdTotalCount}件。Backlinks サブスクの有効期限切れ
+          または DataForSEO API 障害の可能性があります。
         </div>
       )}
 

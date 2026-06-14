@@ -38,6 +38,7 @@ export async function PUT(req: NextRequest) {
         maxFinalCount: clampInt(body.maxFinalCount, 1, 50),
         minSv: clampInt(body.minSv, 0, 1_000_000),
         minCpc: clampFloat(body.minCpc, 0, 1000),
+        maxKd: clampInt(body.maxKd, 0, 100),
         excludeKws: Array.isArray(body.excludeKws)
           ? body.excludeKws
               .map((s) => (typeof s === "string" ? s.trim() : ""))

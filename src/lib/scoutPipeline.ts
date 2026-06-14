@@ -7,6 +7,7 @@ import {
   relatedKeywords,
   keywordSuggestions,
   searchIntentBulk,
+  bulkKeywordDifficulty,
   type KeywordOverviewItem,
   type SerpAdvancedResponse,
 } from "./dataforseo";
@@ -14,17 +15,20 @@ import { renderTemplate } from "./promptTemplate";
 import { calcCvKwScore, extractBrandTokens } from "./cvKw";
 
 // =========================================================
-// KW スカウト 6段パイプライン (2026-06-11 リファクタ)
+// KW スカウト 7段パイプライン (2026-06-14 Backlinks 契約により KD ステージ復活)
 // =========================================================
-// Stage 0: DFS    #1  Related Keywords + Keyword Suggestions (シード取得)
-// Stage 1: Gemini #1  KW候補 100件生成 (シードを実検索データとして活用)
-// Stage 2: DFS    #2  Google Ads Search Volume Bulk (SV/CPC/competition)
-// Stage 3: Gemini #2  数値 + 重複/不適切排除で 1次絞り込み
-// Stage 4: DFS    #3  SERP Organic Live Advanced (SERP feature + AI Overview)
-// Stage 5: Gemini #3  全情報を見て最終判定 (rationale 強制出力)
+// Stage 0:   DFS    #1  Related Keywords + Keyword Suggestions (シード取得)
+// Stage 1:   Gemini #1  KW候補 100件生成 (シードを実検索データとして活用)
+// Stage 2:   DFS    #2  Google Ads Search Volume Bulk (SV/CPC/competition)
+// Stage 2.5: DFS    #3  Bulk Keyword Difficulty (KD取得 + KD閾値で機械フィルタ)
+// Stage 3:   Gemini #2  数値 + 重複/不適切排除で 1次絞り込み
+// Stage 4:   DFS    #4  SERP Organic Live Advanced (SERP feature + AI Overview)
+// Stage 5:   Gemini #3  全情報を見て最終判定 (rationale 強制出力)
 //
 // 2026-06-10 旧8段から KD ステージを撤廃 (Backlinks 未契約で KD=0/null)。
 // 2026-06-11 Stage 0 を追加。Gemini のハルシ抑制とロングテール KW 発掘を狙う。
+// 2026-06-14 Backlinks 契約 (Active trial) により Stage 2.5 (KD取得) を再導入。
+//            maxKd 閾値で機械的に高難度 KW を除外 → Stage 3 Gemini #2 のトークン削減。
 // =========================================================
 
 // ---------- 公開型 ----------
@@ -80,6 +84,7 @@ export type ScoutFinalCandidate = {
 export type ScoutStageStats = {
   stage0SeedCount?: number;   // Stage 0: DFS Related/Suggestions の合算 (ユニーク数)
   stage1Generated: number;    // Gemini #1 が出した数
+  stage2_5Passed?: number;    // Stage 2.5: KD閾値を通過した数 (Backlinks 契約時のみ意味あり)
   stage3Passed: number;       // Gemini #2 (数値+絞り込み) を通過した数
   finalCount: number;         // 最終候補数 (decision 関係なく)
   adoptedCount: number;       // decision="adopt" の数
@@ -87,8 +92,9 @@ export type ScoutStageStats = {
 
 // 各 KW がパイプラインのどこまで進んだかを示すステータス。
 export type StageStatus =
-  | "stage3_rejected"   // Stage 3 で Gemini #2 が落とした (重複/不適切/数値NG)
-  | "stage5_evaluated"; // Stage 5 まで通過 (decision は candidates 側に入る)
+  | "stage2_5_kd_rejected" // Stage 2.5: KD が maxKd を超えて機械的に落とされた
+  | "stage3_rejected"      // Stage 3 で Gemini #2 が落とした (重複/不適切/数値NG)
+  | "stage5_evaluated";    // Stage 5 まで通過 (decision は candidates 側に入る)
 
 export type ScoutAllCandidate = {
   kw: string;
@@ -117,6 +123,7 @@ export type ScoutPipelineConfig = {
   kwCandidateCount?: number;            // Gemini #1 生成数 (default 100)
   minSv?: number;                       // SV >= この値 を通過 (default 100)
   minCpc?: number;                      // CPC >= この値 USD (default 0.2)
+  maxKd?: number;                       // KD <= この値 を通過 (default 100=実質無効)。Backlinks 契約後に 30 等で運用
   maxFinalCount?: number;               // 最終判定に回すKW数の上限 (default 10)
   excludeKws?: string[];                // 除外KW (プロジェクト単位)
   // Gemini プロンプト override
@@ -624,8 +631,8 @@ export async function runScoutPipeline(
 
   // Stage 2: DFS Google Ads Search Volume (bulk対応)
   // Keyword Overview Live は 1リクエスト 1KW しか返さないため、bulk な
-  // Search Volume API に切替。SV/CPC/competition は取れるが KD は取れない
-  // (KD は Backlinks 契約後に Keyword Overview 経由で別途追加する想定)。
+  // Search Volume API に切替。SV/CPC/competition は取れるが KD は取れないので
+  // KD は次の Stage 2.5 (Bulk Keyword Difficulty) で別途取得する。
   const overviewItems = await searchVolumeBulk(expanded.map((k) => k.kw));
   // DFS は keyword を lower-case で返すことがあるため、マップキーは全部小文字統一。
   const overviewMap = new Map(overviewItems.map((o) => [o.kw.toLowerCase(), o]));
@@ -640,13 +647,66 @@ export async function runScoutPipeline(
     );
   }
 
-  // Stage 3: Gemini #2  数値 + 重複/不適切排除で 1次絞り込み
-  const stage3Pass = await stage3FilterByMetrics(subject, category, expanded, overviewItems, config);
-  const stage3PassSet = new Set(stage3Pass.map((k) => k.kw));
+  // Stage 2.5: DFS Bulk Keyword Difficulty (Backlinks 契約により実数値取得)
+  // 100KW で $0.011 と安いので必ず叩く。失敗時 (=Backlinks 未契約 or API障害) は
+  // 全KWを通過扱いにしてフォールバック (パイプラインが止まらないように)。
+  const kdItems = await bulkKeywordDifficulty(expanded.map((k) => k.kw)).catch((e) => {
+    console.warn("[scoutPipeline] Stage2.5 Bulk KD failed:", e instanceof Error ? e.message : e);
+    return [] as Array<{ kw: string; kd: number }>;
+  });
+  const kdMap = new Map(kdItems.map((it) => [it.kw.toLowerCase(), it.kd] as const));
+  console.log(
+    `[scoutPipeline] Stage2.5 KD: requested=${expanded.length}, returned=${kdItems.length}`,
+  );
 
-  // Stage 3 で落選した KW を rejectedCandidates に記録
+  // KD閾値で機械フィルタ。KD が取れなかった (null/undefined) KW は除外せず通過 (Backlinks 未契約フォールバック)。
+  const maxKd = config.maxKd ?? 100;
+  const stage2_5Pass: typeof expanded = [];
+  const kdRejectedKws = new Set<string>();
+  for (const kw of expanded) {
+    const kd = kdMap.get(kw.kw.toLowerCase());
+    if (kd === undefined || kd === null || kd <= maxKd) {
+      stage2_5Pass.push(kw);
+    } else {
+      kdRejectedKws.add(kw.kw);
+    }
+  }
+  console.log(
+    `[scoutPipeline] Stage2.5 KD filter: maxKd=${maxKd}, passed=${stage2_5Pass.length}/${expanded.length}`,
+  );
+
+  // Stage 2.5 で落選した KW を rejected に記録
   const rejected: ScoutAllCandidate[] = [];
   for (const kw of expanded) {
+    if (!kdRejectedKws.has(kw.kw)) continue;
+    const ov = overviewMap.get(kw.kw.toLowerCase());
+    rejected.push({
+      kw: kw.kw,
+      intent: kw.intent,
+      reason: kw.reason,
+      stage: "stage2_5_kd_rejected",
+      kd: kdMap.get(kw.kw.toLowerCase()) ?? null,
+      searchVolume: ov?.searchVolume ?? null,
+      cpc: ov?.cpc ?? null,
+      competitionLevel: ov?.competitionLevel ?? null,
+      searchIntent: ov?.searchIntent ?? null,
+      rejectionNote: `KD ${kdMap.get(kw.kw.toLowerCase())} が上限 ${maxKd} を超過`,
+    });
+  }
+
+  // Stage 2.5 通過 KW の overview に KD を埋め直す (Stage 4 で使うため)
+  // searchVolumeBulk は KD を返さないので、kdMap の値で keywordDifficulty を上書き。
+  for (const [lowerKw, kd] of kdMap) {
+    const ov = overviewMap.get(lowerKw);
+    if (ov) ov.keywordDifficulty = kd;
+  }
+
+  // Stage 3: Gemini #2  数値 + 重複/不適切排除で 1次絞り込み (Stage 2.5 通過分のみを入力)
+  const stage3Pass = await stage3FilterByMetrics(subject, category, stage2_5Pass, overviewItems, config);
+  const stage3PassSet = new Set(stage3Pass.map((k) => k.kw));
+
+  // Stage 3 で落選した KW (Stage 2.5 通過 → Stage 3 落選) を rejectedCandidates に記録
+  for (const kw of stage2_5Pass) {
     if (stage3PassSet.has(kw.kw)) continue;
     const ov = overviewMap.get(kw.kw.toLowerCase());
     rejected.push({
@@ -670,6 +730,7 @@ export async function runScoutPipeline(
       stats: {
         stage0SeedCount: seedKws.length,
         stage1Generated: expanded.length,
+        stage2_5Passed: stage2_5Pass.length,
         stage3Passed: 0,
         finalCount: 0,
         adoptedCount: 0,
@@ -786,6 +847,7 @@ export async function runScoutPipeline(
     stats: {
       stage0SeedCount: seedKws.length,
       stage1Generated: expanded.length,
+      stage2_5Passed: stage2_5Pass.length,
       stage3Passed: stage3Pass.length,
       finalCount: finalized.length,
       adoptedCount: finalized.filter((c) => c.decision === "adopt").length,
