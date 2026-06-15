@@ -96,9 +96,29 @@ async function main() {
     process.exit(0);
   }
 
-  // ① 日本語の超メジャーKW
-  const jpKws = ["ベビーカー", "おむつ", "ベビーカー 軽量", "おむつ 夜用"];
-  console.log("--- ① JP (location=2392, lang=ja) ---");
+  // ① 日本語 KW 系統別カバレッジ検証 (商標 / 一般語 / 複合)
+  const jpKws = [
+    // 商標単体
+    "マミーポコ",
+    "ピジョン",
+    "メリーズ",
+    // 商標 + 一般語 (2語)
+    "マミーポコ パンツ",
+    "ピジョン 哺乳瓶",
+    "メリーズ おすすめ",
+    // 一般語2つ (2語)
+    "ベビーカー 軽量",
+    "おむつ 夜用",
+    "離乳食 進め方",
+    // CVKW 系 (2語)
+    "ベビーカー 比較",
+    "おむつ 安い",
+    // ジャンル単体 (1語)
+    "ベビーカー",
+    "おむつ",
+    "離乳食",
+  ];
+  console.log("--- ① JP (location=2392, lang=ja) — 系統別カバレッジ検証 ---");
   console.log(`keywords: ${jpKws.join(" / ")}`);
   const r1 = await bulkKd(login, password, jpKws, {
     locationCode: LOCATION_JP,
