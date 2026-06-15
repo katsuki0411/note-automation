@@ -7,19 +7,17 @@ type ScoutConfig = {
   maxFinalCount?: number;
   minSv?: number;
   minCpc?: number;
-  maxKd?: number;
   excludeKws?: string[];
   promptKwGen?: string;
   promptStage3?: string;
   promptFinal?: string;
 };
 
-const DEFAULTS: Required<Pick<ScoutConfig, "kwCandidateCount" | "maxFinalCount" | "minSv" | "minCpc" | "maxKd">> = {
+const DEFAULTS: Required<Pick<ScoutConfig, "kwCandidateCount" | "maxFinalCount" | "minSv" | "minCpc">> = {
   kwCandidateCount: 100,
   maxFinalCount: 10,
   minSv: 100,
   minCpc: 0.2,
-  maxKd: 30,
 };
 
 export default function ScoutConfigTab() {
@@ -80,7 +78,7 @@ export default function ScoutConfigTab() {
       {/* 件数 / 閾値 */}
       <details className="rounded-xl border border-[var(--border-subtle)] bg-white" open>
         <summary className="cursor-pointer px-4 py-3 font-semibold text-[13px]">
-          ⚙️ 件数 / 閾値 (7段パイプラインのスコアリング基準)
+          ⚙️ 件数 / 閾値 (6段パイプラインのスコアリング基準)
         </summary>
         <div className="px-4 pb-4 grid grid-cols-1 md:grid-cols-2 gap-3">
           <NumberRow
@@ -88,14 +86,7 @@ export default function ScoutConfigTab() {
             placeholder={String(DEFAULTS.kwCandidateCount)}
             value={config.kwCandidateCount}
             onChange={(v) => setConfig({ ...config, kwCandidateCount: v })}
-            hint="通常 100件 / Backlinks契約後は最大500件まで網羅可"
-          />
-          <NumberRow
-            label="Stage2.5: KD 上限 (Backlinks 契約必須)"
-            placeholder={String(DEFAULTS.maxKd)}
-            value={config.maxKd}
-            onChange={(v) => setConfig({ ...config, maxKd: v })}
-            hint="KDがこの値を超えるKWを機械的に除外 (推奨: 30=個人ブログで戦える上限)"
+            hint="通常 100件を推奨"
           />
           <NumberRow
             label="Stage3: SV 最低値 (月間検索数)"

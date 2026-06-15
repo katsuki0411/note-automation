@@ -1,6 +1,6 @@
 # MultiPostAI 専門用語集
 
-> 最終更新: 2026-06-14 (7段パイプライン + Backlinks Active trial)
+> 最終更新: 2026-06-15 (6段パイプライン + Backlinks 解約方針 + お宝スコア 70点満点)
 > 対象読者: ツールを使う全員 (社長 / 開発パートナー / スタッフ / 受注時のクライアント)
 > 関連: 機能解説は `docs/PRODUCT_FLOW.md` / 評価指標詳細は `docs/SCOUT_SCORING.md`
 
@@ -174,12 +174,12 @@ KD は「取れたらラッキー」 の補助指標として運用継続 (Stage
 - KWスカウト > スカウト設定 タブで設定可能 (1行1KW)
 - Gemini #1 にも除外指示が伝わる + Stage1 後にもフィルタ
 
-### 7段パイプライン (2026-06-14 現行)
-- KWスカウトの内部処理。Gemini が3回、DataForSEO が5回、組み合わせて呼ばれる
-- 1スカウト ¥45 程度のコストで 100KW → KD≤30 通過 → 採用 3〜5件に絞り込み
-- 各 Stage の詳細は `docs/SCOUT_SCORING.md` 参照
-- 構成: Stage 0 (DFS シード) → Stage 1 (Gemini #1 生成) → Stage 2 (DFS SV/CPC) → **Stage 2.5 (DFS Bulk KD + KD閾値フィルタ)** → Stage 3 (Gemini #2 絞り込み) → Stage 3.5 (DFS Search Intent) → Stage 4 (DFS SERP + CVKW算出) → Stage 5 (Gemini #3 判定)
-- Stage 2.5 は Backlinks 契約 (2026-06-14 trial 開始) により有効化。高KD KW を機械的に除外 → Stage 3 の Gemini #2 トークン削減 + 採用品質向上
+### 6段パイプライン (2026-06-15 現行)
+- KWスカウトの内部処理。Gemini が3回、DataForSEO が4回、組み合わせて呼ばれる
+- 1スカウト ¥45 程度のコストで 100KW → 30件 → 採用 1〜5件に絞り込み
+- 各 Stage の詳細は `docs/SCOUT_FLOW.md` / `docs/SCOUT_SCORING.md` 参照
+- 構成: Stage 0 (DFS シード) → Stage 1 (Gemini #1 生成) → Stage 2 (DFS SV/CPC) → Stage 3 (Gemini #2 絞り込み) → Stage 3.5 (DFS Search Intent) → Stage 4 (DFS SERP + CVKW + お宝スコア算出) → Stage 5 (Gemini #3 判定)
+- KD ステージは撤廃 (2026-06-15)。DFS Backlinks の日本語ロングテール KW カバレッジが薄く、本契約見送りに伴う
 
 ### CVKW (Conversion Keyword)
 - CV = Conversion (購入や成果)

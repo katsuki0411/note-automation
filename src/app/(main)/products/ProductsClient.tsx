@@ -69,16 +69,17 @@ type ScoutCandidate = {
   // 2026-06-13 CVKW 評価追加 (optional)
   cvKwScore?: number;                 // 0-100 (購入意図の強さ)
   cvKwHits?: { strong?: string; mid?: string; brand?: string };
-  // 2026-06-15 お宝スコア追加 (optional: 旧履歴互換)
+  // 2026-06-15 お宝スコア (KD軸撤廃版、70点満点)
   treasureScore?: {
-    total: number;        // 0-110
+    total: number;        // 0-70
     rank: "treasure3" | "treasure2" | "treasure1" | "normal";
     breakdown: {
-      kd:         { value: number | string | null; points: number; reason: string };
       sv:         { value: number | string | null; points: number; reason: string };
       cvKw:       { value: number | string | null; points: number; reason: string };
       serp:       { value: number | string | null; points: number; reason: string };
       aiOverview: { value: number | string | null; points: number; reason: string };
+      // 旧履歴互換 (KD軸が含まれていた時期のデータ。フィールドあれば UI 側で吸収)
+      kd?: { value: number | string | null; points: number; reason: string };
     };
   };
   peakMonths?: number[];               // B: SV ピーク月
@@ -128,7 +129,7 @@ type RejectedCandidate = {
   kw: string;
   intent: string;
   reason: string;
-  stage: "stage2_5_kd_rejected" | "stage3_rejected" | "stage5_evaluated";
+  stage: "stage3_rejected" | "stage5_evaluated";
   kd?: number | null;
   searchVolume?: number | null;
   cpc?: number | null;
@@ -958,19 +959,25 @@ export default function ProductsClient() {
                                 };
                                 const info = rankInfo[ts.rank];
                                 const isAdopted = c.decision === "adopt";
+                                // 旧履歴 (KD軸ありの 110点満点時代) も互換表示。breakdown に kd フィールドが
+                                // あれば旧分母 110/satzu、無ければ新分母 70。
+                                const hasLegacyKd = !!ts.breakdown.kd;
+                                const denom = hasLegacyKd ? 110 : 70;
                                 return (
                                   <details className="mt-2 rounded-lg border border-[var(--border-subtle)] bg-white" open={isAdopted}>
                                     <summary className="cursor-pointer px-2.5 py-1.5 flex items-center gap-2 text-[11px]">
                                       <span className={`px-2 py-1 rounded ${info.cls} text-[12px]`}>
-                                        {info.emoji} {info.label} {ts.total}<span className="opacity-70">/110</span>
+                                        {info.emoji} {info.label} {ts.total}<span className="opacity-70">/{denom}</span>
                                       </span>
                                       <span className="text-[10px] text-[color:var(--fg-muted)]">▼ 評価の内訳</span>
                                     </summary>
                                     <ul className="px-3 pb-2 pt-1 space-y-0.5 text-[10.5px] text-[color:var(--fg-secondary)]">
-                                      <li className="flex gap-2">
-                                        <span className="shrink-0 w-6 text-right font-mono font-bold text-emerald-700">+{ts.breakdown.kd.points}</span>
-                                        <span>🔧 {ts.breakdown.kd.reason}</span>
-                                      </li>
+                                      {hasLegacyKd && ts.breakdown.kd && (
+                                        <li className="flex gap-2 opacity-60">
+                                          <span className="shrink-0 w-6 text-right font-mono font-bold text-emerald-700">+{ts.breakdown.kd.points}</span>
+                                          <span>🔧 {ts.breakdown.kd.reason} <em className="text-[9px]">(旧スコア軸、現在は撤廃)</em></span>
+                                        </li>
+                                      )}
                                       <li className="flex gap-2">
                                         <span className="shrink-0 w-6 text-right font-mono font-bold text-emerald-700">+{ts.breakdown.sv.points}</span>
                                         <span>📊 {ts.breakdown.sv.reason}</span>
@@ -995,30 +1002,8 @@ export default function ProductsClient() {
                                   </details>
                                 );
                               })()}
-                              {/* 客観指標 (DFS Keyword Overview) — データ取得失敗時は "-" 表示 */}
+                              {/* 客観指標 (DFS Search Volume) — KD は撤廃済 (2026-06-15) */}
                               <div className="mt-1.5 flex items-center gap-2 flex-wrap text-[10.5px]">
-                                <span
-                                  className={`px-1.5 py-0.5 rounded ${
-                                    typeof c.kd !== "number"
-                                      ? "bg-gray-100 text-gray-500"
-                                      : c.kd <= 30
-                                        ? "bg-emerald-100 text-emerald-800 font-bold"
-                                        : c.kd <= 50
-                                          ? "bg-amber-50 text-amber-700"
-                                          : "bg-rose-50 text-rose-700"
-                                  }`}
-                                  title={
-                                    typeof c.kd !== "number"
-                                      ? "DFS から KD が取得できませんでした (Backlinks API レスポンス欠損 or サブスク未契約)"
-                                      : c.kd <= 30
-                                        ? `KD ${c.kd} (Backlinks 実数値): 個人ブログで戦える / 狙い目`
-                                        : c.kd <= 50
-                                          ? `KD ${c.kd} (Backlinks 実数値): 中難度 / 切り口次第`
-                                          : `KD ${c.kd} (Backlinks 実数値): 上位表示困難 / 大手寡占の可能性`
-                                  }
-                                >
-                                  🔧 KD <strong>{typeof c.kd === "number" ? c.kd : "-"}</strong>
-                                </span>
                                 <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
                                   月Vol <strong>{typeof c.searchVolume === "number" ? c.searchVolume.toLocaleString("ja-JP") : "-"}</strong>
                                 </span>
@@ -1608,10 +1593,6 @@ function StagePipelineView({
     };
   }, [stage, adopted, rejected]);
 
-  // KD=0 の件数 (Backlinks 未契約等で取得失敗している可能性のサイン)
-  const kdZeroCount = [...passed, ...failed].filter((it) => it.kd === 0).length;
-  const kdTotalCount = [...passed, ...failed].filter((it) => typeof it.kd === "number").length;
-
   return (
     <div className="space-y-3">
       <div className="text-[11px] text-[color:var(--fg-secondary)] px-1">
@@ -1625,14 +1606,6 @@ function StagePipelineView({
           </>
         )}
       </div>
-
-      {/* KD=0 が多い場合は警告 (Backlinks サブスク失効 or API障害の疑い) */}
-      {kdZeroCount > 0 && kdTotalCount > 0 && kdZeroCount / kdTotalCount >= 0.5 && (
-        <div className="text-[10px] text-orange-700 bg-orange-50 border border-orange-200 rounded px-2 py-1.5">
-          ⚠ KD=0 が {kdZeroCount}/{kdTotalCount}件。Backlinks サブスクの有効期限切れ
-          または DataForSEO API 障害の可能性があります。
-        </div>
-      )}
 
       {passed.length > 0 && (
         <StageItemList items={passed} variant="pass" />

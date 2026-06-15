@@ -29,7 +29,6 @@ export async function POST(req: NextRequest) {
           kwCandidateCount?: number;
           minSv?: number;
           minCpc?: number;
-          maxKd?: number;
           maxFinalCount?: number;
           excludeKws?: string[];
         };
@@ -48,7 +47,6 @@ export async function POST(req: NextRequest) {
         kwCandidateCount: config?.kwCandidateCount ?? projectConfig.kwCandidateCount,
         minSv: config?.minSv ?? projectConfig.minSv,
         minCpc: config?.minCpc ?? projectConfig.minCpc,
-        maxKd: config?.maxKd ?? projectConfig.maxKd,
         maxFinalCount: config?.maxFinalCount ?? projectConfig.maxFinalCount,
         excludeKws: config?.excludeKws ?? projectConfig.excludeKws,
         // Gemini プロンプト3段 (文字列テンプレ、空欄ならデフォルト)

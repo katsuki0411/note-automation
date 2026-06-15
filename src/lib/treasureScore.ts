@@ -4,38 +4,37 @@ import {
 } from "./domainClassifier";
 
 // =========================================================
-// お宝スコア (Treasure Score) — 2026-06-15 設計
+// お宝スコア (Treasure Score) — 2026-06-15 設計 (KD 軸なし版)
 // =========================================================
-// 「個人ブログで本当に勝てる + アクセス取れる KW」 を機械的に発掘するための
-// 複合スコア。Backlinks 契約により KD 実数値が取れるようになった前提。
+// 「1スカウト最低1個はお宝を掘り当てたい」 という事業の本質目的を機械化する複合スコア。
 //
-// 設計の出発点:
-//   「1スカウト最低1個はお宝を掘り当てたい」 (アリーさん談)
+// 当初は KD を中核軸に置く設計だったが、DFS Backlinks の日本語ロングテール KW
+// カバレッジが薄く実用性に欠けるため、KD 軸は撤廃 (2026-06-15)。
+// 将来 Backlinks 再契約 or Ahrefs 導入時に KD 軸を復活する場合は git 履歴の
+// commit (お宝スコア導入時) を参照。
 //
-// 5軸の合算 (最大 110点 / 通常 100点満点):
-//   - KD     (最大 40) ★ SEO 勝率の最大指標
+// 4軸の合算 (最大 70点):
 //   - SV     (最大 30) ★ 流入ボリューム
 //   - CVKW   (最大 20)   購入意図の強さ (cvKw.ts の cvKwScore × 0.2)
 //   - SERP個人ブログ含有 (最大 15) ★ 実勝率の証拠
 //   - AI Overview個人サイト (+5 ボーナス) LLMO シグナル
 //
-// ランク判定:
-//   80+ : 💎💎💎 超お宝
-//   60-79: 💎💎 お宝
-//   40-59: 💎 準お宝
-//   <40 : 通常採用
+// ランク判定 (70点満点でリスケール):
+//   50+ : 💎💎💎 超お宝 (71%以上)
+//   35+ : 💎💎 お宝 (50%以上)
+//   25+ : 💎 準お宝 (36%以上)
+//   <25 : 通常採用
 // =========================================================
 
 export type TreasureRank = "treasure3" | "treasure2" | "treasure1" | "normal";
 
 export type TreasureBreakdownItem = {
-  value: number | string | null; // 元値 (KD=18, SV=1200, "個人ブログ3件" 等)
-  points: number;                 // 加点
-  reason: string;                 // UI に出す説明文 (例: "個人ブログで2-4ヶ月で勝てる")
+  value: number | string | null;
+  points: number;
+  reason: string;
 };
 
 export type TreasureBreakdown = {
-  kd: TreasureBreakdownItem;
   sv: TreasureBreakdownItem;
   cvKw: TreasureBreakdownItem;
   serp: TreasureBreakdownItem;
@@ -43,13 +42,12 @@ export type TreasureBreakdown = {
 };
 
 export type TreasureScore = {
-  total: number;          // 合計 (0-110)
+  total: number;          // 合計 (0-70)
   rank: TreasureRank;
   breakdown: TreasureBreakdown;
 };
 
 export type CalcTreasureArgs = {
-  kd: number | null;
   searchVolume: number | null;
   cvKwScore: number;             // 0-100
   serpTopUrls: string[];         // SERP organic Top10 の URL 配列
@@ -58,27 +56,6 @@ export type CalcTreasureArgs = {
 };
 
 // ---------- 各軸の計算 ----------
-
-function scoreKd(kd: number | null): TreasureBreakdownItem {
-  if (kd === null) {
-    return {
-      value: null,
-      points: 0,
-      reason:
-        "KD未取得 (この KW は DFS Labs インデックスに無し / SV+CVKW+SERPで評価)",
-    };
-  }
-  if (kd <= 10) {
-    return { value: kd, points: 40, reason: `KD=${kd}: 個人ブログで1-2ヶ月で上位狙える超優良` };
-  }
-  if (kd <= 20) {
-    return { value: kd, points: 30, reason: `KD=${kd}: 個人ブログで2-4ヶ月で勝てる現実的ライン` };
-  }
-  if (kd <= 30) {
-    return { value: kd, points: 15, reason: `KD=${kd}: 中堅メディアと混在、6ヶ月戦略要` };
-  }
-  return { value: kd, points: 0, reason: `KD=${kd}: 大手寡占、個人では困難` };
-}
 
 function scoreSv(sv: number | null): TreasureBreakdownItem {
   if (sv === null || sv === 0) {
@@ -168,28 +145,26 @@ function scoreAiOverview(
 }
 
 function decideRank(total: number): TreasureRank {
-  if (total >= 80) return "treasure3";
-  if (total >= 60) return "treasure2";
-  if (total >= 40) return "treasure1";
+  if (total >= 50) return "treasure3";
+  if (total >= 35) return "treasure2";
+  if (total >= 25) return "treasure1";
   return "normal";
 }
 
 // ---------- メイン ----------
 
 export function calcTreasureScore(args: CalcTreasureArgs): TreasureScore {
-  const kd = scoreKd(args.kd);
   const sv = scoreSv(args.searchVolume);
   const cvKw = scoreCvKw(args.cvKwScore);
   const serp = scoreSerp(args.serpTopUrls, args.subject);
   const aiOverview = scoreAiOverview(args.aiOverviewUrls, args.subject);
 
-  const total =
-    kd.points + sv.points + cvKw.points + serp.points + aiOverview.points;
+  const total = sv.points + cvKw.points + serp.points + aiOverview.points;
 
   return {
     total,
     rank: decideRank(total),
-    breakdown: { kd, sv, cvKw, serp, aiOverview },
+    breakdown: { sv, cvKw, serp, aiOverview },
   };
 }
 
