@@ -124,7 +124,7 @@ export type ScoutPipelineResult = {
 };
 
 export type ScoutPipelineConfig = {
-  kwCandidateCount?: number;            // Gemini #1 生成数 (default 1000、「漏れなく」 スカウト方針)
+  kwCandidateCount?: number;            // Gemini #1 生成数 (default 500、完走重視)
   minSv?: number;                       // SV >= この値 を通過 (default 100)
   minCpc?: number;                      // CPC >= この値 USD (default 0.2)
   maxFinalCount?: number;               // 最終判定に回すKW数の上限 (default 10)
@@ -610,28 +610,29 @@ export async function runScoutPipeline(
 ): Promise<ScoutPipelineResult> {
   // Stage 0: DFS Related Keywords + Keyword Suggestions で実検索データのシード KW を取得。
   // 失敗しても先に進む (Gemini #1 単独で動ける)。
-  // 2026-06-15: 「漏れなく」 1000 KW スカウトに対応するため limit を 500 に拡張
-  // (各 API max 700件程度。重複排除後 800-1000 KW のシードを Gemini #1 に渡す)。
+  // 2026-06-15: 500 KW スカウト (デフォルト) に最適化。シード 300×2 → 重複排除で 400-500 件。
+  // Stage 1 で Gemini が 500件をフルに出してくれて、所要時間 約 80秒以内に収まる。
   const [related, suggestions] = await Promise.all([
-    relatedKeywords(subject, { limit: 500 }).catch((e) => {
+    relatedKeywords(subject, { limit: 300 }).catch((e) => {
       console.warn("[scoutPipeline] Stage0 related failed:", e instanceof Error ? e.message : e);
       return [];
     }),
-    keywordSuggestions(subject, { limit: 500 }).catch((e) => {
+    keywordSuggestions(subject, { limit: 300 }).catch((e) => {
       console.warn("[scoutPipeline] Stage0 suggestions failed:", e instanceof Error ? e.message : e);
       return [];
     }),
   ]);
-  const seedKws = Array.from(new Set([...related, ...suggestions])).slice(0, 1000);
+  const seedKws = Array.from(new Set([...related, ...suggestions])).slice(0, 500);
   console.log(
     `[scoutPipeline] Stage0 seed: related=${related.length}, suggestions=${suggestions.length}, unique=${seedKws.length}`,
   );
 
   // Stage 1: Gemini #1  KW候補生成 (シードを実検索データとして活用)
-  // 2026-06-15: 「漏れなく」 1000 KW スカウトをデフォルトに変更
+  // 2026-06-15: 500 KW デフォルトに調整 (実証検証で 1000依頼でも Gemini が
+  // 770件で打ち切る + 160秒かかる問題のため、500で完走重視の運用に)
   const { keywords: expanded, category } = await expandKeywords(subject, {
     excludeKws: config.excludeKws,
-    maxKeywords: config.kwCandidateCount ?? 1000,
+    maxKeywords: config.kwCandidateCount ?? 500,
     customPrompt: config.promptKwGen,
     seedKeywords: seedKws,
   });

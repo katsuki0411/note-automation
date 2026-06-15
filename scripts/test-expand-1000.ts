@@ -13,6 +13,8 @@ async function main() {
   }
   console.log("=== Stage 1 (Gemini #1) 1000KW 生成テスト ===");
 
+  // 第2引数で件数指定可能: npx tsx --env-file=.env.local scripts/test-expand-1000.ts 500
+  const targetCount = Number(process.argv[2] ?? 500);
   const subject = "ピジョン 母乳実感";
   const seedKws = [
     "ピジョン 母乳実感 SS", "ピジョン 母乳実感 M", "ピジョン 母乳実感 違い",
@@ -23,7 +25,7 @@ async function main() {
 あなたはアフィリエイトSEOのキーワードリサーチャーです。
 
 # ミッション
-「${subject}」 から実際に Google で検索されそうな関連キーワードを **1000個** 抽出。
+「${subject}」 から実際に Google で検索されそうな関連キーワードを **${targetCount}個** 抽出。
 ジャンル: ベビー・キッズ
 
 # シード KW (実検索データ ${seedKws.length}件)

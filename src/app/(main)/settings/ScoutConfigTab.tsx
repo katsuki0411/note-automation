@@ -14,7 +14,7 @@ type ScoutConfig = {
 };
 
 const DEFAULTS: Required<Pick<ScoutConfig, "kwCandidateCount" | "maxFinalCount" | "minSv" | "minCpc">> = {
-  kwCandidateCount: 1000,
+  kwCandidateCount: 500,
   maxFinalCount: 10,
   minSv: 100,
   minCpc: 0.2,
@@ -86,7 +86,7 @@ export default function ScoutConfigTab() {
             placeholder={String(DEFAULTS.kwCandidateCount)}
             value={config.kwCandidateCount}
             onChange={(v) => setConfig({ ...config, kwCandidateCount: v })}
-            hint="デフォルト 1000件 (漏れなくスカウト)。100〜1000 の範囲で調整可"
+            hint="デフォルト 500件 (Gemini が完走できる範囲)。100〜1000 の範囲で調整可、1000は所要4分要"
           />
           <NumberRow
             label="Stage3: SV 最低値 (月間検索数)"
