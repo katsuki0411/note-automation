@@ -30,7 +30,7 @@
 設定可能な項目 (設定 → KWスカウト設定 タブで保存):
 | 項目 | デフォルト | 役割 |
 |---|---|---|
-| `kwCandidateCount` | 100 | Stage 1 の Gemini #1 が生成する KW 数 |
+| `kwCandidateCount` | 1000 | Stage 1 の Gemini #1 が生成する KW 数 (「漏れなく」 スカウト方針) |
 | `minSv` | 100 | Stage 3 の Gemini #2 が落とす SV 下限 |
 | `minCpc` | $0.2 (¥30) | Stage 3 が落とす CPC 下限 |
 | `maxFinalCount` | 10 | Stage 5 に回す候補数の上限 |
@@ -59,8 +59,8 @@
 [ 採用 KW 1-5件 (rationale 付き) + 落選 KW 詳細 ]
 ```
 
-**1スカウトのコスト**: 約 ¥55 (Gemini × 3 + DFS API × 4)
-**所要時間**: 約 30-60 秒
+**1スカウトのコスト**: 約 ¥200 (Gemini × 3 + DFS API × 4) — 1000 KW モード時
+**所要時間**: 約 60-120 秒
 
 ---
 
@@ -338,31 +338,38 @@ Stage 3 で落選した KW も `rejected_candidates` に保存:
 
 ## 7. 所要時間とコスト内訳
 
-### 時間 (1スカウト 100KW モード)
+### 時間 (1スカウト 1000KW モード、2026-06-15 デフォルト)
 | Stage | 所要時間 |
 |---|---|
-| Stage 0 | 約 2-3秒 (DFS 2件並列) |
-| Stage 1 | 約 8-15秒 (Gemini #1) |
-| Stage 2 | 約 2-3秒 (DFS bulk) |
-| Stage 3 | 約 5-10秒 (Gemini #2) |
-| Stage 3.5 | 約 1-2秒 (DFS bulk) |
+| Stage 0 | 約 3-5秒 (DFS 2件並列、limit=500) |
+| Stage 1 | 約 30-60秒 (Gemini #1 が 1000件出力) |
+| Stage 2 | 約 5-10秒 (DFS bulk 1000件) |
+| Stage 3 | 約 15-30秒 (Gemini #2 が 1000件入力 → 30件) |
+| Stage 3.5 | 約 1-2秒 (DFS bulk 30件) |
 | Stage 4 | 約 10-20秒 (SERP advanced 10件並列) |
 | Stage 5 | 約 5-10秒 (Gemini #3) |
-| **合計** | **約 30-60秒** |
+| **合計** | **約 60-120秒** |
 
-### コスト (1スカウト 100KW モード)
+### コスト (1スカウト 1000KW モード)
+| Stage | コスト | 内訳 |
+|---|---|---|
+| Stage 0 | ¥7 | Related + Suggestions の limit=500 |
+| Stage 1 (Gemini) | ¥40 | Gemini #1 出力 1000 KW (出力トークン10倍) |
+| Stage 2 | ¥110 | Search Volume Bulk 1000 KW |
+| Stage 3 (Gemini) | ¥20 | Gemini #2 入力 1000 KW (入力トークン10倍) |
+| Stage 3.5 | ¥5 | Search Intent 30件 |
+| Stage 4 | ¥17 | SERP Advanced 10件 |
+| Stage 5 (Gemini) | ¥3 | Gemini #3 評価 |
+| **合計** | **約 ¥200/スカウト** | |
+
+→ 月20スカウト想定で **¥4,000/月** / 月50スカウトで **¥10,000/月**
+
+### 100KW モード (kwCandidateCount=100 に変更時) のコスト比較
 | Stage | コスト |
 |---|---|
-| Stage 0 | ¥3.5 |
-| Stage 1 (Gemini) | ¥10 |
-| Stage 2 | ¥11 |
-| Stage 3 (Gemini) | ¥5 |
-| Stage 3.5 | ¥5 |
-| Stage 4 | ¥17 |
-| Stage 5 (Gemini) | ¥3 |
-| **合計** | **約 ¥55/スカウト** |
+| 合計 | **約 ¥55/スカウト** |
 
-→ 月50スカウト想定で **¥2,750/月**
+→ ユーザーは「漏れなく」 派なのでデフォルトは 1000。コスト感重視なら設定画面で 100-500 に変更可。
 
 ---
 

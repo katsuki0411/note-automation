@@ -11,7 +11,7 @@ import { sql } from "./db";
 
 export type ScoutConfig = {
   // 件数
-  kwCandidateCount?: number;     // Gemini #1 生成数 (default 100)
+  kwCandidateCount?: number;     // Gemini #1 生成数 (default 1000、漏れなくスカウト)
   maxFinalCount?: number;         // 最終判定に回すKW数 (default 10)
   // 閾値 (Stage 3 で Gemini #2 に渡す)
   minSv?: number;                 // SV >= この値 を通過 (default 100)

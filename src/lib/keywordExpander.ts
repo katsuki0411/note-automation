@@ -33,23 +33,24 @@ export type ExpandKeywordsResult = {
   category: ScoutCategory; // subject のジャンル推定
 };
 
-// 2026-06-07: 30件 → 100件に拡張。 拡張プラン B' のスカウト初期段で「広く取って
-// DFS Bulk KD で安く絞る」ためにバッターボックスを大きく取る方針。
-// Phase 5 で「設定画面でユーザー編集可能」にする予定。
-const EXPAND_PROMPT = (subject: string, excludeKws: string[], seedKeywords: string[]) => `
+// 2026-06-15: 1000 KW スカウトモード対応に拡張。Stage 0 シード (DFS Related/Suggestions
+// で 800-1000件取得) を起点に、Gemini が補完・派生 KW を加えて maxKeywords まで網羅。
+// 「漏れなく広く取って Stage 3 で精査」 する方針。
+const EXPAND_PROMPT = (subject: string, excludeKws: string[], seedKeywords: string[], maxKeywords: number) => `
 あなたはアフィリエイトSEOのキーワードリサーチャーです。
 
 # ミッション
 以下のお題 (商品名 / カテゴリ / フリーKW のいずれか) から:
-1. 実際に Google や ChatGPT で検索されそうな関連キーワードを **80〜100個** 抽出
+1. 実際に Google や ChatGPT で検索されそうな関連キーワードを **${Math.floor(maxKeywords * 0.8)}〜${maxKeywords}個** 抽出
 2. このお題が属するジャンルを以下から1つ選ぶ:
    ${SCOUT_CATEGORIES.join(" / ")}
 
-後段で Google Ads Search Volume + SERP 分析で絞り込むため、「広めの母数」を作るのが狙いです。
+後段で Google Ads Search Volume + SERP 分析で絞り込むため、「漏れなく広く」 母集団を作るのが狙いです。
+質より量を優先しつつも、subject と関係ない KW は混入させない。
 
 # お題
 ${subject}
-${seedKeywords.length > 0 ? `\n# 実際に Google で検索されている関連KW (DFS Related + Suggestions 由来、実検索データ)\n以下はあなたの想像ではなく、実際に検索されているフレーズです。\n**これらを起点・参考にして** 語尾・年代・シーンを加えた 100件を作ってください\n(これら自体も該当するなら含めて OK):\n${seedKeywords.map((k) => `- ${k}`).join("\n")}` : ""}
+${seedKeywords.length > 0 ? `\n# 実際に Google で検索されている関連KW (DFS Related + Suggestions 由来、実検索データ ${seedKeywords.length}件)\n以下はあなたの想像ではなく、実際に検索されているフレーズです。\n**これらを起点・参考にして** 語尾・年代・シーン・組み合わせを変えて ${maxKeywords}件まで拡張してください\n(シード自体も該当するなら結果に含めて OK。シードに無い切り口を必ず補完すること):\n${seedKeywords.map((k) => `- ${k}`).join("\n")}` : ""}
 
 # 抽出方針 (CVKW 中心戦略)
 - 🎯 **CVKW (購入直前/比較検討KW) を全体の 70% 以上にする** ⭐最重要
@@ -68,7 +69,7 @@ ${seedKeywords.length > 0 ? `\n# 実際に Google で検索されている関連
 # 抽出ルール
 - 単一語ではなく **2〜4語の複合フレーズ** を中心に
 - 「○○ おすすめ」「○○ 比較」「○○ 違い」「○○ いつから」「○○ デメリット」「○○ 安い」など多様な切り口
-- 100件出すために無理にこじつけず、本当に検索されそうなフレーズだけにする (質 > 数)
+- ${maxKeywords}件出すために無理にこじつけず、本当に検索されそうなフレーズだけにする (質 ≧ 数)
 - 上の「実検索KW」を超えて、想像で作る場合も実検索データに似た表現に寄せる
 - intent は以下から選ぶ:
   - info     : 情報収集
@@ -185,7 +186,7 @@ export async function expandKeywords(
             ? seedKeywords.map((k) => `- ${k}`).join("\n")
             : "(シードなし)",
       }) + OUTPUT_FOOTER
-    : EXPAND_PROMPT(trimmed, excludeKws, seedKeywords);
+    : EXPAND_PROMPT(trimmed, excludeKws, seedKeywords, maxKeywords);
 
   const ai = gemini();
   const response = await ai.models.generateContent({
@@ -193,8 +194,9 @@ export async function expandKeywords(
     contents: userPrompt,
     config: {
       temperature: 0.85,
-      // 100件 × 1件あたり ~150 tokens で 15,000、安全側に余裕を持たせて 20,000
-      maxOutputTokens: 20000,
+      // maxKeywords × ~100 tokens (kw + intent + reason) を見積もり、Gemini 2.5 Pro の
+      // output 上限 65536 ギリギリまで使う (1000 KW モード対応)。
+      maxOutputTokens: 60000,
     },
   });
   const text = response.text ?? "";

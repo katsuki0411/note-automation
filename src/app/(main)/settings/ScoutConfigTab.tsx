@@ -14,7 +14,7 @@ type ScoutConfig = {
 };
 
 const DEFAULTS: Required<Pick<ScoutConfig, "kwCandidateCount" | "maxFinalCount" | "minSv" | "minCpc">> = {
-  kwCandidateCount: 100,
+  kwCandidateCount: 1000,
   maxFinalCount: 10,
   minSv: 100,
   minCpc: 0.2,
@@ -86,7 +86,7 @@ export default function ScoutConfigTab() {
             placeholder={String(DEFAULTS.kwCandidateCount)}
             value={config.kwCandidateCount}
             onChange={(v) => setConfig({ ...config, kwCandidateCount: v })}
-            hint="通常 100件を推奨"
+            hint="デフォルト 1000件 (漏れなくスカウト)。100〜1000 の範囲で調整可"
           />
           <NumberRow
             label="Stage3: SV 最低値 (月間検索数)"
