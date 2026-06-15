@@ -382,9 +382,15 @@ export async function bulkKeywordDifficulty(
     }>;
   };
   const items = data.tasks?.[0]?.result?.[0]?.items ?? [];
+  // KD=0 は DFS の「Labs インデックスにデータ無し」 を意味するケースが多い (日本語ロングテール
+  // KW で頻発)。本当の KD=0 (= 超優良 KW) と区別できないため、保守的に null 扱いとする。
+  // これによりお宝スコアでの偽加点 (KD≤10 → +40点) を防ぐ。
   return items.map((it) => ({
     kw: it.keyword ?? "",
-    kd: typeof it.keyword_difficulty === "number" ? it.keyword_difficulty : null,
+    kd:
+      typeof it.keyword_difficulty === "number" && it.keyword_difficulty > 0
+        ? it.keyword_difficulty
+        : null,
   }));
 }
 

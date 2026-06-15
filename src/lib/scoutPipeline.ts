@@ -232,6 +232,12 @@ function defaultFinalPrompt(i: FinalPromptInput): string {
   - SERP Top10 に個人ブログ含有で +5〜15点 (実勝率の証拠)
   - AI Overview に個人サイト引用で +5点 (LLMOボーナス)
 
+【KD=null/? の扱い】
+- 日本語ロングテール KW は DFS Labs インデックスに無く KD が取れない (KD=? と表示) ことが多い
+- その場合、お宝スコアは KD 加点 0点でも 30-60点台になる
+- KD=null の KW は SV ≥500 + CVKW ≥50 + Top10 に個人ブログ 1件以上 が揃えば「勝てる KW」 として adopt 可
+- KD があてにならない分、SERP Top10 の中身 (個人ブログ含有数 + Top3 の薄さ) を強く重視して判定
+
 【判定ルール (お宝スコア最優先)】
 - adopt: treasureTotal >= 60 (💎💎 お宝以上)
         ※ お宝スコア60以上なら、Top3 が大手でも切り口次第で勝てるので必ず採用
@@ -673,9 +679,17 @@ export async function runScoutPipeline(
     return [] as Array<{ kw: string; kd: number }>;
   });
   const kdMap = new Map(kdItems.map((it) => [it.kw.toLowerCase(), it.kd] as const));
+  // KD 実数値が取れた件数を集計 (日本語ロングテール KW では大半が null になる仕様)。
+  const kdRealCount = kdItems.filter((it) => typeof it.kd === "number" && it.kd > 0).length;
+  const kdNullCount = kdItems.length - kdRealCount;
   console.log(
-    `[scoutPipeline] Stage2.5 KD: requested=${expanded.length}, returned=${kdItems.length}`,
+    `[scoutPipeline] Stage2.5 KD: requested=${expanded.length}, returned=${kdItems.length}, real=${kdRealCount}, null=${kdNullCount}`,
   );
+  if (kdItems.length > 0 && kdRealCount === 0) {
+    console.warn(
+      `[scoutPipeline] Stage2.5 KD: 全件 null/0。DFS Labs インデックスに無い KW ばかりの可能性 (日本語ロングテール)。Backlinks 認証は OK だがデータが返らない状態。`,
+    );
+  }
 
   // KD閾値で機械フィルタ。KD が取れなかった (null/undefined) KW は除外せず通過 (Backlinks 未契約フォールバック)。
   const maxKd = config.maxKd ?? 100;

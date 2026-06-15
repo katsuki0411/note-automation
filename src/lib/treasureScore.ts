@@ -61,7 +61,12 @@ export type CalcTreasureArgs = {
 
 function scoreKd(kd: number | null): TreasureBreakdownItem {
   if (kd === null) {
-    return { value: null, points: 0, reason: "KD未取得 (Backlinks 失効?)" };
+    return {
+      value: null,
+      points: 0,
+      reason:
+        "KD未取得 (この KW は DFS Labs インデックスに無し / SV+CVKW+SERPで評価)",
+    };
   }
   if (kd <= 10) {
     return { value: kd, points: 40, reason: `KD=${kd}: 個人ブログで1-2ヶ月で上位狙える超優良` };
