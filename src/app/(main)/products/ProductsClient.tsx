@@ -672,7 +672,7 @@ export default function ProductsClient() {
             </button>
           </div>
           <p className="text-[11px] text-[color:var(--fg-muted)]">
-            ⚠ 1回あたり Gemini × 3 + DataForSEO × 4 (6段パイプライン)。 1スカウト ¥35 前後 / 100KW から採用3-5件
+            ⚠ 1回あたり Gemini × 3 + DataForSEO × 4 (6段パイプライン)。 1スカウト ¥200 前後 / 1000KW から採用3-5件 (所要 60-120秒)
           </p>
         </div>
         )}

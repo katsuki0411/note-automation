@@ -97,6 +97,45 @@ function repairJson(s: string): string {
   return s.replace(/,(\s*[}\]])/g, "$1").trim();
 }
 
+// Gemini が maxOutputTokens 到達で途中切断された JSON を修復する。
+// 1000 KW モード等で出力が長くなると頻発するパターン:
+//   { "category": "...", "keywords": [ {kw,intent,reason}, ..., {kw,intent,re ← ここで切れる
+// → 最後の完全な } (KW エントリ閉じ) まで切り出して、後ろに ]} を補う。
+function repairTruncatedJson(s: string): string {
+  if (!s.startsWith("{")) return s;
+  const keywordsIdx = s.indexOf('"keywords"');
+  if (keywordsIdx < 0) return s;
+  const arrStart = s.indexOf("[", keywordsIdx);
+  if (arrStart < 0) return s;
+
+  let depth = 0;
+  let lastValidEnd = -1;
+  let inString = false;
+  let escape = false;
+  let arrClosed = false;
+
+  for (let i = arrStart + 1; i < s.length; i++) {
+    const c = s[i];
+    if (escape) { escape = false; continue; }
+    if (c === "\\") { escape = true; continue; }
+    if (c === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (c === "{") depth++;
+    else if (c === "}") {
+      depth--;
+      if (depth === 0) lastValidEnd = i; // 1KW エントリ閉じの完全な位置
+    } else if (c === "]" && depth === 0) {
+      arrClosed = true;
+      break;
+    }
+  }
+
+  if (arrClosed) return s; // 配列正常終端 → 修復不要
+  if (lastValidEnd < 0) return s; // 修復不能 (配列開始直後で切れた)
+  // lastValidEnd まで切って ]} で閉じる
+  return s.slice(0, lastValidEnd + 1) + "]}";
+}
+
 function extractJson(text: string): unknown {
   let cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
   // 後方互換: 旧プロンプトの配列 [...] と新プロンプトのオブジェクト {category, keywords:[...]} 両対応
@@ -105,17 +144,36 @@ function extractJson(text: string): unknown {
   const isObj = objStart !== -1 && (arrStart === -1 || objStart < arrStart);
   if (isObj) {
     const end = cleaned.lastIndexOf("}");
-    if (end === -1) throw new Error("JSONオブジェクトが見つかりません");
-    cleaned = cleaned.slice(objStart, end + 1);
+    if (end === -1) {
+      // 末尾 } が無い = 途中切断確定 → 切断修復を試みる
+      const repaired = repairTruncatedJson(cleaned.slice(objStart));
+      if (repaired.endsWith("]}")) {
+        cleaned = repaired;
+        console.warn("[keywordExpander] JSON truncation 検出 → repairTruncatedJson で修復");
+      } else {
+        throw new Error("JSONオブジェクトが見つかりません (truncation 修復不能)");
+      }
+    } else {
+      cleaned = cleaned.slice(objStart, end + 1);
+    }
   } else {
     const end = cleaned.lastIndexOf("]");
     if (arrStart === -1 || end === -1) throw new Error("JSON配列が見つかりません");
     cleaned = cleaned.slice(arrStart, end + 1);
   }
+  // 1次: そのまま parse
   try {
     return JSON.parse(cleaned);
   } catch {
-    return JSON.parse(repairJson(cleaned));
+    // 2次: 末尾カンマ除去
+    try {
+      return JSON.parse(repairJson(cleaned));
+    } catch {
+      // 3次: truncation 修復を再試行 (cleaned が末尾切断版だった場合)
+      const repaired = repairTruncatedJson(cleaned);
+      console.warn("[keywordExpander] JSON parse 再失敗 → truncation 修復後に再 parse");
+      return JSON.parse(repairJson(repaired));
+    }
   }
 }
 
@@ -189,6 +247,7 @@ export async function expandKeywords(
     : EXPAND_PROMPT(trimmed, excludeKws, seedKeywords, maxKeywords);
 
   const ai = gemini();
+  const startedAt = Date.now();
   const response = await ai.models.generateContent({
     model: MODELS.research,
     contents: userPrompt,
@@ -199,7 +258,20 @@ export async function expandKeywords(
       maxOutputTokens: 60000,
     },
   });
+  const elapsedSec = Math.round((Date.now() - startedAt) / 1000);
   const text = response.text ?? "";
+  // finishReason 確認 (MAX_TOKENS なら truncation 確実)
+  const finishReason =
+    (response as unknown as { candidates?: Array<{ finishReason?: string }> })
+      .candidates?.[0]?.finishReason ?? "(unknown)";
+  console.log(
+    `[keywordExpander] Gemini #1 done: ${elapsedSec}s, ${text.length} chars, finish=${finishReason}, target=${maxKeywords}KW`,
+  );
+  if (finishReason === "MAX_TOKENS") {
+    console.warn(
+      `[keywordExpander] Gemini #1 が maxOutputTokens=60000 に到達 → JSON 末尾が truncate されてる可能性。truncation 修復で部分結果を取得試行`,
+    );
+  }
   const raw = extractJson(text);
 
   // 新形式: { category, keywords: [...] } / 旧形式 (配列のみ) 両対応
