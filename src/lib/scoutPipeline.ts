@@ -13,6 +13,7 @@ import {
 } from "./dataforseo";
 import { renderTemplate } from "./promptTemplate";
 import { calcCvKwScore, extractBrandTokens } from "./cvKw";
+import { calcTreasureScore, type TreasureScore } from "./treasureScore";
 
 // =========================================================
 // KW スカウト 7段パイプライン (2026-06-14 Backlinks 契約により KD ステージ復活)
@@ -65,6 +66,8 @@ export type ScoutFinalCandidate = {
   // CVKW (Conversion Keyword) 評価 (2026-06-13 追加)
   cvKwScore: number;                 // 0-100 (Google intent + CV トークン + 商標含有)
   cvKwHits: { strong?: string; mid?: string; brand?: string }; // どの語が当たったか
+  // お宝スコア (2026-06-15 追加) — KD/SV/CVKW/SERP 個人ブログ含有の複合指標
+  treasureScore: TreasureScore;
   peakMonths: number[];              // B: 過去12ヶ月でSVが平均より20%以上高い月 (1-12)
   troughMonths: number[];            // B: 同じく低い月
   topPageStructures: Array<{         // C: Top3 ページの概要 (SERP の title + snippet)
@@ -160,6 +163,8 @@ export type FinalPromptInput = {
     cpc: number | null;
     googleIntent: string | null;   // A: Google 公式 intent
     cvKwScore: number;             // CVKW 総合スコア (0-100)
+    treasureTotal: number;         // お宝スコア合計 (0-110)
+    treasureRank: string;          // "treasure3" | "treasure2" | "treasure1" | "normal"
     peakMonths: number[];          // B: SV ピーク月 (1-12)
     troughMonths: number[];        // B: SV 谷月
     serpFeatures: SerpAdvancedResponse["features"];
@@ -218,24 +223,35 @@ function defaultFinalPrompt(i: FinalPromptInput): string {
 あなたは SEO + アフィリエイトの専門家です。
 商品「${subject}」のキーワード候補について、すべての Google 実データを見て採用判定してください。
 
-【最重要: CV直結度を最優先に判定する】
-- このプロジェクトは「主婦に CV (購入クリック) を促す」のが目的
-- CVスコア (0-100) は KW の購入意図の強さを示す。CVスコア >= 60 を強く優先
-- CVスコア < 30 は原則 reject (情報収集系で広告収益につながらない)
+【最重要: お宝スコア順に採用判定する】
+このプロジェクトは「お宝KW (= SEOで個人ブログでも勝てる + 流入が取れる KW) を1スカウト最低1件発掘する」のが目的。
+お宝スコア (treasureTotal, 0-110) はそれを機械的に算出した複合指標です:
+  - KD ≤20 で +30〜40点 (SEO勝率)
+  - SV ≥1000 で +20〜30点 (流入ボリューム)
+  - CVKW × 0.2 で +最大20点 (購入意図)
+  - SERP Top10 に個人ブログ含有で +5〜15点 (実勝率の証拠)
+  - AI Overview に個人サイト引用で +5点 (LLMOボーナス)
 
-【判定基準】
-- adopt: CVスコア >= 60 + 上位10件に個人ブログ/中堅サイトが入っており食い込める
-        + Top3 ページが薄い (文字数少ない or H2 少ない) なら差別化容易で優先
-- borderline: CVスコア 40-59 + 大手と個人ブログ混在、または CVスコア >= 60 だが Top10 大手中心
-- reject: CVスコア < 40 (informational のみで購入導線弱い) or Top10 大手独占で勝ち目薄
+【判定ルール (お宝スコア最優先)】
+- adopt: treasureTotal >= 60 (💎💎 お宝以上)
+        ※ お宝スコア60以上なら、Top3 が大手でも切り口次第で勝てるので必ず採用
+        ※ Top3 ページの「切り口」 を見て、自分が違う角度 (体験談/写真/別ターゲット等) で書けるなら強加点
+- borderline: treasureTotal 40-59 (💎 準お宝) — Top10 の状況で判断
+        ※ Top10 に個人ブログが多ければ adopt 寄り、大手寡占なら reject 寄り
+- reject: treasureTotal < 40 — 通常採用、CVKW < 30 かつ Top10 大手独占の場合のみ
+
+【保証ルール: 最低1件は adopt にする】
+候補全体で treasureTotal の最大が 40 以上なら、最低 1件は adopt にする (お宝発掘がこのスカウトの本質目的)。
+ただし全候補が treasureTotal < 40 ならハズレ回として全件 reject も可 (ハズレを認める)。
 
 【候補】
 ${candidates
   .map(
     (c, idx) =>
       `${idx + 1}. ${c.kw}
+   ✨ 💎 お宝スコア=${c.treasureTotal}/110 (rank=${c.treasureRank})
+   🔧 KD=${c.kd ?? "?"}, 📊 SV=${c.searchVolume ?? "?"}, CPC=${cpcJpy(c.cpc)}
    💰 CVスコア=${c.cvKwScore}/100 (intent=${c.googleIntent ?? "?"})
-   KD=${c.kd ?? "?"}, SV=${c.searchVolume ?? "?"}, CPC=${cpcJpy(c.cpc)}
    季節性: ${c.peakMonths.length > 0 ? `ピーク=${c.peakMonths.join("/")}月` : "平坦"}${c.troughMonths.length > 0 ? `, 谷=${c.troughMonths.join("/")}月` : ""}
    SERP features: ${Object.entries(c.serpFeatures).filter(([, v]) => v).map(([k]) => k).join(", ") || "(none)"}
    Top10 domains: ${c.serpTopDomains.slice(0, 10).join(", ") || "(none)"}
@@ -252,7 +268,7 @@ ${candidates
       "kw": "対象KW",
       "finalScore": 75,
       "decision": "adopt",
-      "rationale": "Top10にmacaro-ni.jp/ameblo.jp等の個人ブログが過半数。AI Overview引用元にも入りやすい。"
+      "rationale": "お宝スコア72(💎💎お宝)。KD=18で個人ブログ勝率高+SV=1200で流入見込み+Top10に個人ブログ3件あり実勝率の証拠あり。Top3は価格比較メインだが、自分は体験談で差別化可能。"
     }
   ]
 }
@@ -473,6 +489,8 @@ async function stage5FinalDecision(
       cpc: c.cpc,
       googleIntent: c.googleIntent,
       cvKwScore: c.cvKwScore,
+      treasureTotal: c.treasureScore.total,
+      treasureRank: c.treasureScore.rank,
       peakMonths: c.peakMonths,
       troughMonths: c.troughMonths,
       serpFeatures: c.serpFeatures,
@@ -790,12 +808,31 @@ export async function runScoutPipeline(
       googleIntent: intent?.intent ?? null,
       brandTokens,
     });
+    // 共通中間値
+    const kdValue = ov?.keywordDifficulty ?? null;
+    const svValue = ov?.searchVolume ?? null;
+    const serpTopUrls = serp?.items
+      .filter((i) => i.type === "organic" && i.url)
+      .slice(0, 10)
+      .map((i) => i.url!) ?? [];
+    const aiOverviewUrls = (serp?.aiOverviewReferences ?? [])
+      .map((r) => r.url)
+      .filter((u): u is string => !!u);
+    // お宝スコア計算 (KD + SV + CVKW + SERP個人ブログ含有 + AI Overview 個人サイト)
+    const treasureScore = calcTreasureScore({
+      kd: kdValue,
+      searchVolume: svValue,
+      cvKwScore: cv.total,
+      serpTopUrls,
+      aiOverviewUrls,
+      subject,
+    });
     return {
       kw: kw.kw,
       intent: kw.intent,
       reason: kw.reason,
-      kd: ov?.keywordDifficulty ?? null,
-      searchVolume: ov?.searchVolume ?? null,
+      kd: kdValue,
+      searchVolume: svValue,
       cpc: ov?.cpc ?? null,
       competition: ov?.competition ?? null,
       competitionLevel: ov?.competitionLevel ?? null,
@@ -810,6 +847,8 @@ export async function runScoutPipeline(
       // CVKW (Conversion Keyword) スコア
       cvKwScore: cv.total,
       cvKwHits: cv.hits,
+      // お宝スコア (2026-06-15)
+      treasureScore,
       // B. 季節性 (既存 monthlySearches から算出)
       peakMonths: seasonality.peakMonths,
       troughMonths: seasonality.troughMonths,
@@ -825,7 +864,7 @@ export async function runScoutPipeline(
         hasVideo: false,
         hasImage: false,
       },
-      serpTopUrls: serp?.items.filter((i) => i.type === "organic" && i.url).slice(0, 10).map((i) => i.url!) ?? [],
+      serpTopUrls,
       aiOverviewReferences: serp?.aiOverviewReferences ?? [],
       paaQuestions: serp?.paaQuestions ?? [],
       // Stage 5 が埋める

@@ -69,6 +69,18 @@ type ScoutCandidate = {
   // 2026-06-13 CVKW 評価追加 (optional)
   cvKwScore?: number;                 // 0-100 (購入意図の強さ)
   cvKwHits?: { strong?: string; mid?: string; brand?: string };
+  // 2026-06-15 お宝スコア追加 (optional: 旧履歴互換)
+  treasureScore?: {
+    total: number;        // 0-110
+    rank: "treasure3" | "treasure2" | "treasure1" | "normal";
+    breakdown: {
+      kd:         { value: number | string | null; points: number; reason: string };
+      sv:         { value: number | string | null; points: number; reason: string };
+      cvKw:       { value: number | string | null; points: number; reason: string };
+      serp:       { value: number | string | null; points: number; reason: string };
+      aiOverview: { value: number | string | null; points: number; reason: string };
+    };
+  };
   peakMonths?: number[];               // B: SV ピーク月
   troughMonths?: number[];             // B: SV 谷月
   topPageStructures?: Array<{          // C: Top3 競合の SERP 概要 (タイトル + スニペット)
@@ -934,6 +946,55 @@ export default function ProductsClient() {
                               <div className="text-[11px] text-[color:var(--fg-muted)] mt-0.5">
                                 {c.reason}
                               </div>
+                              {/* 💎 お宝スコア + 評価の内訳 (2026-06-15)
+                                * 採用カード (decision="adopt") は常時展開、それ以外は折りたたみ */}
+                              {c.treasureScore && (() => {
+                                const ts = c.treasureScore;
+                                const rankInfo: Record<typeof ts.rank, { emoji: string; label: string; cls: string }> = {
+                                  treasure3: { emoji: "💎💎💎", label: "超お宝", cls: "bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold" },
+                                  treasure2: { emoji: "💎💎",   label: "お宝",   cls: "bg-emerald-100 text-emerald-800 font-bold" },
+                                  treasure1: { emoji: "💎",     label: "準お宝", cls: "bg-amber-100 text-amber-800 font-semibold" },
+                                  normal:    { emoji: "·",      label: "通常",   cls: "bg-gray-100 text-gray-600" },
+                                };
+                                const info = rankInfo[ts.rank];
+                                const isAdopted = c.decision === "adopt";
+                                return (
+                                  <details className="mt-2 rounded-lg border border-[var(--border-subtle)] bg-white" open={isAdopted}>
+                                    <summary className="cursor-pointer px-2.5 py-1.5 flex items-center gap-2 text-[11px]">
+                                      <span className={`px-2 py-1 rounded ${info.cls} text-[12px]`}>
+                                        {info.emoji} {info.label} {ts.total}<span className="opacity-70">/110</span>
+                                      </span>
+                                      <span className="text-[10px] text-[color:var(--fg-muted)]">▼ 評価の内訳</span>
+                                    </summary>
+                                    <ul className="px-3 pb-2 pt-1 space-y-0.5 text-[10.5px] text-[color:var(--fg-secondary)]">
+                                      <li className="flex gap-2">
+                                        <span className="shrink-0 w-6 text-right font-mono font-bold text-emerald-700">+{ts.breakdown.kd.points}</span>
+                                        <span>🔧 {ts.breakdown.kd.reason}</span>
+                                      </li>
+                                      <li className="flex gap-2">
+                                        <span className="shrink-0 w-6 text-right font-mono font-bold text-emerald-700">+{ts.breakdown.sv.points}</span>
+                                        <span>📊 {ts.breakdown.sv.reason}</span>
+                                      </li>
+                                      <li className="flex gap-2">
+                                        <span className="shrink-0 w-6 text-right font-mono font-bold text-emerald-700">+{ts.breakdown.cvKw.points}</span>
+                                        <span>💰 {ts.breakdown.cvKw.reason}</span>
+                                      </li>
+                                      <li className="flex gap-2">
+                                        <span className="shrink-0 w-6 text-right font-mono font-bold text-emerald-700">+{ts.breakdown.serp.points}</span>
+                                        <span>🌐 {ts.breakdown.serp.reason}</span>
+                                      </li>
+                                      <li className="flex gap-2">
+                                        <span className="shrink-0 w-6 text-right font-mono font-bold text-emerald-700">+{ts.breakdown.aiOverview.points}</span>
+                                        <span>✨ {ts.breakdown.aiOverview.reason}</span>
+                                      </li>
+                                      <li className="flex gap-2 pt-1 border-t border-[var(--border-subtle)] mt-1">
+                                        <span className="shrink-0 w-6 text-right font-mono font-bold">={ts.total}</span>
+                                        <span className="font-semibold">{info.emoji} {info.label}判定</span>
+                                      </li>
+                                    </ul>
+                                  </details>
+                                );
+                              })()}
                               {/* 客観指標 (DFS Keyword Overview) — データ取得失敗時は "-" 表示 */}
                               <div className="mt-1.5 flex items-center gap-2 flex-wrap text-[10.5px]">
                                 <span
