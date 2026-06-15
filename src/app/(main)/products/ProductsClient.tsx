@@ -873,6 +873,12 @@ export default function ProductsClient() {
                   </div>
                   {/* スクロール領域 (この部分だけスクロールバー表示) */}
                   <div className="flex-1 overflow-y-auto pr-2 mt-2 min-h-0">
+                  {/* === 絞り込みファネル (どのタブでも常に上部に表示) === */}
+                  <ScoutFunnelView
+                    stats={result.stats}
+                    candidates={result.candidates}
+                    rejectedCandidates={result.rejectedCandidates ?? []}
+                  />
                   {/* === パイプライン段階別ビュー ① / ② === */}
                   {pipelineStage !== 5 && (
                     <StagePipelineView
@@ -1551,7 +1557,7 @@ function StagePipelineView({
   rejected: RejectedCandidate[];
 }) {
   // 各 stage で「通過」「落選」を分類
-  const { passed, failed, headline } = useMemo(() => {
+  const { passed, failed, headline, subline } = useMemo(() => {
     const adoptedAsItems: StageItem[] = adopted.map((c) => ({
       kw: c.kw,
       intent: c.intent,
@@ -1580,7 +1586,8 @@ function StagePipelineView({
       return {
         passed: all,
         failed: [] as StageItem[],
-        headline: `Gemini #1 が生成した全候補 (${all.length}件)`,
+        headline: `Stage 1: Gemini #1 が subject + Stage 0 シードから派生生成`,
+        subline: `全 ${all.length} 件。intent (info/comparison/purchase 等) と reason (採用理由) も自動付与。CVKW 比率 70% 以上を強制`,
       };
     }
     // stage === 3: Gemini #2 (数値+重複排除) 通過/落選
@@ -1589,22 +1596,29 @@ function StagePipelineView({
     return {
       passed: p,
       failed: f,
-      headline: `Stage 3 Gemini #2 (数値+重複/不適切排除)`,
+      headline: `Stage 3: Gemini #2 が SV/CPC/重複/不適切 を機械+AI判定で絞り込み`,
+      subline: `通過 ${p.length}件 / 落選 ${f.length}件。SV ≥100 + CPC ≥¥30 + dfs_intent が commercial/transactional 寄り + 同義 KW 重複排除 が条件`,
     };
   }, [stage, adopted, rejected]);
 
   return (
     <div className="space-y-3">
-      <div className="text-[11px] text-[color:var(--fg-secondary)] px-1">
-        <span className="font-semibold text-[color:var(--accent-dark)]">{headline}</span>
-        {" — "}
-        <span className="text-emerald-700">✓ 通過 {passed.length}件</span>
-        {failed.length > 0 && (
-          <>
-            {" / "}
-            <span className="text-red-700">✗ 落選 {failed.length}件</span>
-          </>
-        )}
+      <div className="px-1 space-y-1">
+        <div className="text-[12px] font-semibold text-[color:var(--accent-dark)]">
+          {headline}
+        </div>
+        <div className="text-[10.5px] text-[color:var(--fg-secondary)] leading-relaxed">
+          {subline}
+        </div>
+        <div className="text-[11px] text-[color:var(--fg-secondary)]">
+          <span className="text-emerald-700">✓ 通過 {passed.length}件</span>
+          {failed.length > 0 && (
+            <>
+              {" / "}
+              <span className="text-red-700">✗ 落選 {failed.length}件</span>
+            </>
+          )}
+        </div>
       </div>
 
       {passed.length > 0 && (
@@ -1682,5 +1696,117 @@ function StageItemList({ items, variant }: { items: StageItem[]; variant: "pass"
         </li>
       ))}
     </ul>
+  );
+}
+
+// === 絞り込みファネル (じょうご) UI ===
+// スカウト結果ページ上部に「Stage 0 シード → Stage 1 生成 → Stage 3 絞込 → Stage 5 採用」 の漏斗を表示。
+// 各 Stage の件数 + なぜその件数に絞られたかの根拠を日本語で明記する。
+// クライアント説明用ビジュアル (受注デモで「ここまで絞り込んでます」 を 5秒で伝える)。
+function ScoutFunnelView({
+  stats,
+  candidates,
+  rejectedCandidates,
+}: {
+  stats?: ScoutStats;
+  candidates: ScoutCandidate[];
+  rejectedCandidates: RejectedCandidate[];
+}) {
+  // stats が DB 保存外 (古い履歴) なら候補/落選から導出
+  const stage1Total = stats?.stage1Generated ?? candidates.length + rejectedCandidates.length;
+  const stage3Passed = stats?.stage3Passed ?? candidates.length;
+  const stage3Rejected = rejectedCandidates.filter((r) => r.stage === "stage3_rejected").length;
+  const finalCount = stats?.finalCount ?? candidates.length;
+  const adoptedCount =
+    stats?.adoptedCount ?? candidates.filter((c) => c.decision === "adopt").length;
+  const rejectedFinal = finalCount - adoptedCount;
+
+  // 最大幅 (Stage 1 を基準に視覚的に絞り込まれていく感じを表現)
+  const maxWidth = Math.max(stage1Total, 1);
+  const wPct = (n: number) => Math.max(15, Math.round((n / maxWidth) * 100));
+
+  type Row = {
+    icon: string;
+    label: string;
+    count: number;
+    reason: string; // この件数になった根拠 (日本語1-2文)
+    cls: string;
+  };
+
+  const rows: Row[] = [
+    {
+      icon: "🌱",
+      label: "Stage 0  Google実検索シード",
+      count: stats?.stage0SeedCount ?? 0,
+      reason: "DataForSEO Related + Suggestions から、subject に関連する実検索 KW を取得 (Gemini #1 のハルシ抑制シード)",
+      cls: "bg-gray-100 text-gray-700",
+    },
+    {
+      icon: "🤖",
+      label: "Stage 1  Gemini #1 派生生成",
+      count: stage1Total,
+      reason: `シードを起点に Gemini が CVKW 70%以上 + 商標含有 を強制で ${stage1Total}件を派生生成 (intent/reason メタデータ付与)`,
+      cls: "bg-purple-50 text-purple-800",
+    },
+    {
+      icon: "🔍",
+      label: "Stage 3  Gemini #2 絞り込み",
+      count: stage3Passed,
+      reason: `SV ≥100 + CPC ≥¥30 + 重複/不適切排除 で ${stage1Total} → ${stage3Passed} に絞込 (${stage3Rejected}件落選)`,
+      cls: "bg-blue-50 text-blue-800",
+    },
+    {
+      icon: "🌐",
+      label: "Stage 4  SERP取得 + お宝スコア計算",
+      count: finalCount,
+      reason: `${stage3Passed}件すべての SERP Top10 + AI Overview を取得し、SV + CVKW + 個人ブログ含有 + AIO で 0-70点 のお宝スコアを計算`,
+      cls: "bg-teal-50 text-teal-800",
+    },
+    {
+      icon: "🎯",
+      label: "Stage 5  Gemini #3 最終判定",
+      count: adoptedCount,
+      reason: `お宝スコア ≥35 を必ず adopt、25-34 は Top10 状況で判断、<25 は reject。${finalCount} → ${adoptedCount}件採用 (${rejectedFinal}件却下)`,
+      cls: "bg-emerald-100 text-emerald-800 font-bold",
+    },
+  ];
+
+  return (
+    <div className="mb-3 rounded-xl border border-[var(--border-subtle)] bg-white px-3 py-2.5">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[12px] font-semibold text-[color:var(--accent-dark)]">
+          📊 絞り込みファネル
+        </div>
+        <div className="text-[10px] text-[color:var(--fg-muted)]">
+          {stage1Total} 件 → 採用 {adoptedCount} 件 ({stage1Total > 0
+            ? `上位 ${((adoptedCount / stage1Total) * 100).toFixed(1)}%`
+            : "—"} の精選)
+        </div>
+      </div>
+      <ul className="space-y-1.5">
+        {rows.map((r, idx) => (
+          <li key={idx} className="flex items-start gap-2 text-[10.5px]">
+            <span className="shrink-0 w-5 text-center">{r.icon}</span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-0.5">
+                <div
+                  className={`shrink-0 px-2 py-0.5 rounded ${r.cls} text-[11px]`}
+                  style={{ minWidth: `${wPct(r.count)}%` }}
+                >
+                  <span className="font-mono font-bold">{r.count.toLocaleString("ja-JP")}</span>
+                  <span className="ml-1 opacity-80 text-[9.5px]">件</span>
+                </div>
+                <div className="text-[10.5px] font-semibold text-[color:var(--fg-primary)] truncate">
+                  {r.label}
+                </div>
+              </div>
+              <div className="text-[9.5px] text-[color:var(--fg-secondary)] leading-relaxed pl-1">
+                💬 {r.reason}
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
