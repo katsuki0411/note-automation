@@ -19,11 +19,13 @@ import {
 //   - SERP個人ブログ含有 (最大 15) ★ 実勝率の証拠
 //   - AI Overview個人サイト (+5 ボーナス) LLMO シグナル
 //
-// ランク判定 (70点満点でリスケール):
-//   50+ : 💎💎💎 超お宝 (71%以上)
-//   35+ : 💎💎 お宝 (50%以上)
-//   25+ : 💎 準お宝 (36%以上)
-//   <25 : 通常採用
+// ランク判定 (70点満点でリスケール、2026-06-16 緩和):
+//   45+ : 💎💎💎 超お宝 (64%以上)
+//   30+ : 💎💎 お宝 (43%以上)
+//   20+ : 💎 準お宝 (29%以上)
+//   <20 : 通常採用
+// 緩和理由: Amazon商品スカウトだと SERP個人ブログ判定 0件 が多発、お宝判定到達が困難
+// だったため (旧50/35/25 だと 0件採用が頻発)。Stage 5 にハード保証ロジックも併用。
 // =========================================================
 
 export type TreasureRank = "treasure3" | "treasure2" | "treasure1" | "normal";
@@ -145,9 +147,9 @@ function scoreAiOverview(
 }
 
 function decideRank(total: number): TreasureRank {
-  if (total >= 50) return "treasure3";
-  if (total >= 35) return "treasure2";
-  if (total >= 25) return "treasure1";
+  if (total >= 45) return "treasure3";
+  if (total >= 30) return "treasure2";
+  if (total >= 20) return "treasure1";
   return "normal";
 }
 

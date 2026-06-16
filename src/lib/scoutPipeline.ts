@@ -230,17 +230,18 @@ function defaultFinalPrompt(i: FinalPromptInput): string {
   - SERP Top10 に個人ブログ含有で +5〜15点 (実勝率の証拠)
   - AI Overview に個人サイト引用で +5点 (LLMOボーナス)
 
-【判定ルール (お宝スコア最優先)】
-- adopt: treasureTotal >= 35 (💎💎 お宝以上)
-        ※ お宝スコア35以上なら、Top3 が大手でも切り口次第で勝てるので必ず採用
+【判定ルール (お宝スコア最優先、2026-06-16 緩和)】
+- adopt: treasureTotal >= 30 (💎💎 お宝以上)
+        ※ お宝スコア30以上なら、Top3 が大手でも切り口次第で勝てるので必ず採用
         ※ Top3 ページの「切り口」 を見て、自分が違う角度 (体験談/写真/別ターゲット等) で書けるなら強加点
-- borderline: treasureTotal 25-34 (💎 準お宝) — Top10 の状況で判断
+- borderline: treasureTotal 20-29 (💎 準お宝) — Top10 の状況で判断
         ※ Top10 に個人ブログが多ければ adopt 寄り、大手寡占なら reject 寄り
-- reject: treasureTotal < 25 — 通常採用、CVKW < 30 かつ Top10 大手独占の場合のみ
+- reject: treasureTotal < 20 — 通常採用、CVKW < 30 かつ Top10 大手独占の場合のみ
 
 【保証ルール: 最低1件は adopt にする】
-候補全体で treasureTotal の最大が 25 以上なら、最低 1件は adopt にする (お宝発掘がこのスカウトの本質目的)。
-ただし全候補が treasureTotal < 25 ならハズレ回として全件 reject も可 (ハズレを認める)。
+候補全体で treasureTotal の最大が 20 以上なら、最低 1件は adopt にする (お宝発掘がこのスカウトの本質目的)。
+※ なお、Gemini #3 が全件 reject にしても、コード側のハード保証ロジックで最高スコアの 1件を
+  強制 adopt するセーフティネットがあるため、迷ったときは「広めに adopt」 を優先すること。
 
 【SERP の中身判断 (KD が無いので最重要)】
 - Top10 に個人ブログ (note.com / hatenablog.com / ameblo.jp / livedoor.blog / 等) が 2件以上なら勝てる可能性高い
@@ -827,6 +828,28 @@ export async function runScoutPipeline(
 
   // 採用優先順位順にソート (finalScore 降順)
   finalized.sort((a, b) => b.finalScore - a.finalScore);
+
+  // ハード保証ルール (2026-06-16 追加):
+  //   Gemini #3 が全件 reject にしても、treasureTotal が一定以上のものがあれば
+  //   コード側で最高スコアの 1件を強制的に adopt に書き換える。
+  //   ターゲット: 「Amazon商品のスカウト → SERP個人ブログ判定 0件多発 → 全 reject」 のケース。
+  //   閾値: treasureTotal ≥ 20 (= 💎 準お宝以上)。0件採用を回避するセーフティネット。
+  const adoptedCountBefore = finalized.filter((c) => c.decision === "adopt").length;
+  if (adoptedCountBefore === 0 && finalized.length > 0) {
+    const best = finalized.reduce((a, b) =>
+      b.treasureScore.total > a.treasureScore.total ? b : a,
+    );
+    if (best.treasureScore.total >= 20) {
+      console.log(
+        `[scoutPipeline] ハード保証発動: Gemini #3 が全件 reject だが treasureTotal=${best.treasureScore.total} の "${best.kw}" を強制 adopt`,
+      );
+      best.decision = "adopt";
+      // rationale に「ハード保証で採用」 と明記
+      best.rationale =
+        `【ハード保証で採用】 他に adopt 候補が無く、本KW がお宝スコア ${best.treasureScore.total}/70 で最高だったため強制採用。` +
+        (best.rationale ? ` (元のGemini #3 判定: ${best.rationale})` : "");
+    }
+  }
 
   return {
     subject,
