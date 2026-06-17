@@ -387,7 +387,5 @@ article_postings               — 投稿履歴 (記事 × destination × 結果
 ## 10. 補足: 関連ドキュメント
 
 - 専門用語の意味: `docs/GLOSSARY.md`
-- DataForSEO API の取得可能情報: `docs/DFS_CAPABILITIES.md` (例付き)
-- DataForSEO 全エンドポイント技術詳細: `docs/DFS_API_INVENTORY.md` (602行)
+- DataForSEO 全エンドポイント技術詳細・取得可能情報: `docs/DFS_API_INVENTORY.md`
 - Amazon アソシエイト申請手順: `docs/AMAZON_ASSOCIATE_SETUP.md`
-- Ahrefs vs ハイブリッド分析: `docs/AHREFS_VS_HYBRID.md`

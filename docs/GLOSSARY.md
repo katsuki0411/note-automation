@@ -19,7 +19,9 @@
   - 20〜40: 中程度 (記事の質次第で勝てる)
   - 40〜60: 難しい (大手と戦う覚悟が必要)
   - 60〜100: 非常に難しい (個人参入はおすすめしない)
-- 取得元: DataForSEO / Ahrefs
+- 取得元: DataForSEO / Ahrefs (KD は各ツールの被リンク DB から計算される = DB の網羅性で精度が決まる)
+- ⚠️ DFS の KD は日本語ロングテール CVKW で欠損しがち (取れたらラッキー)。Ahrefs なら実検索のある KW はほぼ埋まる。詳細は `docs/SCOUT_SCORING.md` 第8章
+- 現状このツールでは KD ステージは撤廃済 (お宝スコアで代替)
 - 例: 「メリーズ 価格」KD=18 → 狙う / 「ベビーカー 比較」KD=56 → 避ける
 
 ### SV (Search Volume / 検索ボリューム)
@@ -270,7 +272,7 @@ KD は「取れたらラッキー」 の補助指標として運用継続 (Stage
 - KW評価 + SERP取得 のメインAPI
 - 12カテゴリ (SERP / Keywords Data / Labs / Backlinks / Content Analysis / Merchant 等)
 - このツールでは Labs / Keywords Data / SERP を中心に使う
-- 詳細: `docs/DFS_CAPABILITIES.md`
+- 詳細: `docs/DFS_API_INVENTORY.md`
 
 ### DFS API 一覧 (このツールが使う / 候補)
 | API | 用途 | コスト | 契約 |

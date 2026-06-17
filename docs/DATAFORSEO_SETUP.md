@@ -2,7 +2,7 @@
 
 > 作成: 2026-06-09
 > 対象読者: 小社長 / 開発パートナー (実際に触る人)
-> 関連: `docs/DFS_CAPABILITIES.md` (何が取れるか)
+> 関連: `docs/DFS_API_INVENTORY.md` (何が取れるか)
 >       `docs/PRODUCT_FLOW.md` (どこで使われるか)
 
 ---
@@ -304,6 +304,5 @@ DataForSEO は 1秒 2,000req まで OK なので、通常は起きない。
 - 価格表: https://dataforseo.com/pricing
 - サポート: support@dataforseo.com / ライブチャット (ダッシュボード右下)
 - 当ツール側ドキュメント:
-  - 何が取れるか: `docs/DFS_CAPABILITIES.md`
-  - 全エンドポイント技術詳細: `docs/DFS_API_INVENTORY.md`
+  - 全エンドポイント技術詳細・何が取れるか: `docs/DFS_API_INVENTORY.md`
   - 投稿フローの中での使われ方: `docs/PRODUCT_FLOW.md`
