@@ -97,7 +97,9 @@ export type ScoutStageStats = {
 
 // 各 KW がパイプラインのどこまで進んだかを示すステータス。
 export type StageStatus =
-  | "stage3_rejected"   // Stage 3 で Gemini #2 が落とした (重複/不適切/数値NG)
+  | "stage3_rejected"   // Stage 3 で Gemini #2 が落とした (不適切/数値NG)
+  | "stage3_duplicate"  // Stage 3 で Gemini #2 が「既存KWの重複(同義)」と判定して統合した
+                        // → 同一subject再スカウト時、Stage 1 の除外リストに自動追加される (2026-06-25)
   | "stage5_evaluated"; // Stage 5 まで通過 (decision は candidates 側に入る)
 
 export type ScoutAllCandidate = {
@@ -205,12 +207,18 @@ function defaultStage3Prompt(i: Stage3PromptInput): string {
 6. 商品名と無関係なジャンル混入は除外
 ※ SV/CPC が null の KW も、有望なら通してOK (DFS が拾えていないだけかも)
 
+【重複の扱い (重要)】
+基準5で「同じ意味の重複」として落としたKW (= selected に採用したKWと同義・言い換え・表記ゆれのもの) は
+"duplicates" 配列に入れてください。これは次回スカウトで再生成しないための除外リストになります。
+※ duplicates に入れるのは「重複だから落とした」KW のみ。SV不足や不適切で落としたKWは入れない。
+
 【KW候補 (${keywords.length}件)】
 ${list}
 
 【出力 (JSONのみ、フェンス禁止)】
 {
   "selected": ["KW1", "KW2", ...],
+  "duplicates": ["selectedの誰かと同義で落としたKW", ...],
   "rationale": "選んだ全体方針の簡潔な説明 (1-2文)"
 }
 `.trim();
@@ -325,6 +333,7 @@ function resolveStagePrompt<TInput>(
 const STAGE3_FOOTER = `# 出力 (JSONのみ、フェンス禁止)
 {
   "selected": ["KW1", "KW2"],
+  "duplicates": ["selectedの誰かと同義で落としたKW"],
   "rationale": "..."
 }`;
 
@@ -414,7 +423,7 @@ async function stage3FilterByMetrics(
   expanded: ExpandedKeyword[],
   overviewItems: KeywordOverviewItem[],
   config: ScoutPipelineConfig,
-): Promise<ExpandedKeyword[]> {
+): Promise<{ passed: ExpandedKeyword[]; duplicates: string[] }> {
   const minSv = config.minSv ?? 100;
   const minCpc = config.minCpc ?? 0.2;
   const maxFinalCount = config.maxFinalCount ?? 10;
@@ -450,12 +459,13 @@ const overviewMap = new Map(overviewItems.map((o) => [o.kw.toLowerCase(), o]));
   const prompt = promptFn(promptInput);
 
   try {
-    const result = await callGeminiJson<{ selected: string[]; rationale?: string }>(
+    const result = await callGeminiJson<{ selected: string[]; duplicates?: string[]; rationale?: string }>(
       prompt,
       {
         type: "object",
         properties: {
           selected: { type: "array", items: { type: "string" } },
+          duplicates: { type: "array", items: { type: "string" } },
           rationale: { type: "string" },
         },
         required: ["selected"],
@@ -463,10 +473,21 @@ const overviewMap = new Map(overviewItems.map((o) => [o.kw.toLowerCase(), o]));
       12000,
     );
     const selectedSet = new Set(result.selected.map((s) => s.toLowerCase()));
-    return expanded.filter((kw) => selectedSet.has(kw.kw.toLowerCase())).slice(0, maxFinalCount);
+    const passed = expanded
+      .filter((kw) => selectedSet.has(kw.kw.toLowerCase()))
+      .slice(0, maxFinalCount);
+    // 重複として落とされた KW (selected と同義)。次回同一subjectスカウトの除外に使う。
+    // selected に入っているものは念のため除外 (Gemini が重複と採用を両方に入れた場合の保険)。
+    const duplicates = Array.from(
+      new Set((result.duplicates ?? []).map((s) => s.trim()).filter(Boolean)),
+    ).filter((d) => !selectedSet.has(d.toLowerCase()));
+    console.log(
+      `[stage3FilterByMetrics] passed=${passed.length}, duplicates(重複統合)=${duplicates.length}`,
+    );
+    return { passed, duplicates };
   } catch (e) {
     console.warn(`[stage3FilterByMetrics] Gemini failed, fallback to threshold-only:`, e);
-    return expanded
+    const passed = expanded
       .filter((kw) => {
         const ov = overviewMap.get(kw.kw.toLowerCase());
         const sv = ov?.searchVolume ?? 0;
@@ -474,6 +495,7 @@ const overviewMap = new Map(overviewItems.map((o) => [o.kw.toLowerCase(), o]));
         return sv >= minSv && cpc >= minCpc;
       })
       .slice(0, maxFinalCount);
+    return { passed, duplicates: [] };
   }
 }
 
@@ -603,6 +625,42 @@ function calcSeasonality(
   };
 }
 
+// ---------- Stage 0 用: お題の正規化 ----------
+// 「この商品でスカウト」で来る subject は Amazon の商品フルタイトルなので、
+// 【パンツ ビッグサイズ】パンパース オムツ さらさらケア (12-22kg) 192枚 (48枚×4パック)[ケース品]【Amazon.co.jp限定】
+// のように長く、DFS Related/Suggestions が 1件も該当せずシード 0 件になる。
+// → 囲み記号・スペック(枚数/サイズ)・ノイズ語を除去して「実検索されうる中核KW」に整える。
+// DFS は 1-3 語の seed を好むので、正規化版 + さらに短い版の2段で再試行できるよう配列で返す。
+export function deriveSeedQueries(raw: string): string[] {
+  let s = raw;
+  // 【...】の中身はカテゴリ語が多いので残し、囲みだけ外す
+  s = s.replace(/[【】]/g, " ");
+  // (...) [...] とその中身 (枚数/サイズ/ケース品 等のスペック) を丸ごと除去
+  s = s.replace(/[(（[［｛{].*?[)）\]］｝}]/g, " ");
+  // 数量・単位トークン (192枚 / 12-22kg / ×4 など)
+  s = s.replace(/\d+\s*[-〜~]\s*\d+\s*(kg|g|ml|cm|mm|個|枚|本)?/gi, " ");
+  s = s.replace(/\d+\s*(枚|個|本|箱|袋|パック|kg|g|ml|cm|mm|入|セット|pcs?|pack)/gi, " ");
+  s = s.replace(/[×x]\s*\d+/gi, " ");
+  // モール限定・販促ノイズ語
+  s = s.replace(/Amazon\.co\.jp限定|楽天限定|公式|限定|送料無料|正規品|まとめ買い|お買い得|新品/gi, " ");
+  // 残った記号 → スペース
+  s = s.replace(/[「」『』,，、。!！?？/|：:・]/g, " ");
+  // 連続スペース圧縮
+  const tokens = s.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+
+  const queries: string[] = [];
+  // ① 正規化版 (先頭6語まで)
+  if (tokens.length) queries.push(tokens.slice(0, 6).join(" "));
+  // ② さらに短い中核版 (先頭3語) — DFS が①で0件のときのフォールバック
+  if (tokens.length > 3) queries.push(tokens.slice(0, 3).join(" "));
+  // ③ 最短 (先頭2語)
+  if (tokens.length > 2) queries.push(tokens.slice(0, 2).join(" "));
+  // どれも作れなければ元の subject をそのまま (最後の保険)
+  if (!queries.length) queries.push(raw.trim());
+  // 重複除去 (順序維持)
+  return Array.from(new Set(queries));
+}
+
 // ---------- メインエントリ ----------
 
 export async function runScoutPipeline(
@@ -613,19 +671,29 @@ export async function runScoutPipeline(
   // 失敗しても先に進む (Gemini #1 単独で動ける)。
   // 2026-06-15: 500 KW スカウト (デフォルト) に最適化。シード 300×2 → 重複排除で 400-500 件。
   // Stage 1 で Gemini が 500件をフルに出してくれて、所要時間 約 80秒以内に収まる。
-  const [related, suggestions] = await Promise.all([
-    relatedKeywords(subject, { limit: 300 }).catch((e) => {
-      console.warn("[scoutPipeline] Stage0 related failed:", e instanceof Error ? e.message : e);
-      return [];
-    }),
-    keywordSuggestions(subject, { limit: 300 }).catch((e) => {
-      console.warn("[scoutPipeline] Stage0 suggestions failed:", e instanceof Error ? e.message : e);
-      return [];
-    }),
-  ]);
+  // subject が商品フルタイトルでも DFS がシードを返せるよう、正規化した中核KW群で取得。
+  // ①正規化版で 0件なら ②③のより短い中核語で再試行 (フルタイトル直投入だと related=0 になる)。
+  const seedQueries = deriveSeedQueries(subject);
+  let related: string[] = [];
+  let suggestions: string[] = [];
+  let usedSeedQuery = seedQueries[0] ?? subject;
+  for (const q of seedQueries) {
+    [related, suggestions] = await Promise.all([
+      relatedKeywords(q, { limit: 300 }).catch((e) => {
+        console.warn("[scoutPipeline] Stage0 related failed:", e instanceof Error ? e.message : e);
+        return [] as string[];
+      }),
+      keywordSuggestions(q, { limit: 300 }).catch((e) => {
+        console.warn("[scoutPipeline] Stage0 suggestions failed:", e instanceof Error ? e.message : e);
+        return [] as string[];
+      }),
+    ]);
+    usedSeedQuery = q;
+    if (related.length + suggestions.length > 0) break; // 取れたら終了。0件なら次の短いクエリへ
+  }
   const seedKws = Array.from(new Set([...related, ...suggestions])).slice(0, 500);
   console.log(
-    `[scoutPipeline] Stage0 seed: related=${related.length}, suggestions=${suggestions.length}, unique=${seedKws.length}`,
+    `[scoutPipeline] Stage0 seed: query="${usedSeedQuery}" (from "${subject.slice(0, 40)}..."), related=${related.length}, suggestions=${suggestions.length}, unique=${seedKws.length}`,
   );
 
   // Stage 1: Gemini #1  KW候補生成 (シードを実検索データとして活用)
@@ -671,25 +739,37 @@ export async function runScoutPipeline(
   }
 
   // Stage 3: Gemini #2  数値 + 重複/不適切排除で 1次絞り込み
-  const stage3Pass = await stage3FilterByMetrics(subject, category, expanded, overviewItems, config);
+  const { passed: stage3Pass, duplicates: stage3Duplicates } = await stage3FilterByMetrics(
+    subject,
+    category,
+    expanded,
+    overviewItems,
+    config,
+  );
   const stage3PassSet = new Set(stage3Pass.map((k) => k.kw));
+  // 重複として落とされた KW (小文字キーで照合)。次回同一subjectスカウトで除外対象になる。
+  const duplicateSet = new Set(stage3Duplicates.map((d) => d.toLowerCase()));
 
   // Stage 3 で落選した KW を rejectedCandidates に記録
+  // (重複として統合されたものは stage="stage3_duplicate" で区別 → 次回除外リストの抽出元)
   const rejected: ScoutAllCandidate[] = [];
   for (const kw of expanded) {
     if (stage3PassSet.has(kw.kw)) continue;
     const ov = overviewMap.get(kw.kw.toLowerCase());
+    const isDuplicate = duplicateSet.has(kw.kw.toLowerCase());
     rejected.push({
       kw: kw.kw,
       intent: kw.intent,
       reason: kw.reason,
-      stage: "stage3_rejected",
+      stage: isDuplicate ? "stage3_duplicate" : "stage3_rejected",
       kd: null, // Stage 2.5 撤廃済 (2026-06-15)
       searchVolume: ov?.searchVolume ?? null,
       cpc: ov?.cpc ?? null,
       competitionLevel: ov?.competitionLevel ?? null,
       searchIntent: ov?.searchIntent ?? null,
-      rejectionNote: "Gemini #2 が数値/重複/不適切と判定して除外",
+      rejectionNote: isDuplicate
+        ? "既存KWと同義の重複として統合 (次回同一subjectスカウトで除外)"
+        : "Gemini #2 が数値/不適切と判定して除外",
     });
   }
 

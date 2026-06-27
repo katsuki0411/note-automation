@@ -7,6 +7,7 @@ import PageHeader from "@/components/PageHeader";
 import { FilterBar, GroupTab } from "@/components/FilterBar";
 import { useGeneration } from "@/components/GenerationProvider";
 import { getCache, setCache } from "@/lib/clientCache";
+import { isPromptConfigConfigured } from "@/lib/promptResolver";
 import type { Article, FeedIdea, FeedState } from "@/lib/types";
 import {
   PLATFORM_LABELS,
@@ -129,7 +130,7 @@ type RejectedCandidate = {
   kw: string;
   intent: string;
   reason: string;
-  stage: "stage3_rejected" | "stage5_evaluated";
+  stage: "stage3_rejected" | "stage3_duplicate" | "stage5_evaluated";
   kd?: number | null;
   searchVolume?: number | null;
   cpc?: number | null;
@@ -205,9 +206,10 @@ export default function ProductsClient() {
     Record<string, { kd: number | null; vol: number | null; cpc: number | null }>
   >({});
   const [refining, setRefining] = useState<Set<string>>(new Set());
-  // パイプライン段階タブ (① Gemini #1 100件 / ② Stage3 Gemini #2 通過 / ③ Stage5 最終採用)
-  // デフォルトは ③ (採用候補リスト)
-  const [pipelineStage, setPipelineStage] = useState<1 | 3 | 5>(5);
+  // パイプライン段階タブ (🌱Stage0 シード / 🤖Stage1 生成 / 🔍Stage3 絞込 / 🌐Stage4 SERP / 🎯Stage5 採用)
+  // 絞り込みファネルと連動し、選択した stage の行だけを表示する。
+  // デフォルトは Stage5 (最終採用候補リスト)
+  const [pipelineStage, setPipelineStage] = useState<0 | 1 | 3 | 4 | 5>(5);
 
   // ベストセラー画面 → 「この商品でスカウト」遷移時に q クエリで subject 上書き
   useEffect(() => {
@@ -363,12 +365,9 @@ export default function ProductsClient() {
       // destinationId → 現在の promptReady のマップ
       const promptReadyMap = new Map<string, boolean>();
       for (const d of destsData.destinations ?? []) {
-        const pc = d.prompt_config as Record<string, unknown> | null | undefined;
-        const ready =
-          !!pc &&
-          Object.values(pc).some(
-            (v) => typeof v === "string" && v.trim().length > 0,
-          );
+        // 記事生成 (/api/generate) と同じ正規判定。stages 配列を見るので
+        // 「プロンプト入れたのに未設定」誤判定を起こさない (2026-06-21 修正)。
+        const ready = isPromptConfigConfigured({ prompt_config: d.prompt_config });
         promptReadyMap.set(d.id, ready);
       }
       // candidates の destinationStatus.promptReady を最新値で上書き
@@ -841,6 +840,7 @@ export default function ProductsClient() {
                       const rej = result.rejectedCandidates ?? [];
                       const cand = result.candidates ?? [];
                       const stats = result.stats ?? {
+                        stage0SeedCount: 0,
                         stage1Generated: cand.length + rej.length,
                         stage3Passed: cand.length,
                         finalCount: cand.length,
@@ -849,9 +849,11 @@ export default function ProductsClient() {
                       return (
                       <div className="shrink-0 flex items-center gap-1">
                         {([
-                          { s: 1 as const, label: `① ${stats.stage1Generated}`, title: "Gemini #1 が生成した KW 全件" },
-                          { s: 3 as const, label: `② ${stats.stage3Passed}`, title: "Stage 3 Gemini #2 (数値+重複排除) を通過した KW" },
-                          { s: 5 as const, label: `③ ${stats.adoptedCount}`, title: "Stage 5 最終採用された KW" },
+                          { s: 0 as const, label: `🌱 ${stats.stage0SeedCount ?? 0}`, title: "Stage 0  Google実検索シード (DFS Related/Suggestions)" },
+                          { s: 1 as const, label: `🤖 ${stats.stage1Generated}`, title: "Stage 1  Gemini #1 が生成した KW 全件" },
+                          { s: 3 as const, label: `🔍 ${stats.stage3Passed}`, title: "Stage 3  Gemini #2 (数値+重複排除) を通過した KW" },
+                          { s: 4 as const, label: `🌐 ${stats.finalCount}`, title: "Stage 4  SERP取得 + お宝スコア計算をした KW" },
+                          { s: 5 as const, label: `🎯 ${stats.adoptedCount}`, title: "Stage 5  Gemini #3 が最終採用した KW" },
                         ]).map(({ s, label, title }) => (
                           <button
                             key={s}
@@ -873,21 +875,30 @@ export default function ProductsClient() {
                   </div>
                   {/* スクロール領域 (この部分だけスクロールバー表示) */}
                   <div className="flex-1 overflow-y-auto pr-2 mt-2 min-h-0">
-                  {/* === 絞り込みファネル (どのタブでも常に上部に表示) === */}
+                  {/* === 絞り込みファネル (選択中の stage の行だけ表示) === */}
                   <ScoutFunnelView
                     stats={result.stats}
                     candidates={result.candidates}
                     rejectedCandidates={result.rejectedCandidates ?? []}
+                    activeStage={pipelineStage}
                   />
-                  {/* === パイプライン段階別ビュー ① / ② === */}
-                  {pipelineStage !== 5 && (
+                  {/* === Stage 1 / 3: 個別KWの通過・落選リスト === */}
+                  {(pipelineStage === 1 || pipelineStage === 3) && (
                     <StagePipelineView
                       stage={pipelineStage}
                       adopted={result.candidates}
                       rejected={result.rejectedCandidates ?? []}
                     />
                   )}
-                  {/* === ③ Stage 5 最終採用候補リスト (詳細カード) === */}
+                  {/* === Stage 0 / 4: 個別KWは段階別保存されないため件数+説明のみ === */}
+                  {(pipelineStage === 0 || pipelineStage === 4) && (
+                    <div className="px-1 py-2 text-[11px] text-[color:var(--fg-secondary)] leading-relaxed">
+                      {pipelineStage === 0
+                        ? "🌱 Stage 0 は Gemini #1 のシードとなった「Google実検索KW」です。個別KW一覧は保存対象外のため、上のファネルで件数のみ表示しています。"
+                        : "🌐 Stage 4 は通過した全KWの SERP Top10 / AI Overview を取得し、お宝スコア (0-70点) を計算した段階です。スコアの内訳は 🎯 Stage 5 の各KWカードに表示されます。"}
+                    </div>
+                  )}
+                  {/* === Stage 5 最終採用候補リスト (詳細カード) === */}
                   {pipelineStage === 5 && (
                   <ul className="space-y-2">
                     {result.candidates.map((c, i) => {
@@ -1590,9 +1601,9 @@ function StagePipelineView({
         subline: `全 ${all.length} 件。intent (info/comparison/purchase 等) と reason (採用理由) も自動付与。CVKW 比率 70% 以上を強制`,
       };
     }
-    // stage === 3: Gemini #2 (数値+重複排除) 通過/落選
+    // stage === 3: Gemini #2 (数値+重複排除) 通過/落選 (重複統合も落選側に含める)
     const p = adoptedAsItems;
-    const f = rejAsItems((r) => r.stage === "stage3_rejected");
+    const f = rejAsItems((r) => r.stage === "stage3_rejected" || r.stage === "stage3_duplicate");
     return {
       passed: p,
       failed: f,
@@ -1652,29 +1663,7 @@ function StageItemList({ items, variant }: { items: StageItem[]; variant: "pass"
             </div>
             <div className="text-[10px] text-[color:var(--fg-muted)] mt-0.5 flex flex-wrap gap-x-2">
               {it.intent && <span>intent={it.intent}</span>}
-              {/* KD は常に表示 (null / undefined のときは「-」 / 取得失敗の可能性を併記) */}
-              <span
-                className={
-                  it.kd === 0
-                    ? "text-orange-600"
-                    : typeof it.kd === "number" && it.kd > 30
-                      ? "text-red-600"
-                      : typeof it.kd === "number"
-                        ? "text-emerald-700"
-                        : ""
-                }
-                title={
-                  it.kd === 0
-                    ? "KD=0 は取得失敗の可能性 (DFS Backlinks 未契約)"
-                    : typeof it.kd === "number" && it.kd > 30
-                      ? "KD>30 = 上位表示困難"
-                      : typeof it.kd === "number"
-                        ? "KD≤30 = 狙い目"
-                        : "未取得"
-                }
-              >
-                KD={typeof it.kd === "number" ? it.kd : "-"}
-              </span>
+              {/* KD は 2026-06-15 撤廃。お宝スコア (SV/CVKW/SERP個人ブログ/AIO) で代替のため非表示 */}
               {typeof it.searchVolume === "number" && (
                 <span>SV={it.searchVolume.toLocaleString("ja-JP")}</span>
               )}
@@ -1707,15 +1696,19 @@ function ScoutFunnelView({
   stats,
   candidates,
   rejectedCandidates,
+  activeStage,
 }: {
   stats?: ScoutStats;
   candidates: ScoutCandidate[];
   rejectedCandidates: RejectedCandidate[];
+  activeStage?: 0 | 1 | 3 | 4 | 5;
 }) {
   // stats が DB 保存外 (古い履歴) なら候補/落選から導出
   const stage1Total = stats?.stage1Generated ?? candidates.length + rejectedCandidates.length;
   const stage3Passed = stats?.stage3Passed ?? candidates.length;
-  const stage3Rejected = rejectedCandidates.filter((r) => r.stage === "stage3_rejected").length;
+  const stage3Rejected = rejectedCandidates.filter(
+    (r) => r.stage === "stage3_rejected" || r.stage === "stage3_duplicate",
+  ).length;
   const finalCount = stats?.finalCount ?? candidates.length;
   const adoptedCount =
     stats?.adoptedCount ?? candidates.filter((c) => c.decision === "adopt").length;
@@ -1726,6 +1719,7 @@ function ScoutFunnelView({
   const wPct = (n: number) => Math.max(15, Math.round((n / maxWidth) * 100));
 
   type Row = {
+    stageNum: 0 | 1 | 3 | 4 | 5;
     icon: string;
     label: string;
     count: number;
@@ -1733,8 +1727,9 @@ function ScoutFunnelView({
     cls: string;
   };
 
-  const rows: Row[] = [
+  const allRows: Row[] = [
     {
+      stageNum: 0,
       icon: "🌱",
       label: "Stage 0  Google実検索シード",
       count: stats?.stage0SeedCount ?? 0,
@@ -1742,6 +1737,7 @@ function ScoutFunnelView({
       cls: "bg-gray-100 text-gray-700",
     },
     {
+      stageNum: 1,
       icon: "🤖",
       label: "Stage 1  Gemini #1 派生生成",
       count: stage1Total,
@@ -1749,6 +1745,7 @@ function ScoutFunnelView({
       cls: "bg-purple-50 text-purple-800",
     },
     {
+      stageNum: 3,
       icon: "🔍",
       label: "Stage 3  Gemini #2 絞り込み",
       count: stage3Passed,
@@ -1756,6 +1753,7 @@ function ScoutFunnelView({
       cls: "bg-blue-50 text-blue-800",
     },
     {
+      stageNum: 4,
       icon: "🌐",
       label: "Stage 4  SERP取得 + お宝スコア計算",
       count: finalCount,
@@ -1763,6 +1761,7 @@ function ScoutFunnelView({
       cls: "bg-teal-50 text-teal-800",
     },
     {
+      stageNum: 5,
       icon: "🎯",
       label: "Stage 5  Gemini #3 最終判定",
       count: adoptedCount,
@@ -1771,6 +1770,11 @@ function ScoutFunnelView({
     },
   ];
 
+  // 選択中のタブと連動し、その stage の行だけを表示する。
+  // activeStage 未指定 (デフォルト) のときは従来どおり全段表示。
+  const rows =
+    activeStage != null ? allRows.filter((r) => r.stageNum === activeStage) : allRows;
+
   return (
     <div className="mb-3 rounded-xl border border-[var(--border-subtle)] bg-white px-3 py-2.5">
       <div className="flex items-center justify-between mb-2">
@@ -1778,9 +1782,13 @@ function ScoutFunnelView({
           📊 絞り込みファネル
         </div>
         <div className="text-[10px] text-[color:var(--fg-muted)]">
-          {stage1Total} 件 → 採用 {adoptedCount} 件 ({stage1Total > 0
-            ? `上位 ${((adoptedCount / stage1Total) * 100).toFixed(1)}%`
-            : "—"} の精選)
+          {activeStage != null
+            ? `Stage ${activeStage} の状態`
+            : `${stage1Total} 件 → 採用 ${adoptedCount} 件 (${
+                stage1Total > 0
+                  ? `上位 ${((adoptedCount / stage1Total) * 100).toFixed(1)}%`
+                  : "—"
+              } の精選)`}
         </div>
       </div>
       <ul className="space-y-1.5">

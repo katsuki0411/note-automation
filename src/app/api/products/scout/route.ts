@@ -13,12 +13,61 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
+// 同一 subject の過去スカウト履歴 + 記事から、Stage 1 で除外すべき KW を集める。
+// (1) 重複として削除された KW (rejected_candidates の stage="stage3_duplicate")
+// (2) 記事生成に使った KW (= 過去に採用された KW のうち articles.idea.title に存在するもの)
+// subject 単位でスコープするので、別商品のスカウトには影響しない。
+async function buildSubjectExcludeKws(projectId: string, subject: string): Promise<string[]> {
+  try {
+    const pastRows = await sql<
+      {
+        candidates: Array<{ kw?: string }> | null;
+        rejected_candidates: Array<{ kw?: string; stage?: string }> | null;
+      }[]
+    >`
+      select candidates, rejected_candidates
+      from product_scout_history
+      where project_id = ${projectId} and lower(subject) = lower(${subject})
+    `;
+    if (pastRows.length === 0) return [];
+
+    const duplicateKws = new Set<string>();
+    const adoptedKws = new Set<string>();
+    for (const row of pastRows) {
+      for (const r of row.rejected_candidates ?? []) {
+        if (r?.stage === "stage3_duplicate" && r.kw) duplicateKws.add(r.kw);
+      }
+      for (const c of row.candidates ?? []) {
+        if (c?.kw) adoptedKws.add(c.kw);
+      }
+    }
+
+    // 記事化済み KW: 採用 KW のうち、実際に articles に存在する title (= 記事生成された KW) だけ
+    const articleRows = await sql<{ title: string | null }[]>`
+      select distinct idea->>'title' as title from articles where project_id = ${projectId}
+    `;
+    const articleTitleSet = new Set(
+      articleRows.map((r) => (r.title ?? "").trim().toLowerCase()).filter(Boolean),
+    );
+    const articleUsedKws = [...adoptedKws].filter((kw) =>
+      articleTitleSet.has(kw.trim().toLowerCase()),
+    );
+
+    return [...duplicateKws, ...articleUsedKws];
+  } catch (e) {
+    // 除外リスト構築の失敗でスカウト本体を止めない
+    console.warn("[scout] buildSubjectExcludeKws failed:", e);
+    return [];
+  }
+}
+
 // POST /api/products/scout
 // body: { subject: string, config?: ScoutPipelineConfig }
-// → 8段パイプライン (Gemini×4 + DFS×4) を実行して採用優先順位付きで返す
+// → 6段パイプライン (Gemini×3 + DFS×4) を実行して採用優先順位付きで返す
 //
-// 2026-06-07: 旧 analyzeKeywords 経由から scoutPipeline 8段パイプラインに置換。
+// 2026-06-07: 旧 analyzeKeywords 経由から scoutPipeline パイプラインに置換。
 //   評価の客観化・確からしさ向上が目的 (拡張プラン B')。
+// 2026-06-25: 同一subject再スカウト時、過去の重複KW+記事化KWを Stage 1 で自動除外。
 export async function POST(req: NextRequest) {
   return withProjectContext(async (ctx) => {
     try {
@@ -43,12 +92,33 @@ export async function POST(req: NextRequest) {
       // プロジェクト設定 (除外KW / 閾値 / Gemini プロンプト3段) を読み込んで、
       // body.config と合体 (body 優先)。
       const projectConfig = await loadScoutConfig(ctx.projectId);
+
+      // 手動除外リスト (body > scout_config)
+      const manualExclude = config?.excludeKws ?? projectConfig.excludeKws ?? [];
+
+      // 同一 subject の過去スカウトから「重複として削除されたKW」+「記事生成に使ったKW」を
+      // 集めて Stage 1 の除外に自動追加する (2026-06-25)。
+      // 同じ商品を再スカウトしたときに同じKWを作り直さないため。別 subject には影響しない。
+      const autoExclude = await buildSubjectExcludeKws(ctx.projectId, subject);
+
+      // 大文字小文字を無視して重複排除 (表示は元の表記を保持)
+      const excludeKws = Array.from(
+        new Map(
+          [...manualExclude, ...autoExclude].map((k) => [k.trim().toLowerCase(), k.trim()]),
+        ).values(),
+      ).filter(Boolean);
+      if (autoExclude.length > 0) {
+        console.log(
+          `[scout] 自動除外 (同一subject="${subject}"): 重複/記事化KW ${autoExclude.length}件 → 合計除外 ${excludeKws.length}件`,
+        );
+      }
+
       const mergedConfig = {
         kwCandidateCount: config?.kwCandidateCount ?? projectConfig.kwCandidateCount,
         minSv: config?.minSv ?? projectConfig.minSv,
         minCpc: config?.minCpc ?? projectConfig.minCpc,
         maxFinalCount: config?.maxFinalCount ?? projectConfig.maxFinalCount,
-        excludeKws: config?.excludeKws ?? projectConfig.excludeKws,
+        excludeKws,
         // Gemini プロンプト3段 (文字列テンプレ、空欄ならデフォルト)
         promptKwGen: projectConfig.promptKwGen,
         promptStage3: projectConfig.promptStage3,

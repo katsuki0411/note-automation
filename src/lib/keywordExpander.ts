@@ -253,9 +253,13 @@ export async function expandKeywords(
     contents: userPrompt,
     config: {
       temperature: 0.85,
-      // maxKeywords × ~100 tokens (kw + intent + reason) を見積もり、Gemini 2.5 Pro の
+      // maxKeywords × ~100 tokens (kw + intent + reason) を見積もり、Gemini 2.5 Flash の
       // output 上限 65536 ギリギリまで使う (1000 KW モード対応)。
       maxOutputTokens: 60000,
+      // KW 列挙はチェーン推論不要。thinking を切って output トークンを全部 KW リストに回す。
+      // 2026-06-16: thinking が 60000 トークンを食い潰し finish=MAX_TOKENS で JSON が
+      // truncate → 500件依頼で 46件しか取れない事故が発生したため無効化 (生成時間も短縮)。
+      thinkingConfig: { thinkingBudget: 0 },
     },
   });
   const elapsedSec = Math.round((Date.now() - startedAt) / 1000);
