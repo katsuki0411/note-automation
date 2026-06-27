@@ -11,7 +11,9 @@ import {
 } from "@/lib/posters/types";
 import { PLATFORM_GUIDES } from "@/lib/posters/setupGuides";
 import { pingExtension } from "@/lib/notePost";
+import { isPromptConfigConfigured } from "@/lib/promptResolver";
 import SetupGuideModal from "./SetupGuideModal";
+import PersonaManagerModal from "./PersonaManagerModal";
 
 type TestStatus = "idle" | "running" | "ok" | "ng";
 type TestResult = { status: TestStatus; error?: string; note?: string };
@@ -27,11 +29,10 @@ function maskValue(v: string | undefined): string {
   return `${v.slice(0, 2)}***${v.slice(-2)}`;
 }
 
+// プロンプト有無の判定は記事生成 (/api/generate) と同じ正規ロジックを使う。
+// 旧ローカル実装は stages 配列を見ておらず「入れたのに未設定」と誤表示していた (2026-06-21 修正)。
 function isPromptConfigured(cfg: unknown): boolean {
-  if (!cfg || typeof cfg !== "object") return false;
-  return Object.values(cfg as Record<string, unknown>).some(
-    (v) => typeof v === "string" && v.trim().length > 0,
-  );
+  return isPromptConfigConfigured({ prompt_config: cfg });
 }
 
 // hatena の blogDomain だけ特別に正規化 (https:// / 末尾/ を除去)
@@ -85,6 +86,8 @@ export default function DestinationsTab() {
   const [tests, setTests] = useState<Record<string, TestResult>>({});
   // 取得手順ガイドモーダル (platform を渡せば開く)
   const [guideOpen, setGuideOpen] = useState<Platform | null>(null);
+  // 執筆者ペルソナ管理モーダル (対象 destination を渡せば開く)
+  const [personaDest, setPersonaDest] = useState<PostingDestinationRow | null>(null);
   // Blogger OAuth コールバックからのフラッシュメッセージ
   const [flash, setFlash] = useState<{ type: "ok" | "ng"; msg: string } | null>(null);
 
@@ -126,6 +129,29 @@ export default function DestinationsTab() {
     } finally {
       setLoading(false);
     }
+  }
+
+  // destination にペルソナを割り当てる (prompt_config.personaId を更新)。
+  // 既存の prompt_config (stages 等) は保持する。
+  async function assignPersona(d: PostingDestinationRow, personaId: string | null) {
+    const nextConfig = {
+      ...((d.prompt_config as Record<string, unknown> | null) ?? {}),
+      personaId: personaId ?? undefined,
+    };
+    const res = await fetch(`/api/destinations/${d.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ promptConfig: nextConfig }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error ?? "ペルソナ割り当て失敗");
+    }
+    // ローカル state を即時反映 (モーダルの選択 + カード表示の同期)
+    setDestinations((ds) =>
+      ds.map((x) => (x.id === d.id ? { ...x, prompt_config: nextConfig } : x)),
+    );
+    setPersonaDest((cur) => (cur && cur.id === d.id ? { ...cur, prompt_config: nextConfig } : cur));
   }
 
   useEffect(() => {
@@ -308,197 +334,213 @@ export default function DestinationsTab() {
             return (
               <li
                 key={d.id}
-                className="flex flex-wrap items-center gap-x-3 gap-y-2 p-3 rounded-lg border border-[var(--border-subtle)]"
+                className="rounded-xl border border-[var(--border-subtle)] overflow-hidden bg-white"
               >
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] shrink-0">
-                  {PLATFORM_LABELS[d.platform as Platform] ?? d.platform}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <div className="text-[13px] font-semibold text-[color:var(--fg-primary)] truncate">
-                    {d.label}
-                  </div>
-                  <div className="text-[11px] font-mono text-[color:var(--fg-muted)] truncate">
-                    {summarizeConfig(d)}
-                  </div>
-                  <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                    <span
-                      className={`text-[10px] px-1.5 py-0.5 rounded ${aff?.amazon ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}
-                      title={aff?.notes}
-                    >
-                      Amazon {aff?.amazon ? "✅" : "❌"}
-                    </span>
-                    <span
-                      className={`text-[10px] px-1.5 py-0.5 rounded ${aff?.a8 ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}
-                      title={aff?.notes}
-                    >
-                      A8 {aff?.a8 ? "✅" : "❌"}
-                    </span>
-                    {notImpl && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-700">
-                        投稿実装は準備中
+                {/* ヘッダー: 媒体 / 状態 / 有効トグル */}
+                <div className="flex items-start gap-3 p-3.5">
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] shrink-0 mt-0.5">
+                    {PLATFORM_LABELS[d.platform as Platform] ?? d.platform}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13.5px] font-semibold text-[color:var(--fg-primary)] truncate">
+                      {d.label}
+                    </div>
+                    <div className="text-[11px] font-mono text-[color:var(--fg-muted)] truncate">
+                      {summarizeConfig(d)}
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                      <span
+                        className={`text-[10px] px-1.5 py-0.5 rounded ${aff?.amazon ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}
+                        title={aff?.notes}
+                      >
+                        Amazon {aff?.amazon ? "✅" : "❌"}
                       </span>
+                      <span
+                        className={`text-[10px] px-1.5 py-0.5 rounded ${aff?.a8 ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}
+                        title={aff?.notes}
+                      >
+                        A8 {aff?.a8 ? "✅" : "❌"}
+                      </span>
+                      {notImpl && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-700">
+                          投稿実装は準備中
+                        </span>
+                      )}
+                      {!isPromptConfigured(d.prompt_config) && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-600">
+                          ⚠ プロンプト未設定
+                        </span>
+                      )}
+                    </div>
+                    {d.platform === "ameba" && (
+                      <div className="text-[10px] text-red-700 mt-1 leading-snug">
+                        ⚠ Amazon / A8 等の外部ASPアフィリンクは Ameba 規約違反 (記事削除・凍結リスク)。Ameba Pick 経由のみ可
+                      </div>
+                    )}
+                    {tests[d.id]?.status === "ng" && (tests[d.id]?.error || tests[d.id]?.note) && (
+                      <div className="mt-1.5 p-2 rounded bg-red-50 border border-red-100 text-[10px] text-red-700 leading-snug break-all">
+                        <div className="font-semibold mb-0.5">接続テスト失敗の詳細:</div>
+                        {tests[d.id]?.error ?? tests[d.id]?.note}
+                      </div>
+                    )}
+                    {tests[d.id]?.status === "ok" && (
+                      <div className="mt-1 text-[10px] text-green-700">
+                        ✓ {tests[d.id]?.note ?? "AtomPub サービス文書を取得できました (認証OK)"}
+                      </div>
                     )}
                   </div>
-                  {!isPromptConfigured(d.prompt_config) && (
-                    <div className="text-[10px] text-orange-600 mt-0.5">
-                      ⚠ プロンプトが入っていません — 記事生成不可
-                    </div>
-                  )}
-                  {d.platform === "ameba" && (
-                    <div className="text-[10px] text-red-700 mt-0.5 leading-snug">
-                      ⚠ Amazon / A8 等の外部ASPアフィリンクは Ameba 規約違反 (記事削除・凍結リスク)。Ameba Pick 経由のみ可
-                    </div>
-                  )}
-                  {tests[d.id]?.status === "ng" && (tests[d.id]?.error || tests[d.id]?.note) && (
-                    <div className="mt-1.5 p-2 rounded bg-red-50 border border-red-100 text-[10px] text-red-700 leading-snug break-all">
-                      <div className="font-semibold mb-0.5">接続テスト失敗の詳細:</div>
-                      {tests[d.id]?.error ?? tests[d.id]?.note}
-                    </div>
-                  )}
-                  {tests[d.id]?.status === "ok" && (
-                    <div className="mt-1 text-[10px] text-green-700">
-                      ✓ {tests[d.id]?.note ?? "AtomPub サービス文書を取得できました (認証OK)"}
-                    </div>
-                  )}
-                </div>
-                {d.platform === "note" && (
-                  <>
-                    <span
-                      className={`text-[11px] px-2 py-1 rounded shrink-0 ${
-                        extStatus === "installed"
-                          ? "bg-green-100 text-green-700"
-                          : extStatus === "missing"
-                            ? "bg-red-100 text-red-700"
-                            : "bg-gray-100 text-gray-500"
+                  {/* 右肩: 接続状態バッジ + 有効トグル */}
+                  <div className="flex flex-col items-end gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => toggleEnabled(d)}
+                      className={`text-[11px] px-2.5 py-1 rounded-full font-medium transition ${
+                        d.enabled
+                          ? "bg-[color:var(--accent)] text-white"
+                          : "bg-gray-100 text-gray-400"
                       }`}
-                      title={extVersion ? `拡張 v${extVersion}` : undefined}
+                      title={d.enabled ? "クリックで無効化" : "クリックで有効化"}
                     >
-                      {extStatus === "installed"
-                        ? `✅ 拡張${extVersion ? ` v${extVersion}` : ""}`
-                        : extStatus === "missing"
-                          ? "❌ 拡張未検出"
-                          : extStatus === "checking"
+                      {d.enabled ? "● 有効" : "○ 無効"}
+                    </button>
+                    {d.platform === "note" ? (
+                      <span
+                        className={`text-[10px] px-2 py-0.5 rounded-full ${
+                          extStatus === "installed"
+                            ? "bg-green-100 text-green-700"
+                            : extStatus === "missing"
+                              ? "bg-red-100 text-red-700"
+                              : "bg-gray-100 text-gray-500"
+                        }`}
+                        title={extVersion ? `拡張 v${extVersion}` : undefined}
+                      >
+                        {extStatus === "installed"
+                          ? `✅ 拡張${extVersion ? ` v${extVersion}` : ""}`
+                          : extStatus === "missing"
+                            ? "❌ 拡張未検出"
+                            : extStatus === "checking"
+                              ? "⏳ 確認中"
+                              : "❔ 未確認"}
+                      </span>
+                    ) : (
+                      (() => {
+                        const t = tests[d.id];
+                        if (!t?.status || t.status === "idle") return null;
+                        const label =
+                          t.status === "running"
                             ? "⏳ 確認中"
-                            : "❔ 未確認"}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={checkExtension}
-                      disabled={extStatus === "checking"}
-                      className="text-[11px] px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 shrink-0 disabled:opacity-50"
-                    >
-                      再確認
-                    </button>
-                    <a
-                      href="/multipostai-poster-extension.zip"
-                      download
-                      className="text-[11px] px-2 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 shrink-0"
-                      title="インストール: 1) zip展開 2) chrome://extensions/ で「デベロッパーモード」ON 3) 「パッケージ化されていない拡張機能を読み込む」で展開フォルダを選択"
-                    >
-                      📦 拡張DL
-                    </a>
-                    <button
-                      type="button"
-                      onClick={() => startEdit(d)}
-                      className="text-[12px] text-[color:var(--accent-dark)] hover:underline shrink-0"
-                      title="ラベル変更 / 自分の記事URL を編集"
-                    >
-                      ✎ ラベル/URL
-                    </button>
-                  </>
-                )}
-                <Link
-                  href={`/settings/destinations/${d.id}/prompt`}
-                  className="text-[11px] px-2 py-1 rounded bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] hover:bg-[color:var(--accent)] hover:text-white shrink-0"
-                >
-                  プロンプト
-                </Link>
-                <button
-                  type="button"
-                  onClick={() => toggleEnabled(d)}
-                  className={`text-[11px] px-2 py-1 rounded ${
-                    d.enabled
-                      ? "bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)]"
-                      : "bg-gray-100 text-gray-500"
-                  }`}
-                >
-                  {d.enabled ? "有効" : "無効"}
-                </button>
-                {d.platform !== "note" && (
-                  <>
-                    {(() => {
-                      const t = tests[d.id];
-                      const statusBadge =
-                        t?.status === "running"
-                          ? "⏳ 確認中"
-                          : t?.status === "ok"
-                            ? "✅ 接続OK"
-                            : t?.status === "ng"
-                              ? "❌ 失敗"
-                              : null;
-                      const badgeCls =
-                        t?.status === "ok"
-                          ? "bg-green-100 text-green-700"
-                          : t?.status === "ng"
-                            ? "bg-red-100 text-red-700"
-                            : "bg-gray-100 text-gray-600";
-                      return (
-                        <>
-                          {statusBadge && (
-                            <span
-                              className={`text-[11px] px-2 py-1 rounded shrink-0 ${badgeCls}`}
-                              title={t?.error ?? t?.note ?? ""}
-                            >
-                              {statusBadge}
-                            </span>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => runTest(d)}
-                            disabled={t?.status === "running"}
-                            className="text-[11px] px-2 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 shrink-0 disabled:opacity-50"
+                            : t.status === "ok"
+                              ? "✅ 接続OK"
+                              : "❌ 失敗";
+                        const cls =
+                          t.status === "ok"
+                            ? "bg-green-100 text-green-700"
+                            : t.status === "ng"
+                              ? "bg-red-100 text-red-700"
+                              : "bg-gray-100 text-gray-600";
+                        return (
+                          <span
+                            className={`text-[10px] px-2 py-0.5 rounded-full ${cls}`}
+                            title={t.error ?? t.note ?? ""}
                           >
-                            🔌 接続確認
-                          </button>
-                        </>
-                      );
-                    })()}
-                    {d.platform === "blogger" ? (
+                            {label}
+                          </span>
+                        );
+                      })()
+                    )}
+                  </div>
+                </div>
+
+                {/* アクションバー: コンテンツ設定 (左) | ユーティリティ (右) */}
+                <div className="flex items-center flex-wrap gap-x-1 gap-y-2 px-3.5 py-2 border-t border-[var(--border-subtle)] bg-gray-50/60">
+                  {/* コンテンツ設定 — プロンプト / ペルソナ */}
+                  <Link
+                    href={`/settings/destinations/${d.id}/prompt`}
+                    className="text-[11px] px-2.5 py-1 rounded-md bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] hover:bg-[color:var(--accent)] hover:text-white transition shrink-0"
+                  >
+                    ✏️ プロンプト
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => setPersonaDest(d)}
+                    className={`text-[11px] px-2.5 py-1 rounded-md transition shrink-0 ${
+                      (d.prompt_config as { personaId?: string } | null)?.personaId
+                        ? "bg-[color:var(--accent)] text-white"
+                        : "bg-[color:var(--accent-soft)] text-[color:var(--accent-dark)] hover:bg-[color:var(--accent)] hover:text-white"
+                    }`}
+                    title="この媒体の執筆者ペルソナを選択・作成"
+                  >
+                    {(d.prompt_config as { personaId?: string } | null)?.personaId
+                      ? "👤 ペルソナ ✓"
+                      : "👤 ペルソナ"}
+                  </button>
+
+                  {/* 区切り + ユーティリティ群 (右寄せ) */}
+                  <div className="ml-auto flex items-center flex-wrap gap-x-1 gap-y-2 justify-end">
+                    {d.platform === "note" && (
                       <>
-                        <a
-                          href={`/api/destinations/blogger/oauth/start?destinationId=${d.id}&returnTo=/settings`}
-                          className="text-[12px] text-[color:var(--accent-dark)] hover:underline shrink-0"
+                        <button
+                          type="button"
+                          onClick={checkExtension}
+                          disabled={extStatus === "checking"}
+                          className="text-[11px] px-2 py-1 rounded-md text-gray-600 hover:bg-gray-200 transition shrink-0 disabled:opacity-50"
                         >
-                          🔗 再連携
+                          🔄 拡張再確認
+                        </button>
+                        <a
+                          href="/multipostai-poster-extension.zip"
+                          download
+                          className="text-[11px] px-2 py-1 rounded-md text-gray-600 hover:bg-gray-200 transition shrink-0"
+                          title="インストール: 1) zip展開 2) chrome://extensions/ で「デベロッパーモード」ON 3) 「パッケージ化されていない拡張機能を読み込む」で展開フォルダを選択"
+                        >
+                          📦 拡張DL
                         </a>
                         <button
                           type="button"
                           onClick={() => startEdit(d)}
-                          className="text-[12px] text-[color:var(--accent-dark)] hover:underline shrink-0"
+                          className="text-[11px] px-2 py-1 rounded-md text-gray-600 hover:bg-gray-200 transition shrink-0"
+                          title="ラベル変更 / 自分の記事URL を編集"
                         >
-                          ✎ ラベル
+                          ✎ ラベル/URL
                         </button>
                       </>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => startEdit(d)}
-                        className="text-[12px] text-[color:var(--accent-dark)] hover:underline shrink-0"
-                      >
-                        接続情報
-                      </button>
                     )}
-                  </>
-                )}
-                {d.platform !== "note" && (
-                  <button
-                    type="button"
-                    onClick={() => deleteDest(d)}
-                    className="text-[12px] text-red-500 hover:text-red-700 shrink-0"
-                  >
-                    削除
-                  </button>
-                )}
+                    {d.platform !== "note" && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => runTest(d)}
+                          disabled={tests[d.id]?.status === "running"}
+                          className="text-[11px] px-2 py-1 rounded-md text-gray-600 hover:bg-gray-200 transition shrink-0 disabled:opacity-50"
+                        >
+                          🔌 接続確認
+                        </button>
+                        {d.platform === "blogger" && (
+                          <a
+                            href={`/api/destinations/blogger/oauth/start?destinationId=${d.id}&returnTo=/settings`}
+                            className="text-[11px] px-2 py-1 rounded-md text-gray-600 hover:bg-gray-200 transition shrink-0"
+                          >
+                            🔗 再連携
+                          </a>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => startEdit(d)}
+                          className="text-[11px] px-2 py-1 rounded-md text-gray-600 hover:bg-gray-200 transition shrink-0"
+                        >
+                          {d.platform === "blogger" ? "✎ ラベル" : "⚙ 接続情報"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteDest(d)}
+                          className="text-[11px] px-2 py-1 rounded-md text-red-500 hover:bg-red-50 transition shrink-0"
+                        >
+                          🗑 削除
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
               </li>
             );
           })}
@@ -668,6 +710,16 @@ export default function DestinationsTab() {
       )}
       {guideOpen && (
         <SetupGuideModal platform={guideOpen} onClose={() => setGuideOpen(null)} />
+      )}
+      {personaDest && (
+        <PersonaManagerModal
+          destinationLabel={personaDest.label}
+          currentPersonaId={
+            (personaDest.prompt_config as { personaId?: string } | null)?.personaId
+          }
+          onAssign={(personaId) => assignPersona(personaDest, personaId)}
+          onClose={() => setPersonaDest(null)}
+        />
       )}
     </div>
   );

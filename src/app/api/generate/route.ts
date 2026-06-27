@@ -7,9 +7,9 @@ import {
   extractDestinationStages,
   PROMPT_NOT_CONFIGURED_ERROR,
 } from "@/lib/promptResolver";
+import { getAuthorPersona } from "@/lib/authorPersonas";
 import {
   DEFAULT_ARTICLE_MODEL,
-  generateArticleJsonText,
   generateArticleTextChain,
   isArticleModel,
 } from "@/lib/articleGen";
@@ -19,12 +19,98 @@ import { withProjectContext } from "@/lib/auth";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-function extractJson(text: string): Record<string, unknown> {
-  const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-  const start = cleaned.indexOf("{");
-  const end = cleaned.lastIndexOf("}");
-  if (start === -1 || end === -1) throw new Error("JSON object not found");
-  return JSON.parse(cleaned.slice(start, end + 1));
+// =========================================================
+// Phase 1: プロンプト変数注入 + フェーズ3出力パーサ (2026-06-27)
+// =========================================================
+// 専門家が作った3段プロンプト (共通仕様0/B 準拠) の {{自動注入}} 欄を MPA が埋め、
+// 出力は作者ネイティブの「①タイトル ②本文 ③画像指示」形式のまま受け取り、
+// 共通仕様C(3) のパース仕様どおりに分割する。
+// =========================================================
+
+// 共通仕様0 (対策キーワード) と 共通仕様B (執筆者プロフィール) の {{}} を実値で埋める。
+// Phase 1 (a): ペルソナは自由記述1フィールドを執筆者プロフィールブロックに丸ごと注入する。
+function fillPromptPlaceholders(
+  stageText: string,
+  opts: { keyword: string; personaText?: string },
+): string {
+  let t = stageText;
+  // 執筆者プロフィールブロック (===== 執筆者プロフィール（システム自動注入） ===== 〜 =====) を
+  // ペルソナ本文で置換。割当が無ければブロックはそのまま (後段の {{}} 掃除で「（指定なし）」化)。
+  if (opts.personaText?.trim()) {
+    t = t.replace(
+      /=====\s*執筆者プロフィール（システム自動注入）\s*=====[\s\S]*?\n=====/g,
+      `===== 執筆者プロフィール =====\n${opts.personaText.trim()}\n=====`,
+    );
+  }
+  // target_keyword 行を実値に
+  t = t.replace(/^(\s*target_keyword:).*$/m, `$1 ${opts.keyword}`);
+  // INPUT セクションの 〈…対策キーワード…〉 手動マーカーも実値に
+  t = t.replace(/〈[^〉]*対策キーワード[^〉]*〉/g, opts.keyword);
+  // 残った {{…}} 任意項目は Phase 3 (詳細条件UI) で埋める。現状は「（指定なし）」で無害化。
+  t = t.replace(/\{\{[^}]*\}\}/g, "（指定なし）");
+  return t;
+}
+
+// フェーズ3の出力 (①タイトル / ②本文 / 制作メモ / ③画像指示) を分割する。
+// Phase 1 では本文をクリーンに取り出すのが目的 (③画像は Phase 4 で扱う)。
+function parsePhase3Output(
+  raw: string,
+  fallbackTitle: string,
+): { title: string; body: string } {
+  const lineStartOf = (marker: string): number | null => {
+    const i = raw.indexOf(marker);
+    return i < 0 ? null : raw.lastIndexOf("\n", i) + 1;
+  };
+  const lineEndOf = (marker: string): number | null => {
+    const i = raw.indexOf(marker);
+    if (i < 0) return null;
+    const e = raw.indexOf("\n", i);
+    return e < 0 ? raw.length : e;
+  };
+
+  const titleHdrEnd = lineEndOf("note タイトル");
+  const bodyHdrStart = lineStartOf("note本文");
+  const bodyHdrEnd = lineEndOf("note本文");
+  const metaStart = lineStartOf("制作メモ");
+  // 画像ブロック開始 ("========== 画像生成指示" or "―― ③ ――" 見出し)
+  const imgSearch = raw.search(/={6,}\s*画像生成指示|[―—\-]{2,}\s*③/);
+  const imgStart = imgSearch >= 0 ? raw.lastIndexOf("\n", imgSearch) + 1 : null;
+
+  // ① タイトル
+  let title = fallbackTitle;
+  if (titleHdrEnd !== null && bodyHdrStart !== null && bodyHdrStart > titleHdrEnd) {
+    const t = raw.slice(titleHdrEnd, bodyHdrStart).replace(/[―—\-]{3,}/g, "").trim();
+    if (t) title = t.split("\n").find((l) => l.trim())?.trim() ?? fallbackTitle;
+  }
+
+  // ② 本文 (制作メモ / 画像ブロックの手前まで)
+  let body: string;
+  if (bodyHdrEnd !== null) {
+    const ends = [metaStart, imgStart].filter(
+      (x): x is number => x !== null && x > bodyHdrEnd,
+    );
+    const bodyEnd = ends.length ? Math.min(...ends) : raw.length;
+    body = raw.slice(bodyHdrEnd, bodyEnd);
+  } else {
+    // セクションヘッダーが無い → 全体を本文とみなし、画像/メタブロックだけ落とす
+    const cuts = [imgStart, metaStart].filter((x): x is number => x !== null);
+    body = raw.slice(0, cuts.length ? Math.min(...cuts) : raw.length);
+  }
+
+  // 装飾行 (―――― 区切り / セクション見出し) と先頭重複タイトルを掃除
+  body = body
+    .replace(/^[―—\-]{3,}.*$/gm, "")
+    .replace(/^.*note本文.*$/m, "")
+    .trim();
+  // 先頭の非空行が title と一致したら除去 (本文冒頭のタイトル重複対策)
+  const lines = body.split("\n");
+  const firstIdx = lines.findIndex((l) => l.trim() && !l.trim().startsWith("[IMG"));
+  if (firstIdx >= 0 && lines[firstIdx].trim() === title) {
+    lines.splice(firstIdx, 1);
+    body = lines.join("\n").trim();
+  }
+
+  return { title, body };
 }
 
 function buildTags(themeId?: ThemeId): string[] {
@@ -67,40 +153,25 @@ async function pickTargetKeyword(
   return candidates[0];
 }
 
-// destination の 3段プロンプトと組み合わせる「ネタ素材 + 出力フォーマット指示」。
-function buildUserPrompt(args: {
+// 3段プロンプトに渡す「補足ネタ素材」。
+// 出力フォーマットの指示はしない (出力形式は作者の3段プロンプトが規定する)。
+// 対策キーワードは fillPromptPlaceholders で各フェーズのINPUTに直接注入される。
+function buildMaterialContext(args: {
   idea: Idea | FeedIdea;
   relatedArticles: { title: string; hook?: string }[];
   fixedTags: string[];
-  targetKeyword?: { kw: string; intent: string; longTail?: string[] };
 }): string {
-  const { idea, relatedArticles, fixedTags, targetKeyword } = args;
+  const { idea, relatedArticles, fixedTags } = args;
   const feed = idea as FeedIdea;
   return `
-以下のネタで記事を生成してください。
-
-【ネタ】
-- タイトル候補: ${idea.title}
+# 補足ネタ素材（任意参考。対策キーワード・出力形式は各フェーズのプロンプトに従うこと）
+- 参考タイトル: ${idea.title}
 - 共感フック: ${idea.hook ?? ""}
 - 角度: ${idea.angle ?? ""}
 ${feed.toolConcept ? `- ツールコンセプト: ${feed.toolConcept}` : ""}
 ${feed.voice ? `\n【参考となる読者の声】\n> ${feed.voice.quote} (出典: ${feed.voice.platform})\n${feed.voice.context ? `補足: ${feed.voice.context}` : ""}` : ""}
-
-${targetKeyword ? `【狙うキーワード】\n- 主KW: ${targetKeyword.kw}\n- intent: ${targetKeyword.intent}\n${targetKeyword.longTail?.length ? `- ロングテール: ${targetKeyword.longTail.join(" / ")}` : ""}` : ""}
-
-${relatedArticles.length > 0 ? `【同じ著者の関連既存記事 (内部リンクや「合わせて読みたい」の素材に)】\n${relatedArticles.map((a) => `- ${a.title}${a.hook ? ` (${a.hook})` : ""}`).join("\n")}` : ""}
-
-${fixedTags.length > 0 ? `【記事末尾に入れたいタグ候補】\n${fixedTags.map((t) => `#${t}`).join(" ")}` : ""}
-
-【出力フォーマット (JSON のみ)】
-{
-  "title_candidates": ["候補1", "候補2", "候補3"],
-  "best_title": "選んだベストタイトル",
-  "best_title_reason": "選んだ理由",
-  "body_markdown": "本文 (Markdown)",
-  "image_prompt_subject": "見出し画像の被写体・シーン (英語可)",
-  "image_alt_text": "alt 文字列"
-}
+${relatedArticles.length > 0 ? `\n【同じ著者の関連既存記事 (内部リンク素材に)】\n${relatedArticles.map((a) => `- ${a.title}${a.hook ? ` (${a.hook})` : ""}`).join("\n")}` : ""}
+${fixedTags.length > 0 ? `\n【記事末尾タグ候補】\n${fixedTags.map((t) => `#${t}`).join(" ")}` : ""}
 `.trim();
 }
 
@@ -148,55 +219,59 @@ export async function POST(req: NextRequest) {
       const explicitKwId = targetKeywordId ?? feed.targetKeywordId;
       const targetKw = await pickTargetKeyword(ctx.projectId, feed.themeId, explicitKwId);
 
-      const userPrompt = buildUserPrompt({
-        idea,
-        relatedArticles,
-        fixedTags,
-        targetKeyword: targetKw
-          ? { kw: targetKw.kw, intent: targetKw.intent, longTail: feed.keywords?.longTail }
-          : undefined,
-      });
+      const material = buildMaterialContext({ idea, relatedArticles, fixedTags });
 
-      // 3段プロンプトチェーンで生成。
-      // system は空文字。各 stage の prompt に必要な指示が含まれている前提。
-      // 空の stage はスキップ、最終段は JSON 出力に切り替える。
-      const system = "";
+      // 執筆者ペルソナ (Phase 1(a): 自由記述を執筆者プロフィールブロックに注入)。
+      const personaId = (destination.prompt_config as { personaId?: string } | null)?.personaId;
+      let personaText = "";
+      if (personaId) {
+        const persona = await getAuthorPersona(ctx.projectId, personaId);
+        if (persona?.body.trim()) personaText = persona.body.trim();
+      }
+
+      // 対策キーワード = スカウトKW (なければ idea.title)
+      const keyword = targetKw?.kw ?? idea.title;
+      const fill = (s: string) => fillPromptPlaceholders(s, { keyword, personaText });
+
+      // 3フェーズ連鎖。各フェーズは {{}} を埋めて素のテキストで実行 (JSON強制はしない)。
+      // system は空。各フェーズのプロンプトに必要な指示がすべて含まれている。
       let context = "";
       if (stages[0]?.trim()) {
         context = await generateArticleTextChain({
           model: articleModel,
-          system,
-          user: `${userPrompt}\n\n# 1段目プロンプト\n${stages[0]}`,
+          system: "",
+          user: `${fill(stages[0])}\n\n${material}`,
         });
       }
       if (stages[1]?.trim()) {
         context = await generateArticleTextChain({
           model: articleModel,
-          system,
-          user: `# 前段の出力\n${context || "(なし)"}\n\n# 2段目プロンプト\n${stages[1]}`,
+          system: "",
+          user: `${fill(stages[1])}\n\n# 前フェーズ（フェーズ1）の出力\n${context || "(なし)"}`,
         });
       }
-      const stage3Hint = stages[2]?.trim() ?? "";
-      const responseText = await generateArticleJsonText({
-        model: articleModel,
-        system,
-        user: `# 前段までの出力\n${context || "(なし)"}\n${stage3Hint ? `\n# 3段目プロンプト\n${stage3Hint}\n` : ""}\n# 最終出力指示 (JSON フォーマットに従う)\n${userPrompt}`,
-      });
-      const parsed = extractJson(responseText);
+      let responseText = context;
+      if (stages[2]?.trim()) {
+        responseText = await generateArticleTextChain({
+          model: articleModel,
+          system: "",
+          user: `${fill(stages[2])}\n\n# 前フェーズ（フェーズ2）の出力\n${context || "(なし)"}`,
+        });
+      }
 
-      let body = (parsed.body_markdown as string) ?? "";
-      body = body.replace(/^\s*#\s+[^\n]+\n+/, "");
+      // フェーズ3のネイティブ出力 (①②③) を分割して本文をクリーンに取り出す。
+      const { title, body } = parsePhase3Output(responseText, idea.title);
 
       const article: Article = {
         id: crypto.randomUUID(),
         createdAt: new Date().toISOString(),
         idea,
-        titleCandidates: (parsed.title_candidates as string[]) ?? [],
-        bestTitle: (parsed.best_title as string) ?? idea.title,
-        bestTitleReason: (parsed.best_title_reason as string) ?? "",
+        titleCandidates: [],
+        bestTitle: title || idea.title,
+        bestTitleReason: "",
         bodyMarkdown: body,
-        imagePromptSubject: (parsed.image_prompt_subject as string) ?? "",
-        imageAltText: (parsed.image_alt_text as string) ?? "",
+        imagePromptSubject: "",
+        imageAltText: "",
         destinationId,
       };
 
