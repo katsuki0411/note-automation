@@ -99,6 +99,16 @@ export function BestsellersIcon({ size = 20, className }: IconProps) {
   );
 }
 
+/** マニュアル - 開いた本（ガイド） */
+export function ManualIcon({ size = 20, className }: IconProps) {
+  return (
+    <svg {...baseProps(size)} className={className} aria-hidden>
+      <path d="M3 5a2 2 0 012-2h5v16H5a2 2 0 00-2 2V5z" />
+      <path d="M21 5a2 2 0 00-2-2h-5v16h5a2 2 0 012 2V5z" />
+    </svg>
+  );
+}
+
 /** 設定 - 歯車 */
 export function SettingsIcon({ size = 20, className }: IconProps) {
   return (

@@ -8,6 +8,7 @@ import {
   PostedIcon,
   SeoIcon,
   SettingsIcon,
+  ManualIcon,
   ProductScoutIcon,
   BestsellersIcon,
 } from "@/components/NavIcons";
@@ -29,6 +30,7 @@ const COMMON_ITEMS: NavItem[] = [
   { href: "/posted", label: "投稿レコード", desc: "Post Records", icon: PostedIcon },
   { href: "/seo", label: "SEO順位", desc: "SEO Rank", icon: SeoIcon },
   { href: "/settings", label: "設定", desc: "Settings", icon: SettingsIcon },
+  { href: "/manual", label: "マニュアル", desc: "Manual", icon: ManualIcon },
 ];
 
 // アフィ系限定: 商品リサーチ (ベストセラー / 売れ筋 / 新着 / セール / 高評価 / 検索 の6タブ)

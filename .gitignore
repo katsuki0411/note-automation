@@ -14,7 +14,8 @@
 /coverage
 
 # next.js
-/.next/
+# /.next* で .next / .next.nosync (iCloud除外用 dev distDir) / ".next 2" (iCloud重複) を一括無視
+/.next*
 /out/
 
 # production

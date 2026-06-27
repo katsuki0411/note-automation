@@ -1,10 +1,23 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // iCloud Drive (com~apple~CloudDocs) 配下のため、dev のビルド成果物 (.next) が
+  // iCloud 同期に巻き込まれて「.next 2」等の重複ファイルが作られ、manifest 破損 →
+  // CSS 404 / ChunkLoadError / 素HTML表示 を起こす。
+  // 対策: dev のみ distDir を末尾 .nosync にする (macOS iCloud は .nosync 終端を同期対象外にする)。
+  // 本番 (Vercel, NODE_ENV=production) は通常の .next のまま。
+  distDir: process.env.NODE_ENV === "development" ? ".next.nosync" : ".next",
+
   // Next.js 16 では本番ビルドが Turbopack デフォルト。
   // 下の webpack() フックは dev (`next dev --webpack`) でのみ使われる。
   // 空の turbopack: {} を置いて「webpack 設定と Turbopack を併用」エラーを silence する。
   turbopack: {},
+
+  // /manual ページは docs/*.md をサーバー側で fs 読み込みして表示する。
+  // Vercel のサーバーレス関数バンドルに docs/ を確実に含めるためトレースに追加。
+  outputFileTracingIncludes: {
+    "/manual": ["./docs/**/*"],
+  },
 
   // 旧URLからのリダイレクト (2026-06-01: /bestsellers → /research に統合)
   async redirects() {

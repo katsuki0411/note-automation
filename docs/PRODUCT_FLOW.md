@@ -17,11 +17,11 @@
 ```
 [① 商品リサーチ]    Amazon から日用品・消耗品のネタを抽出
         ↓
-[② KW選定]         Gemini が 100件の関連KWを自動生成
+[② KW生成]         実検索シードを元に Gemini が関連KWを大量生成 (デフォルト1000件)
         ↓
-[③ KWスカウト]      DataForSEO の数値で「狙うべきKW」に絞り込み (Gemini×4 + DFS×4 の8段)
+[③ KWスカウト]      DataForSEO の数値 + SERP で「狙うべきKW」に絞り込み (Gemini×3 + DFS×4 の6段)
         ↓
-[④ 競合調査]        SERP上位10件 + AI Overview の引用元を分析
+[④ 競合調査]        SERP上位10件 + AI Overview を分析し お宝スコア(0-70)を算出
         ↓ (採用KWが決定)
         ↓
 [⑤ 記事生成]        各媒体の3段プロンプトで「サイトごとに別記事」を並列生成
@@ -58,88 +58,81 @@
 
 ## 3. ② + ③ + ④ KWスカウト (`/products`)
 
-ここが MultiPostAI の心臓部。1スカウトで「Gemini が 4回 / DFS が 4回」呼ばれます。
+ここが MultiPostAI の心臓部。1スカウトで「Gemini が 3回 / DFS が 4回」呼ばれる **6段パイプライン**です。
+
+> 各 Stage の処理・コスト・評価指標の詳細は [`docs/SCOUT_FLOW.md`](./SCOUT_FLOW.md) / [`docs/SCOUT_SCORING.md`](./SCOUT_SCORING.md) を参照。本セクションは投稿フロー全体の中での位置づけを示す要約です。
 
 ### ユーザーが見る画面
 - タブ構造: `新規スカウト | スカウト履歴 | 採用KW | 保留KW | スカウト設定`
 - 「新規スカウト」タブで subject (商品名 / お題) を入力 → 「スカウト開始」ボタン
 
-### スカウト開始すると裏で何が動くか (8段パイプライン)
+### スカウト開始すると裏で何が動くか (6段パイプライン)
 
 ```
-[Stage 1] Gemini #1  ── 100件のKW候補を生成
-  入力: subject + 設定の除外KW + KW生成プロンプト
-  処理: 「商標+購入直前KWを100件出して。intent も付けて」と Gemini に指示
-  出力: 100件 KW (例: 「メリーズ 新生児 価格」「Merries Amazon 在庫」など)
-  コスト: 約 ¥1
+[Stage 0] DFS #1     ── 実検索シードKW取得 (Related Keywords + Suggestions)
+  目的: 実際に Google で検索されている関連KWを Gemini #1 の材料にする
+  コスト: 約 ¥7
 
-[Stage 2] DFS #1     ── 各KWの難易度 (KD) を一括取得
-  API: DataForSEO Labs / Bulk Keyword Difficulty Live
-  入力: 100件のKW
-  出力: 各KWに KD (0-100、低いほど狙いやすい)
-  コスト: 約 ¥1.7
+[Stage 1] Gemini #1  ── KW候補を大量生成 (デフォルト1000件)
+  処理: 「商標+購入直前(CV)KWを出して。intent と理由も付けて」と指示
+  出力: 例「メリーズ 新生児 価格」「Merries Amazon 在庫」など
+  コスト: 約 ¥40
 
-[Stage 3] Gemini #2  ── KD閾値で1次絞り込み + 重複/不適切除外
-  入力: 100件 + 各KDスコア + 設定のKD閾値 (デフォルト30)
-  処理: 「KD<=30 のものだけ残して、重複や不適切なものは除外して」
-  出力: 30〜50件に絞られる
-  コスト: 約 ¥2
+[Stage 2] DFS #2     ── 各KWの SV / CPC / 競合度 / 12ヶ月SV を一括取得
+  API: DataForSEO Labs / Search Volume Bulk
+  ※ 数値を付けるだけで、ここでは絞り込まない
+  コスト: 約 ¥110
 
-[Stage 4] DFS #2     ── 各KWの主要指標を一括取得
-  API: DataForSEO Labs / Keyword Overview Live
-  入力: 30〜50件のKW
-  取得: SV / CPC / 競合度 / 12ヶ月SV履歴 / intent / 上位サイトの平均被リンク数
-  コスト: 約 ¥30-80
+[Stage 3] Gemini #2  ── 数値(SV/CPC)+重複/不適切排除で1次絞り込み
+  処理: 「SV>=100 AND CPC>=¥30、commercial/transactional 寄り、重複除外」
+  出力: 最大10件に絞られる
+  コスト: 約 ¥20
 
-[Stage 5] Gemini #3  ── 数値ベースで2次絞り込み
-  入力: 30〜50件 + 全数値 + 設定の SV最低/CPC最低/最終件数
-  処理: 「SV>=100 AND CPC>=$0.2 のうち上位 5-10件を選んで」
-  出力: 5〜10件に絞られる
-  コスト: 約 ¥3
+[Stage 3.5] DFS #3   ── Google公式の検索intentラベルを取得
+  API: DataForSEO Labs / Search Intent
+  コスト: 約 ¥5
 
-[Stage 6] DFS #3     ── 採用候補のSERP情報を全取得
+[Stage 4] DFS #4     ── 絞り込んだKWのSERP情報を取得 → お宝スコア計算
   API: DataForSEO SERP / Google Organic Live Advanced
-  入力: 5〜10件のKW (1KWずつ)
   取得: 上位10件URL + PAA + AI Overview引用元 + Featured Snippet 等
-  コスト: 約 ¥2-3
+  計算: お宝スコア(0-70) = SV + CVKW + SERP個人ブログ含有 + AI Overview
+  コスト: 約 ¥17
 
-[Stage 7] Gemini #4  ── 最終判定 + 根拠出力
-  入力: 全情報 (数値 + SERP + AI Overview + PAA)
-  処理: 「adopt / borderline / reject を判定して、必ず具体的根拠を80-200字で書け」
-  出力: 採用KW 3-5件 (finalScore 0-100 + rationale)
+[Stage 5] Gemini #3  ── 最終判定 + 根拠出力
+  入力: 全情報 (お宝スコア + 数値 + SERP + AI Overview + PAA)
+  処理: 「adopt / borderline / reject を判定して、必ず具体的根拠を書け」
+  出力: 採用KW (finalScore 0-100 + rationale)。お宝スコア25以上は最低1件 adopt 保証
   コスト: 約 ¥3
 
 ──────────────────────────
-1スカウト合計コスト: 約 ¥50 (100KW中、3-5件採用)
+1スカウト合計コスト: 約 ¥200 (デフォルト1000KW) / 約 ¥55 (100KWモード)
 ```
+
+> **KD (キーワード難易度) は 2026-06-15 に撤廃**。DFS の日本語ロングテールKWでKDが当てにならないため、お宝スコア(SV+CVKW+SERP個人ブログ含有+AI Overview)で代替。理由は `docs/SCOUT_SCORING.md` 第8章参照。
 
 ### 例: subject=「メリーズ 新生児」
 
 ```
-Stage 1 結果 (100件抜粋):
+Stage 1 生成 (デフォルト1000件、抜粋):
   "メリーズ 新生児 価格"
   "メリーズ Merries Amazon"
   "メリーズ さらさらエアスルー レビュー"
   "メリーズ パンパース 違い"
-  ... 他96件
+  ... 他多数
 
-Stage 3 結果 (KD<30 で残った):
-  30件
-  ("メリーズ パンパース 違い" は KD=45 で落選など)
+Stage 3 通過 (数値+重複排除):
+  最大10件
+  ("メリーズ パンパース 違い" は SV/intent 条件で落選など)
 
-Stage 5 結果 (数値で絞った):
-  8件
-  "メリーズ 新生児 価格" (SV 480, CPC $0.42)
-  "メリーズ Merries Amazon" (SV 1200, CPC $0.85)
-  ... 他6件
+Stage 4 お宝スコア計算:
+  "メリーズ Merries Amazon"  お宝44点 (SV=1200 / CVKW中 / 個人ブログ3件)
+  "メリーズ 新生児 価格"      お宝32点 ...
 
-Stage 7 結果 (最終判定):
-  ✅ 採用: 4件
-   - "メリーズ Merries Amazon" finalScore=82
-     理由: kd=18 低、sv=1200で需要十分、上位10件中5件が個人ブログ、
+Stage 5 最終判定:
+  ✅ 採用: "メリーズ Merries Amazon" finalScore=82
+     理由: お宝44点、sv=1200で需要十分、上位10件中3件が個人ブログで勝機あり、
            AI Overview引用元にkakaku.comあり解説需要明確
-   ⚠ borderline: 1件
-   ❌ 却下: 3件
+   ⚠ borderline / ❌ 却下 も根拠付きで保存
 ```
 
 ### ユーザーの操作
@@ -325,9 +318,9 @@ KWスカウトの「✍記事生成」を押すと、**プロンプト設定済�
 ### KWスカウトタブ (`/products`)
 - **スカウト設定**: KWスカウト の挙動を制御
   - 件数 (KW候補生成数 / 最終件数)
-  - 閾値 (KD上限 / SV下限 / CPC下限)
+  - 閾値 (SV下限 / CPC下限) ※KD上限は2026-06-15撤廃
   - 除外KW (改行区切り)
-  - Gemini プロンプト4段 (Stage 1/3/5/7 — 上級者向けカスタマイズ)
+  - Gemini プロンプト3段 (Stage 1=生成 / Stage 3=絞り込み / Stage 5=最終判定 — 上級者向けカスタマイズ)
 
 ### ライブラリタブ (`/library`)
 - **記事生成プロンプト**: 全媒体共通の3段プロンプト
@@ -336,6 +329,12 @@ KWスカウトの「✍記事生成」を押すと、**プロンプト設定済�
 ### destination 個別 (`/settings/destinations/[id]/prompt`)
 - **媒体専用 3段プロンプト** (Stage 1/2/3) — 媒体ごとに異なる文章を書きたい時用
 - 全 5媒体登録なら、5つの専用プロンプトを設定可能
+
+### 執筆者ペルソナ (設定 → 投稿先 → 各媒体の「👤 ペルソナ」ボタン、2026-06-25 追加)
+- **共通ライブラリ方式**: ペルソナ (執筆者の人格、自由記述1フィールド) を作っておき、各媒体に割り当てる
+- 記事生成時、割り当てたペルソナの本文を **system プロンプト**に注入 → 「誰が書くか(ペルソナ) / どう書くか(3段プロンプト)」を分離
+- 未割り当ての媒体は従来通り3段プロンプトのみで生成
+- 保存先: `author_personas` テーブル (migration 0018) / 割当は destination の `prompt_config.personaId`
 
 ---
 
@@ -373,14 +372,14 @@ article_postings               — 投稿履歴 (記事 × destination × 結果
 
 | 操作 | 概算コスト |
 |---|---|
-| 1スカウト (KWスカウト 1回実行) | 約 ¥50 |
+| 1スカウト (KWスカウト 1回実行) | 約 ¥200 (デフォルト1000KW) / ¥55 (100KWモード) |
 | 1記事生成 (Gemini 3段チェーン) | 約 ¥1〜3 |
 | 1サイト分の見出し画像生成 | 約 ¥6 |
 | 採用1KW × 5媒体並列生成 | 約 ¥5〜15 + 画像 ¥30 |
 | 投稿 (API) | 無料 |
 | AI Overview tracking (追加) | 採用1KW につき ¥0.1 |
 
-→ **採用KW 5本 / 月 = 約 ¥300 (記事+画像+スカウト含む)**
+→ **採用KW 5本 / 月 ≈ 1スカウト + 記事+画像 = 約 ¥400〜600** (100KWモードなら約 ¥250)
 
 ---
 

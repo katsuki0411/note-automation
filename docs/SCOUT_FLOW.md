@@ -292,7 +292,7 @@ SERP organic 上位3件の URL + ドメイン + タイトル + スニペット �
 
 ## 4. 結果データの保存 (DB)
 
-スカウト完了後、`scout_history` テーブルに以下を保存:
+スカウト完了後、`product_scout_history` テーブルに以下を保存:
 
 | カラム | 内容 |
 |---|---|
@@ -365,12 +365,26 @@ Stage 3 で落選した KW も `rejected_candidates` に保存:
 
 | stage 値 | 意味 | 表示タブ |
 |---|---|---|
-| `stage3_rejected` | Gemini #2 が数値/重複/不適切と判定して除外 | ②生成過程 |
+| `stage3_rejected` | Gemini #2 が数値/不適切と判定して除外 | ②生成過程 |
+| `stage3_duplicate` | Gemini #2 が「採用KWと同義の重複」と判定して統合 (2026-06-25 追加) | ②生成過程 |
 
 各落選 KW には `rejectionNote` が付く:
-- 「Gemini #2 が数値/重複/不適切と判定して除外」
+- `stage3_rejected`: 「Gemini #2 が数値/不適切と判定して除外」
+- `stage3_duplicate`: 「既存KWと同義の重複として統合 (次回同一subjectスカウトで除外)」
 
 履歴の **②生成過程** タブで「100KW → 30KW → 5件」 の絞り込みが時系列で見える。
+
+### 重複KW・記事化KWの自動除外 (2026-06-25)
+
+同じ商品を**再スカウト**したときに同じ KW を作り直さないよう、Stage 1 (Gemini #1) の生成時に
+以下を**自動で除外リストに追加**する (subject 単位。別商品のスカウトには影響しない):
+
+1. **重複として削除された KW** — 同一 subject の過去履歴の `stage3_duplicate` を集約
+2. **記事生成に使った KW** — 過去に採用された KW のうち `articles` に実在する title (記事化済み)
+
+実装: `scout/route.ts` の `buildSubjectExcludeKws()` が両者を集めて
+`scout_config.excludeKws` (手動リスト) と合体 → `expandKeywords` の除外 (プロンプト注入 + ハードフィルタ) に渡す。
+新規 subject の初回スカウトでは過去データが無いので通常通り動作する。
 
 ---
 
