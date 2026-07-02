@@ -2,8 +2,21 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import type { Article, FeedIdea, ThemeId } from "@/lib/types";
+import type { Article, FeedIdea, ImageSpec, ThemeId } from "@/lib/types";
 import { THEMES } from "@/lib/types";
+import {
+  buildMarkerImagePrompt,
+  splitHeaderAndBodySpecs,
+  extractOverlayText,
+} from "@/lib/imageSpecs";
+import {
+  readAutoImageSettings,
+  writeAutoImageSettings,
+  type AutoImageSettings,
+} from "@/lib/clientSettings";
+import { autoGenerateArticleImages, hasAutoImageWork } from "@/lib/autoImages";
+import ImageGenChoiceModal from "@/components/ImageGenChoiceModal";
+import ArticleBody, { type MarkerImageState } from "./ArticleBody";
 import PageHeader from "@/components/PageHeader";
 import Loading from "@/components/Loading";
 import { FilterBar, GroupTab } from "@/components/FilterBar";
@@ -17,6 +30,11 @@ import {
 } from "@/lib/posters/types";
 import { useProject } from "@/components/ProjectContext";
 import { isPromptConfigConfigured } from "@/lib/promptResolver";
+import {
+  DETAIL_CONDITION_FIELDS,
+  hasAnyDetailCondition,
+  type DetailConditions,
+} from "@/lib/detailConditions";
 
 const CACHE_KEY = "library:articles";
 const SELECTED_KW_CACHE_KEY = "library:selectedKw";
@@ -122,11 +140,27 @@ export default function LibraryPage() {
     message?: string;
   }>({ state: "idle" });
 
+  // 本文マーカー画像の生成状態。キーは `${articleId}::${marker}` (記事切替でも混ざらない)。
+  // 画像は base64 のみ (リロードで消える・手動DL運用。見出し画像と同方針)。
+  const [markerImages, setMarkerImages] = useState<Record<string, MarkerImageState>>({});
+  const [bulkImageState, setBulkImageState] = useState<{
+    state: "idle" | "loading";
+    done?: number;
+    total?: number;
+  }>({ state: "idle" });
+
+  // 記事生成ボタン押下時に開く「画像も作るか」ポップアップの開閉状態。
+  const [showImageChoice, setShowImageChoice] = useState(false);
+
   // 未生成サイト用「このサイト用に生成」ボタンの状態
   const [generateForSiteState, setGenerateForSiteState] = useState<{
     state: "idle" | "loading" | "error";
     message?: string;
   }>({ state: "idle" });
+
+  // Phase 3: 単発生成時の「詳細条件」(全項目任意)。開閉トグルと入力値。
+  const [showDetailConditions, setShowDetailConditions] = useState(false);
+  const [detailConditions, setDetailConditions] = useState<DetailConditions>({});
 
   // 記事プレビューの見出し画像の表示/非表示トグル (画像が大きすぎる時用)
   const [showHeaderImage, setShowHeaderImage] = useState(true);
@@ -558,33 +592,47 @@ export default function LibraryPage() {
   }
 
   // ---------- 画像 / 派生 / コピー / 未生成サイト用生成 ----------
-  async function generateImage(articleId: string) {
+  async function generateImage(article: Article) {
     setImageStatus({ state: "loading", message: "Nano Banana で生成中（約10〜20秒）..." });
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 90_000);
     try {
+      // 見出しspec (アイキャッチ) があればその詳細プロンプト・比率を尊重。無ければ主題から。
+      // 文字なしの水彩イラストを生成させ、タイトルはサーバ側でコード合成する。
+      const headerSpec = splitHeaderAndBodySpecs(article.imageSpecs ?? []).header;
       const res = await fetch("/api/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ articleId }),
+        body: JSON.stringify({
+          articleId: article.id,
+          persist: true,
+          imagePrompt: headerSpec
+            ? buildMarkerImagePrompt(headerSpec, { noText: true })
+            : undefined,
+          aspectRatio: headerSpec?.aspectRatio,
+          overlayText: extractOverlayText(headerSpec, article.bestTitle),
+        }),
         signal: controller.signal,
       });
       clearTimeout(timeout);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "失敗");
-      // 2026-06-12: API は Supabase Storage に保存せず data URL を返すように変更。
-      // メモリ内 (state) のみ保持し、ページリロードしたら消える運用に。
-      // 再表示したい場合はもう一度「画像生成」する。
-      const dataUrl = (data.imageDataUrl as string | undefined) ?? (data.imagePath as string | undefined);
+      // Blob保存済みURL (imageUrl) を優先。フォールバックで base64。
+      const dataUrl = (data.imageUrl as string | undefined) ?? (data.imageDataUrl as string | undefined);
       if (!dataUrl) throw new Error("画像データが返ってきませんでした");
       setArticles((prev) => {
         const next = prev.map((a) =>
-          a.id === articleId ? { ...a, imagePath: dataUrl } : a,
+          a.id === article.id ? { ...a, imagePath: dataUrl } : a,
         );
         setCache(CACHE_KEY, next);
         return next;
       });
-      setImageStatus({ state: "done", message: "見出し画像を生成しました (リロードで消えます。投稿先に直接アップしてください)" });
+      setImageStatus({
+        state: "done",
+        message: data.imageUrl
+          ? "見出し画像を生成・保存しました"
+          : "見出し画像を生成しました (未保存: Blob未設定。リロードで消えます)",
+      });
       setTimeout(() => setImageStatus({ state: "idle" }), 5000);
     } catch (e) {
       clearTimeout(timeout);
@@ -597,6 +645,78 @@ export default function LibraryPage() {
       setImageStatus({ state: "error", message: msg });
       setTimeout(() => setImageStatus({ state: "idle" }), 8000);
     }
+  }
+
+  // 本文マーカー1枚を生成 (spec の aspectRatio / prompt を尊重)。
+  async function generateMarkerImage(
+    articleId: string,
+    spec: ImageSpec,
+    marker: string,
+  ): Promise<boolean> {
+    const key = `${articleId}::${marker}`;
+    setMarkerImages((m) => ({ ...m, [key]: { ...m[key], state: "loading" } }));
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 90_000);
+    try {
+      const res = await fetch("/api/image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          articleId,
+          marker,
+          persist: true,
+          imagePrompt: buildMarkerImagePrompt(spec),
+          aspectRatio: spec.aspectRatio,
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "失敗");
+      const dataUrl = (data.imageUrl as string | undefined) ?? (data.imageDataUrl as string | undefined);
+      if (!dataUrl) throw new Error("画像データが返ってきませんでした");
+      setMarkerImages((m) => ({ ...m, [key]: { state: "done", dataUrl } }));
+      // 保存済みURLを記事 state にも反映 (リロード後も残る)。
+      if (data.imageUrl) {
+        setArticles((prev) => {
+          const next = prev.map((a) =>
+            a.id === articleId
+              ? {
+                  ...a,
+                  imageSpecs: (a.imageSpecs ?? []).map((s) =>
+                    s.marker === marker ? { ...s, imageUrl: data.imageUrl as string } : s,
+                  ),
+                }
+              : a,
+          );
+          setCache(CACHE_KEY, next);
+          return next;
+        });
+      }
+      return true;
+    } catch (e) {
+      clearTimeout(timeout);
+      const msg =
+        e instanceof Error
+          ? e.name === "AbortError"
+            ? "90秒でタイムアウトしました"
+            : e.message
+          : "失敗";
+      setMarkerImages((m) => ({ ...m, [key]: { state: "error", error: msg } }));
+      return false;
+    }
+  }
+
+  // 本文マーカー(見出しを除く)を順番に生成 (Gemini 課金 ~6円/枚 × 枚数)。
+  async function generateAllMarkerImages(article: Article) {
+    const body = splitHeaderAndBodySpecs(article.imageSpecs ?? []).body;
+    if (body.length === 0 || bulkImageState.state === "loading") return;
+    setBulkImageState({ state: "loading", done: 0, total: body.length });
+    for (let i = 0; i < body.length; i++) {
+      await generateMarkerImage(article.id, body[i], body[i].marker);
+      setBulkImageState({ state: "loading", done: i + 1, total: body.length });
+    }
+    setBulkImageState({ state: "idle" });
   }
 
   async function generateDerivative(articleId: string) {
@@ -630,7 +750,7 @@ export default function LibraryPage() {
   }
 
   // 未生成サイト用に記事を生成 (現在の KW × 選択中サイト)
-  async function generateArticleForSite() {
+  async function generateArticleForSite(imgSettings: AutoImageSettings) {
     if (!currentGroup || !selectedDestinationId) return;
     // 元ネタの idea (この KW グループの最初の記事から拝借)
     const baseArticle = currentGroup.articles[0];
@@ -649,6 +769,9 @@ export default function LibraryPage() {
           idea: baseArticle.idea,
           destinationId: selectedDestinationId,
           targetKeywordId: (baseArticle.idea as FeedIdea)?.targetKeywordId,
+          detailConditions: hasAnyDetailCondition(detailConditions)
+            ? detailConditions
+            : undefined,
         }),
         signal: controller.signal,
       });
@@ -663,6 +786,29 @@ export default function LibraryPage() {
         setCache(CACHE_KEY, next);
         return next;
       });
+      // 生成成功したら詳細条件はリセット (次の記事に引きずらない)
+      setDetailConditions({});
+      setShowDetailConditions(false);
+
+      // トグルONなら画像も自動生成 (Blob保存) して state に反映。
+      if (hasAutoImageWork(newArticle, imgSettings)) {
+        setGenerateForSiteState({ state: "loading", message: "画像を自動生成中…" });
+        const r = await autoGenerateArticleImages(newArticle, imgSettings);
+        setArticles((prev) => {
+          const next = prev.map((a) => {
+            if (a.id !== newArticle.id) return a;
+            return {
+              ...a,
+              imagePath: r.headerUrl ?? a.imagePath,
+              imageSpecs: (a.imageSpecs ?? []).map((s) =>
+                r.markerUrls[s.marker] ? { ...s, imageUrl: r.markerUrls[s.marker] } : s,
+              ),
+            };
+          });
+          setCache(CACHE_KEY, next);
+          return next;
+        });
+      }
       setGenerateForSiteState({ state: "idle" });
     } catch (e) {
       clearTimeout(timeout);
@@ -864,7 +1010,7 @@ export default function LibraryPage() {
                             </a>
                           )}
                           <button
-                            onClick={() => generateImage(currentArticle.id)}
+                            onClick={() => generateImage(currentArticle)}
                             disabled={imageStatus.state === "loading"}
                             className="btn-ghost btn-sm"
                             title="Nano Banana (Gemini 2.5 Flash Image) で見出し画像を生成（約6円/枚）"
@@ -882,6 +1028,19 @@ export default function LibraryPage() {
                               title="記事プレビューの見出し画像を一時的に隠す"
                             >
                               {showHeaderImage ? "🙈 画像を隠す" : "🖼 画像を表示"}
+                            </button>
+                          )}
+                          {splitHeaderAndBodySpecs(currentArticle.imageSpecs ?? []).body
+                            .length > 0 && (
+                            <button
+                              onClick={() => generateAllMarkerImages(currentArticle)}
+                              disabled={bulkImageState.state === "loading"}
+                              className="btn-ghost btn-sm"
+                              title={`本文の [IMG] 画像 ${splitHeaderAndBodySpecs(currentArticle.imageSpecs ?? []).body.length} 枚をまとめて生成（約6円/枚）`}
+                            >
+                              {bulkImageState.state === "loading"
+                                ? `🖼 本文画像 生成中… (${bulkImageState.done}/${bulkImageState.total})`
+                                : `🖼 本文画像を一括生成 (${splitHeaderAndBodySpecs(currentArticle.imageSpecs ?? []).body.length})`}
                             </button>
                           )}
                           <button
@@ -1132,9 +1291,26 @@ export default function LibraryPage() {
                           )}
                         </div>
                       ) : (
-                        <pre className="p-5 rounded-xl bg-gray-50 border border-[var(--border-subtle)] text-[14px] leading-[1.85] whitespace-pre-wrap font-sans">
-                          {currentArticle.bodyMarkdown}
-                        </pre>
+                        <div className="p-5 rounded-xl bg-gray-50 border border-[var(--border-subtle)]">
+                          <ArticleBody
+                            body={currentArticle.bodyMarkdown}
+                            specs={currentArticle.imageSpecs ?? []}
+                            images={Object.fromEntries(
+                              (currentArticle.imageSpecs ?? []).map((s) => [
+                                s.marker,
+                                // 生成中/直近生成の transient state を最優先。
+                                // 無ければ Blob保存済み(spec.imageUrl)、それも無ければ idle。
+                                markerImages[`${currentArticle.id}::${s.marker}`] ??
+                                  (s.imageUrl
+                                    ? { state: "done" as const, dataUrl: s.imageUrl }
+                                    : { state: "idle" as const }),
+                              ]),
+                            )}
+                            onGenerate={(spec, marker) =>
+                              generateMarkerImage(currentArticle.id, spec, marker)
+                            }
+                          />
+                        </div>
                       )}
                     </article>
                   ) : (
@@ -1147,8 +1323,75 @@ export default function LibraryPage() {
                       <p className="text-[12px] text-[color:var(--fg-muted)] mb-5">
                         同じネタでも destination ごとにプロンプトが違うため、サイト別に専用記事を生成できます
                       </p>
+
+                      {/* Phase 3: 詳細条件 (任意・折りたたみ) */}
+                      <div className="max-w-xl mx-auto mb-5 text-left">
+                        <button
+                          type="button"
+                          onClick={() => setShowDetailConditions((v) => !v)}
+                          className="text-[12px] text-[color:var(--fg-secondary)] hover:text-[color:var(--fg-primary)] inline-flex items-center gap-1"
+                        >
+                          <span>{showDetailConditions ? "▼" : "▶"}</span>
+                          詳細条件を指定（任意）
+                          {hasAnyDetailCondition(detailConditions) && (
+                            <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-[color:var(--accent)] text-white">
+                              指定あり
+                            </span>
+                          )}
+                        </button>
+                        {showDetailConditions && (
+                          <div className="mt-3 p-4 rounded-xl border border-[var(--border-subtle)] bg-gray-50 space-y-3">
+                            <p className="text-[11px] text-[color:var(--fg-muted)]">
+                              この記事のプロンプトに反映されます。空欄の項目は自動判断されます。
+                            </p>
+                            {DETAIL_CONDITION_FIELDS.map((f) =>
+                              f.multiline ? (
+                                <div key={f.key}>
+                                  <label className="block text-[11px] font-medium text-[color:var(--fg-secondary)] mb-1">
+                                    {f.label}
+                                  </label>
+                                  <textarea
+                                    value={detailConditions[f.key] ?? ""}
+                                    onChange={(e) =>
+                                      setDetailConditions((d) => ({ ...d, [f.key]: e.target.value }))
+                                    }
+                                    placeholder={f.placeholder}
+                                    rows={2}
+                                    className="w-full text-[13px] px-3 py-2 rounded-lg border border-[var(--border-subtle)] bg-white resize-y"
+                                  />
+                                </div>
+                              ) : (
+                                <div key={f.key}>
+                                  <label className="block text-[11px] font-medium text-[color:var(--fg-secondary)] mb-1">
+                                    {f.label}
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={detailConditions[f.key] ?? ""}
+                                    onChange={(e) =>
+                                      setDetailConditions((d) => ({ ...d, [f.key]: e.target.value }))
+                                    }
+                                    placeholder={f.placeholder}
+                                    className="w-full text-[13px] px-3 py-2 rounded-lg border border-[var(--border-subtle)] bg-white"
+                                  />
+                                </div>
+                              ),
+                            )}
+                            {hasAnyDetailCondition(detailConditions) && (
+                              <button
+                                type="button"
+                                onClick={() => setDetailConditions({})}
+                                className="text-[11px] text-[color:var(--fg-muted)] hover:text-red-600"
+                              >
+                                条件をクリア
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
                       <button
-                        onClick={generateArticleForSite}
+                        onClick={() => setShowImageChoice(true)}
                         disabled={generateForSiteState.state === "loading"}
                         className="btn-primary btn-sm"
                       >
@@ -1386,6 +1629,20 @@ export default function LibraryPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {showImageChoice && (
+        <ImageGenChoiceModal
+          initial={readAutoImageSettings()}
+          title="このサイト用に生成"
+          costHint="この記事1本ぶんの画像が課金されます"
+          onConfirm={(s) => {
+            writeAutoImageSettings(s);
+            setShowImageChoice(false);
+            void generateArticleForSite(s);
+          }}
+          onCancel={() => setShowImageChoice(false)}
+        />
       )}
     </>
   );

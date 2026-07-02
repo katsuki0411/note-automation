@@ -7,7 +7,12 @@ import {
   extractDestinationStages,
   PROMPT_NOT_CONFIGURED_ERROR,
 } from "@/lib/promptResolver";
-import { getAuthorPersona } from "@/lib/authorPersonas";
+import { getAuthorPersona, type AuthorPersona } from "@/lib/authorPersonas";
+import { applyDetailConditions, type DetailConditions } from "@/lib/detailConditions";
+import {
+  parseImageSpecsFromPhase3,
+  extractBodyMarkerLabels,
+} from "@/lib/imageSpecs";
 import {
   DEFAULT_ARTICLE_MODEL,
   generateArticleTextChain,
@@ -28,25 +33,61 @@ export const maxDuration = 300;
 // =========================================================
 
 // 共通仕様0 (対策キーワード) と 共通仕様B (執筆者プロフィール) の {{}} を実値で埋める。
-// Phase 1 (a): ペルソナは自由記述1フィールドを執筆者プロフィールブロックに丸ごと注入する。
+// Phase 2: ペルソナは構造化フィールドを writer_* 各行に1:1注入。
+//   構造化が無い旧ペルソナは自由記述(body)を執筆者ブロックに丸ごと注入 (Phase 1 互換)。
 function fillPromptPlaceholders(
   stageText: string,
-  opts: { keyword: string; personaText?: string },
+  opts: { keyword: string; persona?: AuthorPersona | null; detailConditions?: DetailConditions | null },
 ): string {
   let t = stageText;
-  // 執筆者プロフィールブロック (===== 執筆者プロフィール（システム自動注入） ===== 〜 =====) を
-  // ペルソナ本文で置換。割当が無ければブロックはそのまま (後段の {{}} 掃除で「（指定なし）」化)。
-  if (opts.personaText?.trim()) {
-    t = t.replace(
-      /=====\s*執筆者プロフィール（システム自動注入）\s*=====[\s\S]*?\n=====/g,
-      `===== 執筆者プロフィール =====\n${opts.personaText.trim()}\n=====`,
+  const persona = opts.persona;
+  if (persona) {
+    const f = persona.fields ?? {};
+    const oneLine = (v?: string) => (v ? v.trim().replace(/\s*\n\s*/g, " ／ ") : "");
+    const hasStructured = !!(
+      f.title || f.expertise || f.achievements || f.firstPerson ||
+      f.tone || f.values || f.episodes || f.vocab || f.ng
     );
+    if (hasStructured) {
+      // writer_* 各行を実値に置換 (空欄は後段の {{}} 掃除で「（指定なし）」化)
+      const set = (lineKey: string, val?: string) => {
+        const v = oneLine(val);
+        if (v) t = t.replace(new RegExp(`^(\\s*${lineKey}:).*$`, "m"), `$1 ${v}`);
+      };
+      set("writer_name", persona.name);
+      set("writer_title", f.title);
+      set("writer_expertise", f.expertise);
+      set("writer_achievements", f.achievements);
+      set("writer_first_person", f.firstPerson);
+      set("writer_tone", f.tone);
+      set("writer_values", f.values);
+      set("writer_episodes", f.episodes);
+      set("writer_vocab", f.vocab);
+      set("writer_ng", f.ng);
+      set("writer_profile_url", f.profileUrl);
+      set("writer_photo_url", f.photoUrl);
+      // 自由記述補足があれば執筆者ブロック末尾に追記
+      if (persona.body?.trim()) {
+        t = t.replace(
+          /(=====\s*執筆者プロフィール（システム自動注入）\s*=====[\s\S]*?)\n=====/,
+          `$1\nwriter_notes: ${oneLine(persona.body)}\n=====`,
+        );
+      }
+    } else if (persona.body?.trim()) {
+      // 構造化なし → 自由記述を執筆者ブロックに丸ごと注入 (Phase 1 互換)
+      t = t.replace(
+        /=====\s*執筆者プロフィール（システム自動注入）\s*=====[\s\S]*?\n=====/g,
+        `===== 執筆者プロフィール =====\n${persona.body.trim()}\n=====`,
+      );
+    }
   }
   // target_keyword 行を実値に
   t = t.replace(/^(\s*target_keyword:).*$/m, `$1 ${opts.keyword}`);
   // INPUT セクションの 〈…対策キーワード…〉 手動マーカーも実値に
   t = t.replace(/〈[^〉]*対策キーワード[^〉]*〉/g, opts.keyword);
-  // 残った {{…}} 任意項目は Phase 3 (詳細条件UI) で埋める。現状は「（指定なし）」で無害化。
+  // Phase 3: 記事ごとの詳細条件 (サブKW / 検索意図 / 文字数 / CTA / must_include 等) を各行に注入。
+  t = applyDetailConditions(t, opts.detailConditions);
+  // 残った {{…}} 任意項目 (未指定の詳細条件など) は「（指定なし）」で無害化。
   t = t.replace(/\{\{[^}]*\}\}/g, "（指定なし）");
   return t;
 }
@@ -178,12 +219,14 @@ ${fixedTags.length > 0 ? `\n【記事末尾タグ候補】\n${fixedTags.map((t) 
 export async function POST(req: NextRequest) {
   return withProjectContext(async (ctx) => {
     try {
-      const { idea, destinationId, targetKeywordId, model } = (await req.json()) as {
-        idea: Idea | FeedIdea;
-        destinationId: string;
-        targetKeywordId?: string;
-        model?: string;
-      };
+      const { idea, destinationId, targetKeywordId, model, detailConditions } =
+        (await req.json()) as {
+          idea: Idea | FeedIdea;
+          destinationId: string;
+          targetKeywordId?: string;
+          model?: string;
+          detailConditions?: DetailConditions;
+        };
       if (!idea?.title) {
         return Response.json({ error: "ideaが必要です" }, { status: 400 });
       }
@@ -221,17 +264,14 @@ export async function POST(req: NextRequest) {
 
       const material = buildMaterialContext({ idea, relatedArticles, fixedTags });
 
-      // 執筆者ペルソナ (Phase 1(a): 自由記述を執筆者プロフィールブロックに注入)。
+      // 執筆者ペルソナ (Phase 2: 構造化フィールドを writer_* に注入。旧自由記述は丸ごと注入)。
       const personaId = (destination.prompt_config as { personaId?: string } | null)?.personaId;
-      let personaText = "";
-      if (personaId) {
-        const persona = await getAuthorPersona(ctx.projectId, personaId);
-        if (persona?.body.trim()) personaText = persona.body.trim();
-      }
+      const persona = personaId ? await getAuthorPersona(ctx.projectId, personaId) : null;
 
       // 対策キーワード = スカウトKW (なければ idea.title)
       const keyword = targetKw?.kw ?? idea.title;
-      const fill = (s: string) => fillPromptPlaceholders(s, { keyword, personaText });
+      const fill = (s: string) =>
+        fillPromptPlaceholders(s, { keyword, persona, detailConditions });
 
       // 3フェーズ連鎖。各フェーズは {{}} を埋めて素のテキストで実行 (JSON強制はしない)。
       // system は空。各フェーズのプロンプトに必要な指示がすべて含まれている。
@@ -262,6 +302,10 @@ export async function POST(req: NextRequest) {
       // フェーズ3のネイティブ出力 (①②③) を分割して本文をクリーンに取り出す。
       const { title, body } = parsePhase3Output(responseText, idea.title);
 
+      // ③画像生成指示ブロックを構造化。本文の [IMG-NN｜説明] マーカーで altText を補完。
+      const bodyLabels = extractBodyMarkerLabels(body);
+      const imageSpecs = parseImageSpecsFromPhase3(responseText, bodyLabels);
+
       const article: Article = {
         id: crypto.randomUUID(),
         createdAt: new Date().toISOString(),
@@ -272,6 +316,7 @@ export async function POST(req: NextRequest) {
         bodyMarkdown: body,
         imagePromptSubject: "",
         imageAltText: "",
+        imageSpecs,
         destinationId,
       };
 

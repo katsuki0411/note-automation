@@ -17,7 +17,13 @@ const nextConfig: NextConfig = {
   // Vercel のサーバーレス関数バンドルに docs/ を確実に含めるためトレースに追加。
   outputFileTracingIncludes: {
     "/manual": ["./docs/**/*"],
+    // 見出し画像のタイトル合成で使う日本語フォントを関数バンドルに含める。
+    "/api/image": ["./assets/fonts/**/*"],
   },
+
+  // @napi-rs/canvas はネイティブ(.node)モジュール。webpack/turbopack でバンドルせず
+  // 実行時に require させる (見出し画像のタイトル文字合成で使用)。
+  serverExternalPackages: ["@napi-rs/canvas"],
 
   // 旧URLからのリダイレクト (2026-06-01: /bestsellers → /research に統合)
   async redirects() {

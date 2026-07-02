@@ -1,6 +1,10 @@
 import { NextRequest } from "next/server";
 import { withProjectContext } from "@/lib/auth";
-import { updateAuthorPersona, deleteAuthorPersona } from "@/lib/authorPersonas";
+import {
+  updateAuthorPersona,
+  deleteAuthorPersona,
+  type AuthorPersonaFields,
+} from "@/lib/authorPersonas";
 
 export const runtime = "nodejs";
 
@@ -11,8 +15,12 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   return withProjectContext(async (ctx) => {
     try {
       const { id } = await params;
-      const { name, body } = (await req.json()) as { name?: string; body?: string };
-      const persona = await updateAuthorPersona(ctx.projectId, id, { name, body });
+      const { name, fields, body } = (await req.json()) as {
+        name?: string;
+        fields?: AuthorPersonaFields;
+        body?: string;
+      };
+      const persona = await updateAuthorPersona(ctx.projectId, id, { name, fields, body });
       if (!persona) {
         return Response.json({ error: "ペルソナが見つかりません" }, { status: 404 });
       }

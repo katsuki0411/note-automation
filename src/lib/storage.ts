@@ -1,6 +1,6 @@
 import { sql } from "./db";
 import { supabaseAdmin } from "./supabase/admin";
-import type { Article, Idea } from "./types";
+import type { Article, Idea, ImageSpec } from "./types";
 
 export type { Article, Idea } from "./types";
 
@@ -17,9 +17,17 @@ type ArticleRow = {
   image_prompt_subject: string;
   image_alt_text: string | null;
   image_path: string | null;
+  image_specs: ImageSpec[] | null;
   posted_at: string | null;
   destination_id: string | null;
 };
+
+// 全 select で同じ列を返すための共通リスト。
+const ARTICLE_COLUMNS = sql`
+  id, created_at, idea, best_title, title_candidates,
+  best_title_reason, body_markdown, image_prompt_subject,
+  image_alt_text, image_path, image_specs, posted_at, destination_id
+`;
 
 function rowToArticle(r: ArticleRow): Article {
   return {
@@ -33,6 +41,7 @@ function rowToArticle(r: ArticleRow): Article {
     imagePromptSubject: r.image_prompt_subject ?? "",
     imageAltText: r.image_alt_text ?? undefined,
     imagePath: r.image_path ?? undefined,
+    imageSpecs: r.image_specs ?? [],
     postedAt: r.posted_at ?? undefined,
     destinationId: r.destination_id ?? undefined,
   };
@@ -40,9 +49,7 @@ function rowToArticle(r: ArticleRow): Article {
 
 export async function loadArticles(projectId: string): Promise<Article[]> {
   const rows = await sql<ArticleRow[]>`
-    select id, created_at, idea, best_title, title_candidates,
-           best_title_reason, body_markdown, image_prompt_subject,
-           image_alt_text, image_path, posted_at, destination_id
+    select ${ARTICLE_COLUMNS}
     from articles
     where project_id = ${projectId}
     order by created_at desc
@@ -59,7 +66,7 @@ export async function saveArticle(
     insert into articles (
       id, project_id, user_id, created_at, idea, best_title, title_candidates,
       best_title_reason, body_markdown, image_prompt_subject,
-      image_alt_text, image_path, posted_at, destination_id
+      image_alt_text, image_path, image_specs, posted_at, destination_id
     ) values (
       ${article.id},
       ${projectId},
@@ -73,6 +80,7 @@ export async function saveArticle(
       ${article.imagePromptSubject ?? ""},
       ${article.imageAltText ?? null},
       ${article.imagePath ?? null},
+      ${sql.json((article.imageSpecs ?? []) as Parameters<typeof sql.json>[0])},
       ${article.postedAt ?? null},
       ${article.destinationId ?? null}
     )
@@ -85,8 +93,36 @@ export async function saveArticle(
       image_prompt_subject = excluded.image_prompt_subject,
       image_alt_text = excluded.image_alt_text,
       image_path = excluded.image_path,
+      image_specs = excluded.image_specs,
       posted_at = excluded.posted_at,
       destination_id = excluded.destination_id
+  `;
+}
+
+// 見出し画像の URL (Blob 公開URL) を保存する。
+export async function updateArticleImagePath(
+  projectId: string,
+  articleId: string,
+  url: string,
+): Promise<void> {
+  await sql`
+    update articles
+       set image_path = ${url}
+     where id = ${articleId} and project_id = ${projectId}
+  `;
+}
+
+// 本文マーカー画像の URL を反映するため image_specs 配列全体を差し替える。
+// 呼び出し側で当該 marker の imageUrl を書き換えた specs を渡す。
+export async function updateArticleImageSpecs(
+  projectId: string,
+  articleId: string,
+  specs: ImageSpec[],
+): Promise<void> {
+  await sql`
+    update articles
+       set image_specs = ${sql.json(specs as Parameters<typeof sql.json>[0])}
+     where id = ${articleId} and project_id = ${projectId}
   `;
 }
 
@@ -138,9 +174,7 @@ export async function updateArticleContent(
   }
 
   const rows = await sql<ArticleRow[]>`
-    select id, created_at, idea, best_title, title_candidates,
-           best_title_reason, body_markdown, image_prompt_subject,
-           image_alt_text, image_path, posted_at, destination_id
+    select ${ARTICLE_COLUMNS}
       from articles
      where id = ${articleId} and project_id = ${projectId}
      limit 1

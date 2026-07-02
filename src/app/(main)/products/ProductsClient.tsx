@@ -6,7 +6,13 @@ import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
 import { FilterBar, GroupTab } from "@/components/FilterBar";
 import { useGeneration } from "@/components/GenerationProvider";
+import ImageGenChoiceModal from "@/components/ImageGenChoiceModal";
 import { getCache, setCache } from "@/lib/clientCache";
+import {
+  readAutoImageSettings,
+  writeAutoImageSettings,
+  type AutoImageSettings,
+} from "@/lib/clientSettings";
 import { isPromptConfigConfigured } from "@/lib/promptResolver";
 import type { Article, FeedIdea, FeedState } from "@/lib/types";
 import {
@@ -178,6 +184,11 @@ export default function ProductsClient() {
   // 初期値を clientCache から復元 (ページ間遷移してもスカウト結果が消えないように)
   const [subject, setSubject] = useState<string>(() => getCache<string>(CACHE_SUBJECT) ?? "");
   const [busy, setBusy] = useState(false);
+
+  // 記事生成ボタン押下時に開く「画像も作るか」ポップアップ。run に実生成処理を積む。
+  const [imageChoice, setImageChoice] = useState<
+    null | { run: (s: AutoImageSettings) => void; costHint?: string }
+  >(null);
   const [result, setResult] = useState<ScoutResponse | null>(
     () => getCache<ScoutResponse>(CACHE_RESULT) ?? null,
   );
@@ -323,6 +334,39 @@ export default function ProductsClient() {
         return n;
       });
     }
+  }
+
+  // ポップアップ経由: 候補から生成 (画像オプションを聞いてから実行)。
+  function requestGenerateFromCandidate(c: ScoutCandidate) {
+    const promptReadyList = (c.destinationStatus ?? []).filter((s) => s.promptReady);
+    if (promptReadyList.length === 0) {
+      const summary = (c.destinationStatus ?? [])
+        .map((s) => (s.promptReady ? `✅ ${s.platformLabel}` : `❌ ${s.platformLabel}: プロンプトなし`))
+        .join("\n");
+      alert(
+        `❌ 全ての投稿先でプロンプト未設定のため記事生成できません。\n\n${summary}\n\n設定 → 投稿先 → 各行の「プロンプト」ボタンから先にプロンプトを設定してください。`,
+      );
+      return;
+    }
+    const n = promptReadyList.length;
+    setImageChoice({
+      costHint: `対応サイト${n}個に生成 → 画像は「枚数 × ${n}サイト」ぶん課金されます`,
+      run: (settings) => {
+        writeAutoImageSettings(settings);
+        void generateFromCandidate(c);
+      },
+    });
+  }
+
+  // ポップアップ経由: 保留KWから生成。
+  function requestGenerateFromPendingIdea(idea: FeedIdea) {
+    setImageChoice({
+      costHint: "生成される記事1本ぶんの画像が課金されます",
+      run: (settings) => {
+        writeAutoImageSettings(settings);
+        void generateFromPendingIdea(idea);
+      },
+    });
   }
 
   // 保留KW から破棄
@@ -1308,7 +1352,7 @@ export default function ProductsClient() {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => generateFromCandidate(c)}
+                                onClick={() => requestGenerateFromCandidate(c)}
                                 disabled={generating.has(c.kw)}
                                 className="text-[10px] px-2 py-1 rounded whitespace-nowrap bg-[color:var(--accent)] hover:opacity-80 text-white disabled:opacity-50 disabled:cursor-wait"
                                 title="保留と同時に記事生成キューに投入"
@@ -1415,7 +1459,7 @@ export default function ProductsClient() {
                           </span>
                           <button
                             type="button"
-                            onClick={() => generateFromPendingIdea(idea)}
+                            onClick={() => requestGenerateFromPendingIdea(idea)}
                             disabled={isGenerating || isDismissing}
                             className="shrink-0 text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-[color:var(--accent)] hover:opacity-80 text-white disabled:opacity-50 disabled:cursor-wait"
                           >
@@ -1536,6 +1580,18 @@ export default function ProductsClient() {
         {tab === "config" && <ScoutConfigTab />}
 
       </div>
+
+      {imageChoice && (
+        <ImageGenChoiceModal
+          initial={readAutoImageSettings()}
+          costHint={imageChoice.costHint}
+          onConfirm={(s) => {
+            imageChoice.run(s);
+            setImageChoice(null);
+          }}
+          onCancel={() => setImageChoice(null)}
+        />
+      )}
     </>
   );
 }

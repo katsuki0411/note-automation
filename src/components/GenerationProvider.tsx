@@ -1,8 +1,9 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { readArticleModel } from "@/lib/clientSettings";
-import type { FeedIdea } from "@/lib/types";
+import { readArticleModel, readAutoImageSettings } from "@/lib/clientSettings";
+import { autoGenerateArticleImages, hasAutoImageWork } from "@/lib/autoImages";
+import type { Article, FeedIdea } from "@/lib/types";
 import type { PostingDestinationRow } from "@/lib/posters/types";
 
 type DoneRecord = { id: string; title: string };
@@ -89,6 +90,16 @@ export function GenerationProvider({ children }: { children: React.ReactNode }) 
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "生成失敗");
+        // 本文完成後、トグルONなら画像も自動生成 (Blob保存)。失敗しても記事は成功扱い。
+        const article = data.article as Article | undefined;
+        const autoSettings = readAutoImageSettings();
+        if (article && hasAutoImageWork(article, autoSettings)) {
+          try {
+            await autoGenerateArticleImages(article, autoSettings);
+          } catch {
+            // 画像生成の失敗は本文生成の成否に影響させない
+          }
+        }
         setState((s) => ({
           ...s,
           completed: [...s.completed, { id: next.idea.id, title: next.idea.title }],

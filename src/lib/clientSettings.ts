@@ -21,6 +21,38 @@ export function writeArticleModel(model: ArticleModel): void {
   window.localStorage.setItem(ARTICLE_MODEL_STORAGE_KEY, model);
 }
 
+// ===== 記事生成後の画像自動生成トグル =====
+// 本文テキスト完成後に、見出し画像 / 本文画像を自動生成して Blob 保存するか。
+// コスト直結 (約6円/枚) のため既定は両方 OFF。単発・バッチ双方に適用される。
+export const AUTO_IMAGE_STORAGE_KEY = "note-automation:autoImages";
+
+export type AutoImageSettings = {
+  header: boolean; // 見出し画像を自動生成
+  body: boolean; // 本文中の [IMG] 画像を自動生成
+};
+
+export const DEFAULT_AUTO_IMAGE_SETTINGS: AutoImageSettings = {
+  header: false,
+  body: false,
+};
+
+export function readAutoImageSettings(): AutoImageSettings {
+  if (typeof window === "undefined") return { ...DEFAULT_AUTO_IMAGE_SETTINGS };
+  try {
+    const raw = window.localStorage.getItem(AUTO_IMAGE_STORAGE_KEY);
+    if (!raw) return { ...DEFAULT_AUTO_IMAGE_SETTINGS };
+    const p = JSON.parse(raw) as Partial<AutoImageSettings>;
+    return { header: !!p.header, body: !!p.body };
+  } catch {
+    return { ...DEFAULT_AUTO_IMAGE_SETTINGS };
+  }
+}
+
+export function writeAutoImageSettings(s: AutoImageSettings): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(AUTO_IMAGE_STORAGE_KEY, JSON.stringify(s));
+}
+
 // ===== 自分の記事URL（前方一致用） =====
 // SEO順位チェックで「自分の記事」を判定するためのURL登録。
 // 設定ページで登録し、/seo の追加フォームでプルダウン選択する。

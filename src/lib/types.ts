@@ -175,6 +175,23 @@ export type FeedState = {
   tickCount: number;
 };
 
+// フェーズ3の「③画像生成指示」ブロックを構造化したもの (migration 0020)。
+// 本文中の [IMG-NN｜説明] マーカー1個に対応する。marker は "IMG-00" 形式 (角括弧なし)。
+export type ImageSpec = {
+  marker: string; // "IMG-00" (角括弧・全角パイプなしに正規化)
+  role?: string;
+  placement?: string; // アイキャッチ / セクション見出し下 等
+  purpose?: string;
+  type?: string; // 写真 / イラスト / 図解 / インフォグラフィック / 比較ビジュアル
+  aspectRatio?: string; // "1.91:1" / "16:9" 等 (生成時に対応値へ丸める)
+  style?: string;
+  textInImage?: string;
+  prompt: string; // 日本語の詳細生成プロンプト
+  negative?: string;
+  altText?: string; // 本文マーカーの説明 or purpose から
+  imageUrl?: string; // 生成・Blob保存済み画像の公開URL (migration 0020 の image_specs 内に保持)
+};
+
 export type Article = {
   id: string;
   createdAt: string;
@@ -186,6 +203,9 @@ export type Article = {
   imagePromptSubject: string;
   imageAltText?: string;
   imagePath?: string;
+  // 本文中の [IMG-NN] マーカーに対応する画像生成指示の配列 (migration 0020)。
+  // 空配列 = 画像指示なし (旧記事・パース不能時)。
+  imageSpecs?: ImageSpec[];
   postedAt?: string;
   // どの投稿先 destination 用に生成された記事か。同じKWでもサイトごとに別記事を持てる。
   // 既存記事は note destination にバックフィル済み (migration 0015)。

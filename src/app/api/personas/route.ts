@@ -1,6 +1,10 @@
 import { NextRequest } from "next/server";
 import { withProjectContext } from "@/lib/auth";
-import { listAuthorPersonas, createAuthorPersona } from "@/lib/authorPersonas";
+import {
+  listAuthorPersonas,
+  createAuthorPersona,
+  type AuthorPersonaFields,
+} from "@/lib/authorPersonas";
 
 export const runtime = "nodejs";
 
@@ -21,12 +25,17 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   return withProjectContext(async (ctx) => {
     try {
-      const { name, body } = (await req.json()) as { name?: string; body?: string };
+      const { name, fields, body } = (await req.json()) as {
+        name?: string;
+        fields?: AuthorPersonaFields;
+        body?: string;
+      };
       if (!name?.trim()) {
         return Response.json({ error: "ペルソナ名が必要です" }, { status: 400 });
       }
       const persona = await createAuthorPersona(ctx.projectId, ctx.userId, {
         name: name.trim(),
+        fields: fields ?? {},
         body: body ?? "",
       });
       return Response.json({ persona });
