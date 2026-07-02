@@ -4,8 +4,10 @@ import { cookies } from "next/headers";
 // Server Component / Server Action / Route Handler 用の Supabase クライアント
 export async function createSupabaseServerClient() {
   const cookieStore = await cookies();
-  const url = process.env.SUPABASE_URL;
-  const anon = process.env.SUPABASE_ANON_KEY;
+  // Vercel UI での貼付時に混入する改行/空白を除去 (admin.ts と同じ対策)。
+  // これが無いと不正URL化して signInWithPassword が "fetch failed" になる。
+  const url = process.env.SUPABASE_URL?.replace(/\s+/g, "");
+  const anon = process.env.SUPABASE_ANON_KEY?.replace(/\s+/g, "");
   if (!url || !anon) {
     throw new Error("SUPABASE_URL / SUPABASE_ANON_KEY が未設定");
   }

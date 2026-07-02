@@ -33,8 +33,9 @@ export async function updateSessionAndGate(request: NextRequest) {
     });
   }
 
-  const url = process.env.SUPABASE_URL;
-  const anon = process.env.SUPABASE_ANON_KEY;
+  // Vercel UI 貼付時の改行/空白を除去 (admin.ts / server.ts と同じ対策)。
+  const url = process.env.SUPABASE_URL?.replace(/\s+/g, "");
+  const anon = process.env.SUPABASE_ANON_KEY?.replace(/\s+/g, "");
   if (!url || !anon) {
     return response;
   }
