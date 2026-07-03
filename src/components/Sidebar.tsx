@@ -8,6 +8,7 @@ import { logout } from "@/app/login/actions";
 import { selectProject } from "@/app/select-project/actions";
 import { getNavItemsForKind } from "@/lib/navItems";
 import { PROJECT_KIND_LABEL, type ProjectKind, type ProjectMembership } from "@/lib/projects-types";
+import ProjectManagerModal from "./ProjectManagerModal";
 
 const KIND_ICON: Record<ProjectKind, string> = {
   research_based: "📰",
@@ -29,6 +30,7 @@ export default function Sidebar({
   const pathname = usePathname();
   const router = useRouter();
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const pickerRef = useRef<HTMLDivElement>(null);
 
@@ -206,6 +208,13 @@ export default function Sidebar({
               1 / 2 — Research & Generate
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setProjectSettingsOpen(true)}
+            className="block text-[11px] text-[color:var(--fg-muted)] hover:text-[color:var(--fg-primary)] transition-colors"
+          >
+            ⚙ プロジェクト設定
+          </button>
           <form action={logout}>
             <button
               type="submit"
@@ -216,6 +225,14 @@ export default function Sidebar({
           </form>
         </div>
       </aside>
+
+      {projectSettingsOpen && (
+        <ProjectManagerModal
+          projects={allProjects}
+          currentSlug={currentProject.slug}
+          onClose={() => setProjectSettingsOpen(false)}
+        />
+      )}
     </>
   );
 }
