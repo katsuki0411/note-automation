@@ -336,8 +336,10 @@ export default function LibraryPage() {
     setPostPublish(true);
     setPostStatus({ state: "idle" });
     const init = new Set<string>(["note"]);
+    // note platform の destination は疑似エントリ "note"（拡張経由）が担当するので、
+    // サーバー投稿の対象には入れない（入れると必ず「サーバーAPI不可」エラーになる）
     destinations
-      .filter((d) => d.enabled && isPromptReady(d))
+      .filter((d) => d.platform !== "note" && d.enabled && isPromptReady(d))
       .forEach((d) => init.add(d.id));
     setSelectedTargets(init);
     setEditingBody(false);
@@ -550,12 +552,13 @@ export default function LibraryPage() {
         publish: postPublish,
         imageUrl: noteArticle.imagePath,
       });
+      const noteLabel = noteDest ? `note（${noteDest.label}）` : "note";
       if (res.ok) {
         const fbHint = usedFallback ? " (※ 専用記事未生成のため別記事で代替)" : "";
         messages.push(
           (postPublish
-            ? "✅ note: 公開ボタン押下まで送信"
-            : "✅ note: 下書きに入力完了") + fbHint,
+            ? `✅ ${noteLabel}: 公開ボタン押下まで送信`
+            : `✅ ${noteLabel}: 下書きに入力完了`) + fbHint,
         );
         articleIdsToMarkPosted.add(noteArticle.id);
         try {
@@ -567,7 +570,7 @@ export default function LibraryPage() {
         } catch {}
       } else {
         hasError = true;
-        messages.push(`❌ note: ${res.error ?? "失敗"}`);
+        messages.push(`❌ ${noteLabel}: ${res.error ?? "失敗"}`);
       }
     }
 
@@ -1517,13 +1520,16 @@ export default function LibraryPage() {
                     disabled={postStatus.state === "sending"}
                   />
                   <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
-                    note (拡張)
+                    note
                   </span>
-                  <span className="text-[12px] text-[color:var(--fg-secondary)]">
-                    Chrome拡張経由 (画像は手動セット)
+                  <span className="text-[12px] text-[color:var(--fg-primary)] flex-1">
+                    {destinations.find((d) => d.platform === "note")?.label ?? "note.com"}
+                  </span>
+                  <span className="text-[10px] text-[color:var(--fg-muted)]">
+                    Chrome拡張経由・見出し画像も自動
                   </span>
                 </label>
-                {destinations.length === 0 ? (
+                {destinations.filter((d) => d.platform !== "note").length === 0 ? (
                   <div className="text-[11px] text-[color:var(--fg-muted)] italic py-2 px-2">
                     外部ブログ未登録。{" "}
                     <Link href="/settings" className="underline">
@@ -1532,7 +1538,8 @@ export default function LibraryPage() {
                     から追加してください
                   </div>
                 ) : (
-                  destinations.map((d) => {
+                  // note platform は上の拡張エントリが担当するので一覧から除外
+                  destinations.filter((d) => d.platform !== "note").map((d) => {
                     const promptReady = isPromptReady(d);
                     return (
                       <label
