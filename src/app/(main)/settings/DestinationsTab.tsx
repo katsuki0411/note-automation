@@ -485,7 +485,7 @@ export default function DestinationsTab() {
                         <button
                           type="button"
                           onClick={() => setAccountDest(d)}
-                          className="text-[11px] px-2 py-1 rounded-md text-gray-600 hover:bg-gray-200 transition shrink-0"
+                          className="text-[11px] px-2.5 py-1 rounded-md border border-[var(--border-subtle)] bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition shrink-0"
                           title="投稿先の note アカウントの確認・切替ガイド"
                         >
                           🔁 アカウント切替
@@ -494,14 +494,14 @@ export default function DestinationsTab() {
                           type="button"
                           onClick={checkExtension}
                           disabled={extStatus === "checking"}
-                          className="text-[11px] px-2 py-1 rounded-md text-gray-600 hover:bg-gray-200 transition shrink-0 disabled:opacity-50"
+                          className="text-[11px] px-2.5 py-1 rounded-md border border-[var(--border-subtle)] bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition shrink-0 disabled:opacity-50"
                         >
                           🔄 拡張再確認
                         </button>
                         <a
                           href="/multipostai-poster-extension.zip"
                           download
-                          className="text-[11px] px-2 py-1 rounded-md text-gray-600 hover:bg-gray-200 transition shrink-0"
+                          className="text-[11px] px-2.5 py-1 rounded-md border border-[var(--border-subtle)] bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition shrink-0"
                           title="インストール: 1) zip展開 2) chrome://extensions/ で「デベロッパーモード」ON 3) 「パッケージ化されていない拡張機能を読み込む」で展開フォルダを選択"
                         >
                           📦 拡張DL
@@ -509,7 +509,7 @@ export default function DestinationsTab() {
                         <button
                           type="button"
                           onClick={() => startEdit(d)}
-                          className="text-[11px] px-2 py-1 rounded-md text-gray-600 hover:bg-gray-200 transition shrink-0"
+                          className="text-[11px] px-2.5 py-1 rounded-md border border-[var(--border-subtle)] bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition shrink-0"
                           title="ラベル変更 / 自分の記事URL を編集"
                         >
                           ✎ ラベル/URL
@@ -522,14 +522,14 @@ export default function DestinationsTab() {
                           type="button"
                           onClick={() => runTest(d)}
                           disabled={tests[d.id]?.status === "running"}
-                          className="text-[11px] px-2 py-1 rounded-md text-gray-600 hover:bg-gray-200 transition shrink-0 disabled:opacity-50"
+                          className="text-[11px] px-2.5 py-1 rounded-md border border-[var(--border-subtle)] bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition shrink-0 disabled:opacity-50"
                         >
                           🔌 接続確認
                         </button>
                         {d.platform === "blogger" && (
                           <a
                             href={`/api/destinations/blogger/oauth/start?destinationId=${d.id}&returnTo=/settings`}
-                            className="text-[11px] px-2 py-1 rounded-md text-gray-600 hover:bg-gray-200 transition shrink-0"
+                            className="text-[11px] px-2.5 py-1 rounded-md border border-[var(--border-subtle)] bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition shrink-0"
                           >
                             🔗 再連携
                           </a>
@@ -537,7 +537,7 @@ export default function DestinationsTab() {
                         <button
                           type="button"
                           onClick={() => startEdit(d)}
-                          className="text-[11px] px-2 py-1 rounded-md text-gray-600 hover:bg-gray-200 transition shrink-0"
+                          className="text-[11px] px-2.5 py-1 rounded-md border border-[var(--border-subtle)] bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition shrink-0"
                         >
                           {d.platform === "blogger" ? "✎ ラベル" : "⚙ 接続情報"}
                         </button>
