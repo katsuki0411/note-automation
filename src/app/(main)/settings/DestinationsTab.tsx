@@ -159,7 +159,7 @@ export default function DestinationsTab() {
       return {
         state: "warn",
         badge: "⚠ 無効: note ID未登録",
-        reason: "この投稿先の note ID（投稿先アカウント）が未登録です。「ラベル/URL」から登録してください。",
+        reason: "この投稿先の note ID（投稿先アカウント）が未登録です。「✎ 編集」から登録してください。",
       };
     }
     if (!noteAccount) return { state: "neutral", badge: "⏳ アカウント確認中" };
@@ -585,9 +585,9 @@ export default function DestinationsTab() {
                           type="button"
                           onClick={() => startEdit(d)}
                           className="text-[11px] px-2.5 py-1 rounded-md border border-[var(--border-subtle)] bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition shrink-0"
-                          title="ラベル変更 / 自分の記事URL を編集"
+                          title="ラベル・note ID・自分のURL を編集"
                         >
-                          ✎ ラベル/URL
+                          ✎ 編集
                         </button>
                       </>
                     )}
