@@ -10,7 +10,7 @@ import {
   type PostingDestinationRow,
 } from "@/lib/posters/types";
 import { PLATFORM_GUIDES } from "@/lib/posters/setupGuides";
-import { pingExtension } from "@/lib/notePost";
+import { pingExtension, getNoteAccount, type NoteAccountResult } from "@/lib/notePost";
 import { isPromptConfigConfigured } from "@/lib/promptResolver";
 import SetupGuideModal from "./SetupGuideModal";
 import PersonaManagerModal from "./PersonaManagerModal";
@@ -44,11 +44,22 @@ function normalizeBlogDomain(input: string): string {
     .replace(/\/+$/, "");
 }
 
+// note 投稿先に登録された「想定 note アカウントID」(urlname)。
+// 明示登録(config.noteId)を優先し、無ければ自分のURL(https://note.com/<id>/)から推定。
+function noteIdOf(d: PostingDestinationRow): string {
+  const cfg = d.config as { noteId?: string; myUrlPrefix?: string };
+  if (cfg.noteId?.trim()) return cfg.noteId.trim().replace(/^@/, "");
+  const m = (cfg.myUrlPrefix ?? "").match(/note\.com\/([^/?#]+)/i);
+  return m ? m[1] : "";
+}
+
 function summarizeConfig(d: PostingDestinationRow): string {
   if (d.platform === "note") {
-    const cfg = d.config as { myUrlPrefix?: string };
-    if (cfg.myUrlPrefix) return `Chrome 拡張経由 · 自分のURL: ${cfg.myUrlPrefix}`;
-    return "Chrome 拡張経由で投稿 (接続情報なし)";
+    const id = noteIdOf(d);
+    const parts = ["Chrome 拡張経由"];
+    if (id) parts.push(`設定アカウント: @${id}`);
+    else parts.push("note ID 未登録");
+    return parts.join(" · ");
   }
   if (d.platform === "blogger") {
     const cfg = d.config as {
@@ -83,6 +94,8 @@ export default function DestinationsTab() {
   const [error, setError] = useState<string | null>(null);
   const [extStatus, setExtStatus] = useState<ExtensionStatus>("unknown");
   const [extVersion, setExtVersion] = useState<string | null>(null);
+  // 拡張が読み取った「今 note.com にログイン中のアカウント」(v0.2.1+)。
+  const [noteAccount, setNoteAccount] = useState<NoteAccountResult | null>(null);
   // 各 destination の接続テスト結果
   const [tests, setTests] = useState<Record<string, TestResult>>({});
   // 取得手順ガイドモーダル (platform を渡せば開く)
@@ -118,9 +131,54 @@ export default function DestinationsTab() {
   async function checkExtension() {
     setExtStatus("checking");
     setExtVersion(null);
+    setNoteAccount(null);
     const r = await pingExtension(1500);
     setExtStatus(r.installed ? "installed" : "missing");
     if (r.version) setExtVersion(r.version);
+    // 拡張が入っていれば、今ログイン中の note アカウントも取得して一致判定に使う
+    if (r.installed) {
+      setNoteAccount(await getNoteAccount());
+    }
+  }
+
+  // note 投稿先の総合ステータス: 拡張 + note ログイン + 登録IDの一致を判定。
+  // ok=true で「有効」、それ以外は reason に無効理由を入れる。
+  type NoteStatus = { state: "ok" | "warn" | "neutral"; badge: string; reason?: string };
+  function computeNoteStatus(d: PostingDestinationRow): NoteStatus {
+    if (extStatus === "checking") return { state: "neutral", badge: "⏳ 確認中" };
+    if (extStatus === "unknown") return { state: "neutral", badge: "❔ 未確認" };
+    if (extStatus === "missing") {
+      return {
+        state: "warn",
+        badge: "⚠ 無効: 拡張未検出",
+        reason: "Chrome 拡張が見つかりません。「拡張DL」からダウンロード→解凍→chrome://extensions で読み込んでください。",
+      };
+    }
+    const regId = noteIdOf(d);
+    if (!regId) {
+      return {
+        state: "warn",
+        badge: "⚠ 無効: note ID未登録",
+        reason: "この投稿先の note ID（投稿先アカウント）が未登録です。「ラベル/URL」から登録してください。",
+      };
+    }
+    if (!noteAccount) return { state: "neutral", badge: "⏳ アカウント確認中" };
+    if (!noteAccount.ok || !noteAccount.loggedIn) {
+      return {
+        state: "warn",
+        badge: "⚠ 無効: note未ログイン",
+        reason: noteAccount.error ?? "note.com にログインしてください。",
+      };
+    }
+    const loginId = (noteAccount.urlname ?? "").replace(/^@/, "");
+    if (loginId.toLowerCase() !== regId.toLowerCase()) {
+      return {
+        state: "warn",
+        badge: "⚠ 無効: アカウント不一致",
+        reason: `設定: @${regId} ／ ログイン中: @${loginId}。note.com で @${regId} にログインし直してください（「アカウント切替」参照）。`,
+      };
+    }
+    return { state: "ok", badge: `✅ 有効 @${loginId}` };
   }
 
   async function refresh() {
@@ -241,6 +299,11 @@ export default function DestinationsTab() {
     if (myUrlPrefixRaw) {
       cleanConfig.myUrlPrefix = myUrlPrefixRaw;
     }
+    // note 専用: 投稿先アカウントID (@ は除去して urlname だけ保存)。
+    if (platform === "note") {
+      const noteIdRaw = (configValues.noteId ?? "").trim().replace(/^@/, "");
+      if (noteIdRaw) cleanConfig.noteId = noteIdRaw;
+    }
     setSubmitting(true);
     try {
       const isEdit = typeof editingId === "string";
@@ -351,6 +414,15 @@ export default function DestinationsTab() {
                     <div className="text-[11px] font-mono text-[color:var(--fg-muted)] truncate">
                       {summarizeConfig(d)}
                     </div>
+                    {d.platform === "note" &&
+                      (() => {
+                        const ns = computeNoteStatus(d);
+                        return ns.state === "warn" && ns.reason ? (
+                          <div className="text-[11px] text-red-600 mt-1 leading-snug">
+                            {ns.reason}
+                          </div>
+                        ) : null;
+                      })()}
                     <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                       <span
                         className={`text-[10px] px-1.5 py-0.5 rounded ${aff?.amazon ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}
@@ -407,24 +479,27 @@ export default function DestinationsTab() {
                       {d.enabled ? "● 有効" : "○ 無効"}
                     </button>
                     {d.platform === "note" ? (
-                      <span
-                        className={`text-[10px] px-2 py-0.5 rounded-full ${
-                          extStatus === "installed"
-                            ? "bg-green-100 text-green-700"
-                            : extStatus === "missing"
-                              ? "bg-red-100 text-red-700"
-                              : "bg-gray-100 text-gray-500"
-                        }`}
-                        title={extVersion ? `拡張 v${extVersion}` : undefined}
-                      >
-                        {extStatus === "installed"
-                          ? `✅ 拡張${extVersion ? ` v${extVersion}` : ""}`
-                          : extStatus === "missing"
-                            ? "❌ 拡張未検出"
-                            : extStatus === "checking"
-                              ? "⏳ 確認中"
-                              : "❔ 未確認"}
-                      </span>
+                      (() => {
+                        const ns = computeNoteStatus(d);
+                        return (
+                          <span
+                            className={`text-[10px] px-2 py-0.5 rounded-full ${
+                              ns.state === "ok"
+                                ? "bg-green-100 text-green-700"
+                                : ns.state === "warn"
+                                  ? "bg-red-100 text-red-700"
+                                  : "bg-gray-100 text-gray-500"
+                            }`}
+                            title={
+                              ns.reason ??
+                              (extVersion ? `拡張 v${extVersion}` : undefined)
+                            }
+                          >
+                            {ns.badge}
+                            {extVersion && ns.state === "ok" ? ` · 拡張 v${extVersion}` : ""}
+                          </span>
+                        );
+                      })()
                     ) : (
                       (() => {
                         const t = tests[d.id];
@@ -496,7 +571,7 @@ export default function DestinationsTab() {
                           disabled={extStatus === "checking"}
                           className="text-[11px] px-2.5 py-1 rounded-md border border-[var(--border-subtle)] bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition shrink-0 disabled:opacity-50"
                         >
-                          🔄 拡張再確認
+                          🔄 状態を再チェック
                         </button>
                         <a
                           href="/multipostai-poster-extension.zip"
@@ -665,6 +740,26 @@ export default function DestinationsTab() {
             <div className="text-[11px] text-orange-700 bg-orange-50 p-2 rounded">
               ⚠ {PLATFORM_LABELS[platform]} は接続情報の保存はできますが、サーバーからの自動投稿はまだ実装されていません (Phase 4 で順次対応予定)。プロンプト編集と prompt_config の保存だけ先に行えます。
             </div>
+          )}
+
+          {/* note 専用: 投稿先アカウントID。ログイン中アカウントとの一致判定に使う */}
+          {platform === "note" && (
+            <label className="block">
+              <span className="text-[11px] text-[color:var(--fg-secondary)]">
+                note ID（投稿先アカウント）
+              </span>
+              <input
+                type="text"
+                value={configValues.noteId ?? ""}
+                onChange={(e) => changeConfigField("noteId", e.target.value)}
+                placeholder="例: ally-desu（note.com/〇〇/ の 〇〇 部分）"
+                className="input-base mt-1 font-mono"
+                autoComplete="off"
+              />
+              <span className="block text-[10px] text-[color:var(--fg-muted)] mt-1">
+                この投稿先のnoteアカウントIDを登録します。実際にブラウザでログイン中のnoteアカウントとこのIDが一致した時だけ「有効」になり、誤爆を防げます。
+              </span>
+            </label>
           )}
 
           {/* 共通フィールド: 自分の記事URL (任意) — SEO順位の「自分の記事」判定に使う */}
