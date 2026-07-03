@@ -752,7 +752,7 @@ export default function DestinationsTab() {
                 type="text"
                 value={configValues.noteId ?? ""}
                 onChange={(e) => changeConfigField("noteId", e.target.value)}
-                placeholder="例: ally-desu（note.com/〇〇/ の 〇〇 部分）"
+                placeholder="例: test1234（note.com/〇〇/ の 〇〇 部分）"
                 className="input-base mt-1 font-mono"
                 autoComplete="off"
               />
