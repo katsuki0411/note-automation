@@ -143,3 +143,54 @@ export function pingExtension(timeoutMs = 1500): Promise<ExtensionPingResult> {
     );
   });
 }
+
+// いま note.com にログイン中のアカウント（＝投稿先）を拡張経由で取得する。
+// 拡張 v0.2.1+ の GET_ACCOUNT に対応。古い拡張・未ログインは ok:false。
+export type NoteAccountResult = {
+  ok: boolean;
+  loggedIn?: boolean;
+  urlname?: string | null;
+  nickname?: string | null;
+  error?: string;
+};
+
+export function getNoteAccount(timeoutMs = 6000): Promise<NoteAccountResult> {
+  return new Promise((resolve) => {
+    if (typeof window === "undefined") {
+      resolve({ ok: false, error: "window なし" });
+      return;
+    }
+    const requestId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `acc_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+    const handler = (event: MessageEvent) => {
+      if (event.source !== window) return;
+      const data = event.data as
+        | { source?: string; type?: string; requestId?: string; result?: NoteAccountResult }
+        | undefined;
+      if (
+        data?.source === EXT_SOURCE &&
+        data?.type === "GET_ACCOUNT_RESULT" &&
+        data?.requestId === requestId
+      ) {
+        cleanup();
+        resolve(data.result ?? { ok: false, error: "空応答" });
+      }
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve({ ok: false, error: "拡張から応答がありません（未インストール or 旧バージョンの可能性）" });
+    }, timeoutMs);
+    function cleanup() {
+      window.removeEventListener("message", handler);
+      clearTimeout(timer);
+    }
+    window.addEventListener("message", handler);
+    window.postMessage(
+      { source: PAGE_SOURCE, type: "GET_ACCOUNT", requestId },
+      "*",
+    );
+  });
+}

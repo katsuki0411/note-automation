@@ -14,6 +14,7 @@ import { pingExtension } from "@/lib/notePost";
 import { isPromptConfigConfigured } from "@/lib/promptResolver";
 import SetupGuideModal from "./SetupGuideModal";
 import PersonaManagerModal from "./PersonaManagerModal";
+import NoteAccountModal from "./NoteAccountModal";
 
 type TestStatus = "idle" | "running" | "ok" | "ng";
 type TestResult = { status: TestStatus; error?: string; note?: string };
@@ -88,6 +89,8 @@ export default function DestinationsTab() {
   const [guideOpen, setGuideOpen] = useState<Platform | null>(null);
   // 執筆者ペルソナ管理モーダル (対象 destination を渡せば開く)
   const [personaDest, setPersonaDest] = useState<PostingDestinationRow | null>(null);
+  // note アカウント切替ガイドモーダルの対象 destination
+  const [accountDest, setAccountDest] = useState<PostingDestinationRow | null>(null);
   // Blogger OAuth コールバックからのフラッシュメッセージ
   const [flash, setFlash] = useState<{ type: "ok" | "ng"; msg: string } | null>(null);
 
@@ -481,6 +484,14 @@ export default function DestinationsTab() {
                       <>
                         <button
                           type="button"
+                          onClick={() => setAccountDest(d)}
+                          className="text-[11px] px-2 py-1 rounded-md text-gray-600 hover:bg-gray-200 transition shrink-0"
+                          title="投稿先の note アカウントの確認・切替ガイド"
+                        >
+                          🔁 アカウント切替
+                        </button>
+                        <button
+                          type="button"
                           onClick={checkExtension}
                           disabled={extStatus === "checking"}
                           className="text-[11px] px-2 py-1 rounded-md text-gray-600 hover:bg-gray-200 transition shrink-0 disabled:opacity-50"
@@ -719,6 +730,12 @@ export default function DestinationsTab() {
           }
           onAssign={(personaId) => assignPersona(personaDest, personaId)}
           onClose={() => setPersonaDest(null)}
+        />
+      )}
+      {accountDest && (
+        <NoteAccountModal
+          destinationLabel={accountDest.label}
+          onClose={() => setAccountDest(null)}
         />
       )}
     </div>
