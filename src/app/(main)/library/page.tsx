@@ -752,77 +752,120 @@ export default function LibraryPage() {
     setTimeout(() => setCopied(null), 2000);
   }
 
+  // 生成された記事を一覧へ取り込み、必要なら画像も自動生成する (成功パス共通処理)
+  async function adoptGeneratedArticle(newArticle: Article, imgSettings: AutoImageSettings) {
+    setArticles((prev) => {
+      if (prev.some((a) => a.id === newArticle.id)) return prev; // 二重取り込み防止
+      const next = [newArticle, ...prev];
+      setCache(CACHE_KEY, next);
+      return next;
+    });
+    // 生成成功したら詳細条件はリセット (次の記事に引きずらない)
+    setDetailConditions({});
+    setShowDetailConditions(false);
+
+    // トグルONなら画像も自動生成 (Blob保存) して state に反映。
+    if (hasAutoImageWork(newArticle, imgSettings)) {
+      setGenerateForSiteState({ state: "loading", message: "画像を自動生成中…" });
+      const r = await autoGenerateArticleImages(newArticle, imgSettings);
+      setArticles((prev) => {
+        const next = prev.map((a) => {
+          if (a.id !== newArticle.id) return a;
+          return {
+            ...a,
+            imagePath: r.headerUrl ?? a.imagePath,
+            imageSpecs: (a.imageSpecs ?? []).map((s) =>
+              r.markerUrls[s.marker] ? { ...s, imageUrl: r.markerUrls[s.marker] } : s,
+            ),
+          };
+        });
+        setCache(CACHE_KEY, next);
+        return next;
+      });
+    }
+    setGenerateForSiteState({ state: "idle" });
+  }
+
   // 未生成サイト用に記事を生成 (現在の KW × 選択中サイト)
   async function generateArticleForSite(imgSettings: AutoImageSettings) {
     if (!currentGroup || !selectedDestinationId) return;
     // 元ネタの idea (この KW グループの最初の記事から拝借)
     const baseArticle = currentGroup.articles[0];
     if (!baseArticle) return;
+    const destId = selectedDestinationId;
+    const startedAt = Date.now();
     setGenerateForSiteState({
       state: "loading",
       message: "このサイト用に生成中（約30〜60秒）...",
     });
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 180_000);
     try {
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           idea: baseArticle.idea,
-          destinationId: selectedDestinationId,
+          destinationId: destId,
           targetKeywordId: (baseArticle.idea as FeedIdea)?.targetKeywordId,
           detailConditions: hasAnyDetailCondition(detailConditions)
             ? detailConditions
             : undefined,
         }),
-        signal: controller.signal,
+        signal: AbortSignal.timeout(180_000),
       });
-      clearTimeout(timeout);
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error ?? `生成失敗 (${res.status})`);
-      }
-      const newArticle: Article = data.article;
-      setArticles((prev) => {
-        const next = [newArticle, ...prev];
-        setCache(CACHE_KEY, next);
-        return next;
-      });
-      // 生成成功したら詳細条件はリセット (次の記事に引きずらない)
-      setDetailConditions({});
-      setShowDetailConditions(false);
-
-      // トグルONなら画像も自動生成 (Blob保存) して state に反映。
-      if (hasAutoImageWork(newArticle, imgSettings)) {
-        setGenerateForSiteState({ state: "loading", message: "画像を自動生成中…" });
-        const r = await autoGenerateArticleImages(newArticle, imgSettings);
-        setArticles((prev) => {
-          const next = prev.map((a) => {
-            if (a.id !== newArticle.id) return a;
-            return {
-              ...a,
-              imagePath: r.headerUrl ?? a.imagePath,
-              imageSpecs: (a.imageSpecs ?? []).map((s) =>
-                r.markerUrls[s.marker] ? { ...s, imageUrl: r.markerUrls[s.marker] } : s,
-              ),
-            };
-          });
-          setCache(CACHE_KEY, next);
-          return next;
+        // サーバーが明示的にエラーを返した = 失敗で確定
+        setGenerateForSiteState({
+          state: "error",
+          message: data.error ?? `生成失敗 (${res.status})`,
         });
+        setTimeout(() => setGenerateForSiteState({ state: "idle" }), 8000);
+        return;
       }
-      setGenerateForSiteState({ state: "idle" });
-    } catch (e) {
-      clearTimeout(timeout);
-      const msg =
-        e instanceof Error
-          ? e.name === "AbortError"
-            ? "180秒経過してもサーバーから応答がありませんでした"
-            : e.message
-          : "生成失敗";
-      setGenerateForSiteState({ state: "error", message: msg });
-      setTimeout(() => setGenerateForSiteState({ state: "idle" }), 8000);
+      await adoptGeneratedArticle(data.article as Article, imgSettings);
+    } catch {
+      // ここに来るのは応答を受け取れなかったケース (切断 / タイムアウト)。
+      // サーバー側は処理を続けて保存する (maxDuration=300) ため、保存の事実を確認して拾う。
+      setGenerateForSiteState({
+        state: "loading",
+        message: "⏳ 応答が途切れましたが、サーバー側で生成が続いている可能性があります。保存を自動確認中…（最大3分）",
+      });
+      const ideaId = (baseArticle.idea as FeedIdea)?.id;
+      const sinceMs = startedAt - 2 * 60_000; // サーバー時刻ずれのマージン
+      const findSaved = async (): Promise<Article | null> => {
+        try {
+          const r = await fetch("/api/articles");
+          if (!r.ok) return null;
+          const d = await r.json();
+          const arts = (d.articles ?? []) as Article[];
+          return (
+            arts.find(
+              (a) =>
+                (a.idea as FeedIdea | undefined)?.id === ideaId &&
+                a.destinationId === destId &&
+                new Date(a.createdAt).getTime() >= sinceMs,
+            ) ?? null
+          );
+        } catch {
+          return null;
+        }
+      };
+      const deadline = Date.now() + 3 * 60_000;
+      let hit = await findSaved();
+      while (!hit && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 15_000));
+        hit = await findSaved();
+      }
+      if (hit) {
+        await adoptGeneratedArticle(hit, imgSettings);
+      } else {
+        setGenerateForSiteState({
+          state: "error",
+          message:
+            "応答が途切れ、保存も確認できませんでした。数分後にリロードしてライブラリを確認してください（成功していれば記事が表示されます）。",
+        });
+        setTimeout(() => setGenerateForSiteState({ state: "idle" }), 10000);
+      }
     }
   }
 

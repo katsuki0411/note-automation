@@ -520,6 +520,36 @@ export default function ProductsClient() {
     setCache(CACHE_IDEIZED, Array.from(ideized));
   }, [ideized]);
 
+  // fetch の応答が途切れた時の保険: スカウト履歴に「この件名の新しい結果」が
+  // 現れるのを待つ。本番(Vercel)経由の長時間応答は途中で接続が切れることがあるが、
+  // サーバー側は処理を続けて履歴に保存するため、履歴の出現=完了とみなせる。
+  async function pollScoutHistoryFor(
+    subjectToSend: string,
+    startedAtMs: number,
+    timeoutMs: number,
+  ): Promise<HistoryItem | null> {
+    const deadline = Date.now() + timeoutMs;
+    const since = startedAtMs - 2 * 60_000; // サーバー時刻ずれのマージン
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 15_000));
+      try {
+        const res = await fetch("/api/products/scout/history?limit=20");
+        if (!res.ok) continue;
+        const data = await res.json();
+        const items = (data.history ?? []) as HistoryItem[];
+        const hit = items.find(
+          (h) =>
+            h.subject === subjectToSend &&
+            new Date(h.created_at).getTime() >= since,
+        );
+        if (hit) return hit;
+      } catch {
+        // ネットワーク一時エラーは無視して次のポーリングへ
+      }
+    }
+    return null;
+  }
+
   async function scout() {
     // 送信値はローカル変数に取ってから入力欄をクリア (連続スカウトで前のテキストが残らないように)
     const subjectToSend = subject.trim();
@@ -529,20 +559,42 @@ export default function ProductsClient() {
     setResult(null);
     setExpanded(new Set());
     setIdeized(new Set());
+    const startedAt = Date.now();
     try {
       const res = await fetch("/api/products/scout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ subject: subjectToSend }),
+        // 無応答のまま固まるのを防ぐ (所要80-120秒に対し4分で打ち切り)
+        signal: AbortSignal.timeout(240_000),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "スカウト失敗");
+      if (!res.ok) {
+        // サーバーが明示的にエラーを返した = 失敗で確定
+        setError(data.error ?? "スカウト失敗");
+        return;
+      }
       setResult(data);
       refreshHistory();
       // スカウト完了直後に履歴タブへ自動切替 (左=履歴, 右=結果KW の2カラム表示に乗せる)
       setTab("history");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "失敗");
+    } catch {
+      // ここに来るのは応答を受け取れなかったケース (切断 / タイムアウト)。
+      // サーバー側で処理が続いている可能性が高いので、履歴の出現を最大5分待って拾う。
+      setError(
+        "⏳ 応答が途切れましたが、サーバー側で処理が続いている可能性があります。完了を自動確認しています…（最大5分）",
+      );
+      const hit = await pollScoutHistoryFor(subjectToSend, startedAt, 5 * 60_000);
+      if (hit) {
+        setError(null);
+        await refreshHistory();
+        await loadHistory(hit.id);
+        setTab("history");
+      } else {
+        setError(
+          "スカウトの完了を確認できませんでした。数分後に「スカウト履歴」タブを開いて確認してください（成功していれば履歴に表示されます）。",
+        );
+      }
     } finally {
       setBusy(false);
     }
