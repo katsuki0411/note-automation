@@ -20,13 +20,38 @@ export const ARTICLE_MODEL_OPTIONS: ReadonlyArray<{
   },
   {
     id: "claude",
-    label: "Claude Sonnet 4.6",
-    description: "代替モデル。Anthropic クレジット必要、日本語の繊細な表現に強い",
+    label: "Claude Fable 5",
+    description: "Anthropic最上位モデル。クレジット必要、最高品質（Gemini比で記事単価 約160円）",
   },
 ];
 
 export function isArticleModel(value: unknown): value is ArticleModel {
   return value === "claude" || value === "gemini";
+}
+
+// Fable 5 は安全分類器が稀に誤検知で拒否する (stop_reason: "refusal") ため、
+// サーバー側フォールバックで Opus 4.8 に同一リクエスト内で自動リトライさせる。
+async function callClaudeText(opts: {
+  system: string;
+  user: string;
+  maxTokens: number;
+}): Promise<string> {
+  const message = await claude().beta.messages.create({
+    model: CLAUDE_MODEL,
+    max_tokens: opts.maxTokens,
+    system: opts.system,
+    messages: [{ role: "user", content: opts.user }],
+    betas: ["server-side-fallback-2026-06-01"],
+    fallbacks: [{ model: "claude-opus-4-8" }],
+  });
+  if (message.stop_reason === "refusal") {
+    throw new Error("Claudeが生成を拒否しました (stop_reason: refusal)");
+  }
+  const textBlock = message.content.find((c) => c.type === "text");
+  if (!textBlock || textBlock.type !== "text") {
+    throw new Error("Claude応答にテキストブロックがありません");
+  }
+  return textBlock.text;
 }
 
 export async function generateArticleJsonText(opts: {
@@ -38,17 +63,7 @@ export async function generateArticleJsonText(opts: {
   const maxTokens = opts.maxTokens ?? 12000;
 
   if (opts.model === "claude") {
-    const message = await claude().messages.create({
-      model: CLAUDE_MODEL,
-      max_tokens: maxTokens,
-      system: opts.system,
-      messages: [{ role: "user", content: opts.user }],
-    });
-    const textBlock = message.content.find((c) => c.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
-      throw new Error("Claude応答にテキストブロックがありません");
-    }
-    return textBlock.text;
+    return callClaudeText({ system: opts.system, user: opts.user, maxTokens });
   }
 
   const response = await gemini().models.generateContent({
@@ -80,17 +95,7 @@ export async function generateArticleTextChain(opts: {
 }): Promise<string> {
   const maxTokens = opts.maxTokens ?? 12000;
   if (opts.model === "claude") {
-    const message = await claude().messages.create({
-      model: CLAUDE_MODEL,
-      max_tokens: maxTokens,
-      system: opts.system,
-      messages: [{ role: "user", content: opts.user }],
-    });
-    const textBlock = message.content.find((c) => c.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
-      throw new Error("Claude応答にテキストブロックがありません");
-    }
-    return textBlock.text;
+    return callClaudeText({ system: opts.system, user: opts.user, maxTokens });
   }
   const response = await gemini().models.generateContent({
     model: GEMINI_ARTICLE_MODEL,
