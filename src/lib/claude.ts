@@ -11,4 +11,4 @@ export function claude() {
   return _client;
 }
 
-export const CLAUDE_MODEL = "claude-fable-5" as const;
+export const CLAUDE_MODEL = "claude-opus-4-8" as const;

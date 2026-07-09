@@ -135,7 +135,7 @@ const INTEGRATION_DEFS: IntegrationDef[] = [
     kind: "claude",
     title: "Claude API",
     description:
-      "記事生成 (Claude Fable 5) で使用。空欄なら環境変数 ANTHROPIC_API_KEY を使用。",
+      "記事生成 (Claude Opus 4.8) で使用。空欄なら環境変数 ANTHROPIC_API_KEY を使用。",
     badge: "ユーザー単位",
     envFallbackNote: "未設定なら .env.local の ANTHROPIC_API_KEY を使用",
     restartRequired: true,

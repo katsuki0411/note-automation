@@ -3,8 +3,8 @@ import { gemini } from "./gemini";
 
 export type ArticleModel = "claude" | "gemini";
 
-// デフォルトは Gemini 2.5 Pro (Claude は別途 Anthropic クレジット課金が必要なため)
-export const DEFAULT_ARTICLE_MODEL: ArticleModel = "gemini";
+// デフォルトは Claude Opus 4.8 (2026-07-09 社長指示で Gemini から切替。品質優先)
+export const DEFAULT_ARTICLE_MODEL: ArticleModel = "claude";
 
 export const GEMINI_ARTICLE_MODEL = "gemini-2.5-pro" as const;
 
@@ -14,14 +14,14 @@ export const ARTICLE_MODEL_OPTIONS: ReadonlyArray<{
   description: string;
 }> = [
   {
-    id: "gemini",
-    label: "Gemini 2.5 Pro",
-    description: "デフォルト。高速・無料枠あり・長文対応",
+    id: "claude",
+    label: "Claude Opus 4.8",
+    description: "デフォルト。文章品質が高い（記事単価 約80円）",
   },
   {
-    id: "claude",
-    label: "Claude Fable 5",
-    description: "Anthropic最上位モデル。クレジット必要、最高品質（Gemini比で記事単価 約160円）",
+    id: "gemini",
+    label: "Gemini 2.5 Pro",
+    description: "節約オプション。高速・長文対応（記事単価 約30円）",
   },
 ];
 
@@ -29,20 +29,17 @@ export function isArticleModel(value: unknown): value is ArticleModel {
   return value === "claude" || value === "gemini";
 }
 
-// Fable 5 は安全分類器が稀に誤検知で拒否する (stop_reason: "refusal") ため、
-// サーバー側フォールバックで Opus 4.8 に同一リクエスト内で自動リトライさせる。
 async function callClaudeText(opts: {
   system: string;
   user: string;
   maxTokens: number;
 }): Promise<string> {
-  const message = await claude().beta.messages.create({
+  const message = await claude().messages.create({
     model: CLAUDE_MODEL,
     max_tokens: opts.maxTokens,
+    thinking: { type: "adaptive" },
     system: opts.system,
     messages: [{ role: "user", content: opts.user }],
-    betas: ["server-side-fallback-2026-06-01"],
-    fallbacks: [{ model: "claude-opus-4-8" }],
   });
   if (message.stop_reason === "refusal") {
     throw new Error("Claudeが生成を拒否しました (stop_reason: refusal)");
